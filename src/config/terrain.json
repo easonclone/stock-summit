@@ -1,0 +1,23 @@
+{
+  "platformWidth": [230, 520],
+  "edgeMargin": 16,
+  "minOverlap": 96,
+  "ladderClearance": 14,
+  "ladderSpacing": 120,
+  "jumpChance": 0.5,
+  "jumpOffset": [24, 56],
+  "ledgeChance": 0.35,
+  "ledgeWidth": [54, 68],
+  "ledgeRise": [54, 62],
+  "ledgeLadderGap": 14,
+  "patrolChance": 0.4,
+  "patrolSpan": [44, 76],
+  "patrolClearance": 22,
+  "publicCardGap": [2, 4],
+  "recoveryCardGap": [4, 6],
+  "airCardChance": 0.5,
+  "cashGap": [1, 3],
+  "cashAmounts": [25, 50, 50],
+  "itemSpacing": 30,
+  "attempts": 24
+}

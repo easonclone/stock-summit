@@ -10,4 +10,6 @@ map: {id,width,height,spawnPoints,finishPlatformId,platforms:[{id,layer,x,y,widt
 
 地圖 cash 提供 bundles 和 bonusCap。每疊鈔票以 platformId、x 定位，並以 amount 指定面額。cash.json 定義拾取範圍與每 100 元換算的層數。ledges 指定 from、to、x、width 與 rise，驗證兩段跳幾何並可供 cardSpawns 引用。
 
+`terrain.json` 定義主賽道生成參數：平台寬度、最小重疊、梯口淨空、上下梯間距、跳台與懸空方塊機率及尺寸、巡邏機率與長度、卡箱／補給／鈔票間隔、物件間距與重試次數。npc.json 的 `patrolJumpChance`（依難度）與 `patrolJumpDistance` 控制 NPC 越過巡邏散戶。
+
 `cash_loss_or_freeze` 效果採 `amount` 和 `durationMs`，金額達門檻時扣款，否則套用凍結。`falling-traders.json` 定義隨機間隔、預警時間、速度、碰撞尺寸及 `effectIds`，命中沿用共用效果引擎。

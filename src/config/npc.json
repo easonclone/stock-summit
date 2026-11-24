@@ -22,5 +22,11 @@
     540,
     1500
   ],
-  "cashDetour": 76
+  "cashDetour": 76,
+  "patrolJumpChance": {
+    "easy": 0.35,
+    "normal": 0.75,
+    "hard": 0.95
+  },
+  "patrolJumpDistance": 32
 }

@@ -20,7 +20,7 @@ export const reportMarkup = `
     </table></div>
     <section class="closing-badges" aria-label="賽局成就"><h2>本日成就</h2><ul></ul></section>
     <div class="closing-foot"><p class="result-seed"></p>
-      <div class="pane-actions"><button id="back" class="button subtle" type="button">返回首頁</button><button id="replay" class="button primary" type="button">再玩一局</button></div>
+      <div class="pane-actions"><button id="back" class="button subtle" type="button">返回首頁</button><button id="new-course" class="button subtle" type="button">新賽道</button><button id="replay" class="button primary" type="button">再玩一局</button></div>
     </div>
   </div>`;
 

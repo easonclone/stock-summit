@@ -150,7 +150,7 @@ export class Race {
     for (const [index, racer] of this.racers.entries()) {
       if (racer.isPlayer) continue;
       const random = seededRandom(options.seed ^ Math.imul(index, 0x9e3779b9));
-      const controller = new RivalController(this.track, config.npc, options.difficulty, random, this.cashPickups);
+      const controller = new RivalController(this.track, config.npc, options.difficulty, random, this.cashPickups, this.terrain);
       this.rivals.set(racer, { controller, random, thinkAt: between(config.npc.cardThinkMs, random) });
     }
 

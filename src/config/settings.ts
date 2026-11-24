@@ -4,6 +4,7 @@ import cashJson from './cash.json';
 import fallingTraderJson from './falling-traders.json';
 import physicsJson from './physics.json';
 import npcJson from './npc.json';
+import terrainJson from './terrain.json';
 import themeJson from './ui-theme.json';
 import charactersJson from '../data/characters.json';
 import eventsJson from '../data/events.json';
@@ -30,6 +31,8 @@ const obstacle = z.object({
   effectIds: z.array(id).min(1), message: label
 });
 const interval = z.tuple([nonNegative, positive]).refine(([min, max]) => min <= max);
+const intGap = z.tuple([positiveInt, positiveInt]).refine(([min, max]) => min <= max);
+const probability = z.number().min(0).max(1);
 const edge = z.object({ to: id, type: z.enum(['walk', 'climb', 'jump', 'drop']), x: nonNegative });
 const platform = z.object({
   id, layer: integer.nonnegative(), x: nonNegative, y: positive, width: positive,
@@ -88,7 +91,17 @@ const configSchema = z.object({
     reactionMs: z.record(difficulty, interval),
     jumpChance: z.record(difficulty, z.number().min(0).max(1)),
     cardThinkMs: interval,
-    cashDetour: nonNegative
+    cashDetour: nonNegative,
+    patrolJumpChance: z.record(difficulty, z.number().min(0).max(1)),
+    patrolJumpDistance: positive
+  }),
+  terrain: z.object({
+    platformWidth: interval, edgeMargin: nonNegative, minOverlap: positive, ladderClearance: nonNegative,
+    ladderSpacing: positive, jumpChance: probability, jumpOffset: interval, ledgeChance: probability,
+    ledgeWidth: interval, ledgeRise: interval, ledgeLadderGap: nonNegative, patrolChance: probability,
+    patrolSpan: interval, patrolClearance: nonNegative, publicCardGap: intGap, recoveryCardGap: intGap,
+    airCardChance: probability, cashGap: intGap, cashAmounts: z.array(positiveInt).min(1),
+    itemSpacing: nonNegative, attempts: positiveInt
   }),
   theme: z.object({ width: positiveInt, height: positiveInt, panel: color, gold: color, night: color, up: color, down: color }),
   characters: z.array(z.strictObject({
@@ -114,7 +127,7 @@ export type Difficulty = z.infer<typeof difficulty>;
 export type Tone = keyof Config['market'];
 
 export const inputConfig = {
-  gameplay: gameplayJson, cash: cashJson, fallingTraders: fallingTraderJson, physics: physicsJson, npc: npcJson, theme: themeJson, characters: charactersJson,
+  gameplay: gameplayJson, cash: cashJson, fallingTraders: fallingTraderJson, physics: physicsJson, npc: npcJson, terrain: terrainJson, theme: themeJson, characters: charactersJson,
   events: eventsJson, effects: effectsJson, cards: cardsJson, market: marketJson, obstacles: obstaclesJson,
   maps: { mountain: mountainJson, training: trainingJson }
 };
@@ -131,7 +144,7 @@ function inside(x: number, item: Platform, margin = 0) {
   return x >= item.x + margin && x <= item.x + item.width - margin;
 }
 
-function validateMap(map: GameMap, { physics, obstacles }: Config) {
+export function validateMap(map: GameMap, { physics, obstacles }: Pick<Config, 'physics' | 'obstacles'>) {
   const detail = (reason: string) => `地圖 ${map.id}，${reason}`;
   const halfWidth = physics.hitbox.width / 2;
   const platforms = new Map(map.platforms.map(item => [item.id, item]));

@@ -1,5 +1,6 @@
 import './style.css';
 import { inputConfig, readConfig, type Config, type Difficulty } from './config/settings';
+import { generateMap } from './core/map-generator';
 import { Race, type RaceOptions } from './core/race';
 import { CardAudio } from './ui/audio';
 import { Controls } from './ui/controls';
@@ -255,13 +256,16 @@ class App {
     element(this.content, '#back').focus();
   }
 
-  private async start(replay?: RaceOptions) {
+  private async start(replay?: RaceOptions, freshSeed = false) {
     this.audio.unlock();
+    const requested = freshSeed ? null : this.requestedSeed;
+    const seed = requested ?? crypto.getRandomValues(new Uint32Array(1))[0];
+    const template = this.config.maps[this.map];
     const options = replay ?? {
       playerId: this.playerId,
-      seed: this.requestedSeed ?? crypto.getRandomValues(new Uint32Array(1))[0],
+      seed,
       difficulty: this.difficulty,
-      map: this.config.maps[this.map]
+      map: this.map === 'mountain' ? generateMap(template, this.config, seed) : template
     };
     this.switchTo('race', '交易進行中', raceMarkup);
     const race = new Race(this.config, options);
@@ -335,6 +339,7 @@ class App {
     this.switchTo('result', '市場已收盤', reportMarkup);
     renderReport(this.content, race);
     this.bind('#replay', () => void this.start(race.options));
+    this.bind('#new-course', () => void this.start(undefined, true));
     this.bind('#back', () => this.home());
     element(this.content, '#replay').focus();
   }

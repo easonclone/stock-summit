@@ -1,4 +1,3 @@
-import type { Config } from '../config/settings';
 import { seededRandom, weighted, type Random } from './random';
 
 export interface RouteNode {
@@ -15,7 +14,20 @@ export interface NodeMap {
   rows: RouteNode[][];
 }
 
-type NodeConfig = Pick<Config, 'nodes' | 'gameplay'>;
+interface NodeConfig {
+  nodes: { lanes: number; maxLinks: number; attempts: number; diverse?: true;
+    kinds: Record<string, { fromRow: number; weight: number }> };
+  gameplay: { turns: number };
+}
+
+function branchingLinks(lanes: number, directions: boolean[], random: Random) {
+  return Array.from({ length: lanes }, (_, lane) => {
+    const neighbors = [lane - 1, lane + 1].filter(next => next >= 0 && next < lanes &&
+      (next < lane ? !directions[next] : directions[lane]));
+    const branch = neighbors[Math.floor(random() * neighbors.length)];
+    return branch === undefined ? [lane] : [lane, branch].sort((a, b) => a - b);
+  });
+}
 
 function links(lanes: number, maxLinks: number, random: Random) {
   // Each lane links to 1..maxLinks of its neighbours (lane-1, lane, lane+1) without crossing paths,
@@ -46,7 +58,11 @@ function kinds(row: number, lanes: number, config: NodeConfig, random: Random) {
   const pool = Object.entries(config.nodes.kinds)
     .filter(([, kind]) => kind.fromRow <= row)
     .map(([key, kind]) => ({ key, weight: kind.weight }));
-  return Array.from({ length: lanes }, () => weighted(pool, random).key);
+  return Array.from({ length: lanes }, () => {
+    const selection = weighted(pool, random);
+    if (config.nodes.diverse) pool.splice(pool.indexOf(selection), 1);
+    return selection.key;
+  });
 }
 
 /** Problems with a node map, empty when it is playable. */
@@ -83,13 +99,19 @@ export function nodeMapProblems(map: NodeMap, config: NodeConfig) {
 
 /** Builds a reproducible branching route map for `seed`, retrying until it passes `nodeMapProblems`. */
 export function generateNodeMap(config: NodeConfig, seed: number): NodeMap {
-  const { lanes, maxLinks, attempts } = config.nodes;
+  const { lanes, maxLinks, attempts, diverse } = config.nodes;
   for (let attempt = 0; attempt < attempts; attempt++) {
     const random = seededRandom((seed ^ Math.imul(attempt + 1, 0x27d4eb2f)) >>> 0);
     const rows: RouteNode[][] = [];
+    let directions: boolean[] = [];
     for (let row = 0; row < config.gameplay.turns; row++) {
       const types = kinds(row, lanes, config, random);
-      const next = row < config.gameplay.turns - 1 ? links(lanes, maxLinks, random) : types.map(() => []);
+      if (diverse) {
+        directions = row % 2 ? directions.map(direction => !direction) :
+          Array.from({ length: lanes - 1 }, () => random() < 0.5);
+      }
+      const next = row === config.gameplay.turns - 1 ? types.map(() => []) :
+        diverse ? branchingLinks(lanes, directions, random) : links(lanes, maxLinks, random);
       rows.push(types.map((kind, lane) => ({ row, lane, kind, next: next[lane] })));
     }
     const map = { lanes, rows };

@@ -8,7 +8,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "simulate": "node scripts/simulate.mjs"
   },
   "dependencies": {
     "phaser": "^3.90.0",

@@ -1,0 +1,23 @@
+{
+  "initialCapital": 10000,
+  "maxExposure": 3.2,
+  "maxDebtToEquity": 2.2,
+  "initialMarginLtv": 0.7,
+  "warningLtv": 0.69,
+  "callLtv": 0.83,
+  "restoredLtv": 0.64,
+  "liquidationFee": 0.035,
+  "originationFee": 0.012,
+  "marginDailyRate": 0.011,
+  "depositDailyRate": 0.022,
+  "depositDays": 3,
+  "warningEquity": 0.35,
+  "warningCash": 0.035,
+  "recoveryCash": 2000,
+  "recoveryDebt": 1500,
+  "recoveryClosingFee": 500,
+  "recoveryLockDays": 2,
+  "maxRecoveries": 1,
+  "maxHedges": 2,
+  "recoveryGap": 0.18
+}

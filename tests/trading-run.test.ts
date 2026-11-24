@@ -166,6 +166,25 @@ describe('交易入口及種子', () => {
     expect(run.reports[0].outcomes[0].ledger.synergyGain).toBe(141);
     expect(netWorth(run.player.account)).toBe(10141);
   });
+
+  it('競爭型卡片僅針對同一開盤快照的融資領先者，並列者受相同追繳門檻', () => {
+    const config = removeVolatility(readFinancialConfig());
+    const run = start(config);
+    const audit = config.cards.find(card => card.id === 'audit')!;
+    const lane = run.reachable(run.player)[0].lane;
+    run.player.hand[0] = audit;
+    expect(run.preview(lane, 0)?.enabledCard).toBe(false);
+    expect(run.confirm({ lane, card: 0 }, first)).toBe(false);
+    for (const rival of run.investors.slice(1, 3)) {
+      Object.assign(rival.account, { cash: 10000, investmentValue: 20000, marginDebt: 15800 });
+    }
+    expect(run.preview(lane, 0)?.opponents).toEqual(['尤尤', '老伯']);
+    expect(run.confirm({ lane, card: 0 }, first)).toBe(true);
+    const [player, ...rivals] = run.reports[0].outcomes;
+    expect(player.targetedRivals).toEqual(['尤尤', '老伯']);
+    expect(rivals.map(item => item.risk.call?.threshold ?? null)).toEqual([0.79, 0.79, null]);
+    expect(run.player.used).toBe(1);
+  });
 });
 
 describe('破產調度與公平收盤', () => {

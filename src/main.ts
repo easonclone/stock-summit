@@ -1,326 +1,388 @@
 import './style.css';
-import { inputConfig, readConfig, type Config, type Difficulty } from './config/settings';
-import { Run, type RunOptions } from './core/run';
+import { readFinancialConfig, type FinancialConfig, type TradingDifficulty } from './config/financial-settings';
+import { TradingRun, type DayOutcome, type DayReport } from './core/trading-run';
+import { marketTone } from './core/trading-effects';
 import { CardAudio } from './ui/audio';
-import { element, Hud, raceMarkup, setText } from './ui/hud';
-import { cardIcon, drawIcon, portrait, titleArt } from './ui/pixels';
+import { crisisMarkup } from './ui/crisis-dialog';
+import { escapeHtml } from './ui/format';
+import { drawIcon, portrait } from './ui/pixels';
+import { routeMapMarkup } from './ui/route-map';
+import { settlementMarkup, shareText } from './ui/settlement';
+import { offerMarkup, openingMarkup, tradingMarkup, type TerminalSelection } from './ui/trading-terminal';
 
-import { reportMarkup, renderReport } from './ui/report';
+type DialogKind = 'map' | 'crisis' | 'recovery' | 'offer' | 'settings' | 'share';
+const freshSeed = () => crypto.getRandomValues(new Uint32Array(1))[0];
 
-type Screen = 'home' | 'select' | 'guide' | 'codex' | 'settings' | 'race' | 'result';
-
-class App {
-  private screen: Screen = 'home';
-  private race?: Run;
-  private destroyCourse?: () => void;
-  private hud?: Hud;
+class TerminalApp {
+  private run: TradingRun | null = null;
+  private readonly screen: HTMLElement;
+  private readonly dialog: HTMLDialogElement;
   private readonly audio = new CardAudio();
-  private readonly content: HTMLElement;
-  private readonly indicator: HTMLElement;
-  private playerId: string;
-  private difficulty: Difficulty = 'normal';
-  private colorStyle = 'taiwan';
-  private shake = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  private readonly requestedSeed: number | null;
+  private readonly selection: TerminalSelection = { lane: null, slot: null, financeOpen: false, cardOpen: true, animate: false };
+  private selectedCharacter: string;
+  private difficulty: TradingDifficulty = 'normal';
+  private seed: number;
+  private reduced: boolean;
+  private international = false;
+  private personal = false;
+  private offered: number | null = null;
+  private replace: number | null = null;
+  private dialogKind: DialogKind | null = null;
+  private dialogTrigger: HTMLElement | null = null;
+  private closingDialog = false;
+  private locked = false;
+  private transitionTimer: number | undefined;
+  private disposeEffect: (() => void) | undefined;
+  private lastCrisis: { report: DayReport; outcome: DayOutcome } | null = null;
 
-  constructor(root: HTMLElement, private readonly config: Config) {
-    this.playerId = config.characters[0].id;
-    const seedParam = new URLSearchParams(location.search).get('seed');
-    this.requestedSeed = seedParam && /^\d{1,10}$/.test(seedParam) && Number(seedParam) <= 0xffffffff ? Number(seedParam) : null;
+  constructor(private readonly root: HTMLElement, private readonly config: FinancialConfig) {
+    const fromUrl = new URLSearchParams(location.search).get('seed') ?? '';
+    this.seed = /^\d{1,10}$/.test(fromUrl) && Number(fromUrl) <= 0xffffffff ? Number(fromUrl) : freshSeed();
+    this.selectedCharacter = config.characters[0].id;
+    this.reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    root.innerHTML = '<div id="screen"></div><dialog id="terminal-dialog" aria-labelledby="dialog-heading"></dialog><div id="announce" class="sr-only" aria-live="polite"></div>';
+    this.screen = root.querySelector('#screen')!;
+    this.dialog = root.querySelector('dialog')!;
     root.style.setProperty('--gold', config.theme.gold);
-    root.style.setProperty('--night', config.theme.night);
+    root.style.setProperty('--bg', config.theme.night);
     root.style.setProperty('--panel', config.theme.panel);
-    this.updateColors();
-    root.innerHTML = `
-      <div class="cabinet">
-        <header class="shell-top">
-          <button class="brand" type="button" aria-label="股市攻頂戰首頁"><i aria-hidden="true"></i><span>STOCK SUMMIT</span></button>
-          <div class="status"><i></i><span id="screen-status">待開盤</span></div>
-        </header>
-        <main id="screen"></main>
-        <footer class="shell-foot">股市攻頂戰</footer>
-      </div>`;
-    this.content = element(root, '#screen');
-    this.indicator = element(root, '#screen-status');
-    element(root, '.brand').addEventListener('click', () => {
-      if (this.screen !== 'race' || window.confirm('離開本局並返回首頁？')) this.home();
+    this.setPreferences();
+    root.addEventListener('click', event => {
+      const button = (event.target as Element).closest<HTMLButtonElement>('button[data-act]');
+      if (button) this.activate(button);
     });
-    window.addEventListener('keydown', this.keyDown);
-    this.home(false);
+    root.addEventListener('change', event => this.change(event.target as HTMLInputElement));
+    document.addEventListener('keydown', this.keyDown);
+    this.dialog.addEventListener('cancel', event => {
+      event.preventDefault();
+      if (this.dialogKind !== 'recovery' && this.dialogKind !== 'offer') this.closeDialog();
+    });
+    this.render();
+  }
+
+  private render(focus?: string) {
+    this.disposeEffect?.();
+    this.disposeEffect = undefined;
+    const run = this.run;
+    const complete = run?.closed || this.personal;
+    const status = run ? `<div class="session-counter"><span>${run.closed ? '已結算' : '交易日'}</span>
+      <strong>${String(run.closed ? run.reports.length : run.day).padStart(2, '0')} <small>／ ${run.config.gameplay.turns}</small></strong></div>` : '';
+    this.screen.innerHTML = `<header class="masthead"><div class="brand-lockup"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+      <div><b>STOCK SUMMIT</b><small>股市攻頂戰 · Market Showdown</small></div></div><div class="masthead-tools">${status}
+      <button class="gear" type="button" data-act="settings" aria-label="顯示與音效設定" title="顯示與音效設定">⚙</button></div></header>
+      ${run ? complete ? settlementMarkup(run, this.personal) : tradingMarkup(run, this.selection)
+        : `<main>${openingMarkup(this.config, this.seed, this.selectedCharacter, this.difficulty)}</main>`}`;
+    this.paint(this.screen);
+    this.selection.animate = false;
+    if (focus) this.screen.querySelector<HTMLElement>(focus)?.focus({ preventScroll: true });
+  }
+
+  private paint(parent: ParentNode) {
+    parent.querySelectorAll<HTMLCanvasElement>('[data-portrait]').forEach(canvas => {
+      const character = this.config.characters.find(item => item.id === canvas.dataset.portrait);
+      if (!character) return;
+      portrait(canvas, character);
+      const context = canvas.getContext('2d')!;
+      const response = canvas.dataset.reaction;
+      if (!response || response === '持平' || response === '等待交易') return;
+      context.fillStyle = '#151a26';
+      if (response === '交易獲利' || response === '收盤勝利' || response === '避險成功' || response === '重整完成') {
+        context.fillRect(15, 14, 5, 1);
+        context.fillRect(16, 15, 3, 1);
+      } else if (response === '宣告破產' || response === '強制平倉' || response === '融資追繳') {
+        context.fillRect(15, 13, 4, 4);
+      } else {
+        context.fillRect(15, 15, 4, 1);
+      }
+    });
+    parent.querySelectorAll<HTMLCanvasElement>('[data-icon]').forEach(canvas => {
+      drawIcon(canvas, canvas.dataset.icon as FinancialConfig['cards'][number]['icon'], canvas.dataset.color!);
+    });
+  }
+
+  private change(target: HTMLInputElement) {
+    if (target.dataset.input === 'difficulty') this.difficulty = target.value as TradingDifficulty;
+    if (target.dataset.input === 'seed' && target.checkValidity() && Number.isSafeInteger(target.valueAsNumber)) this.seed = target.valueAsNumber;
+    if (target.dataset.input === 'motion') this.reduced = target.checked;
+    if (target.dataset.input === 'colors') this.international = target.checked;
+    if (target.dataset.input === 'audio') this.audio.enabled = target.checked;
+    this.setPreferences();
+  }
+
+  private setPreferences() {
+    const colors = this.config.theme;
+    this.root.classList.toggle('reduced-motion', this.reduced);
+    this.root.style.setProperty('--gain', this.international ? colors.down : colors.up);
+    this.root.style.setProperty('--loss', this.international ? colors.up : colors.down);
+  }
+
+  private activate(button: HTMLButtonElement) {
+    if (this.locked && button.dataset.act !== 'skip') return;
+    const act = button.dataset.act;
+    const value = Number(button.dataset.value);
+    switch (act) {
+      case 'character':
+        this.selectedCharacter = button.dataset.value!;
+        this.render(`[data-act="character"][data-value="${this.selectedCharacter}"]`);
+        break;
+      case 'start': {
+        const input = this.screen.querySelector<HTMLInputElement>('[data-input="seed"]')!;
+        if (!input.reportValidity()) return;
+        this.start(this.seed);
+        break;
+      }
+      case 'replay': this.start(this.run!.options.seed); break;
+      case 'new': this.start(freshSeed()); break;
+      case 'settings': this.dialogTrigger = button; this.openDialog('settings'); break;
+      case 'map': this.dialogTrigger = button; this.openDialog('map'); break;
+      case 'crisis': this.dialogTrigger = button; this.openDialog('crisis'); break;
+      case 'close-dialog': this.closeDialog(); break;
+      case 'personal': this.personal = true; this.closeDialog(false); this.render('[data-act="spectate"]'); window.scrollTo(0, 0); break;
+      case 'spectate': this.personal = false; this.render('[data-act="trade"]'); window.scrollTo(0, 0); break;
+      case 'lane':
+      case 'map-pick': this.pickLane(value, act === 'map-pick'); break;
+      case 'card':
+        this.rememberDetails();
+        this.selection.slot = value === this.selection.slot ? null : value;
+        this.selection.cardOpen = true;
+        this.render(`[data-act="card"][data-value="${value}"]`);
+        break;
+      case 'trade': this.trade(); break;
+      case 'skip': this.finishAnimation(); break;
+      case 'recover':
+        if (this.run?.acceptRecovery()) this.afterTrade();
+        break;
+      case 'offer-card': this.offered = value; this.openDialog('offer', `[data-act="offer-card"][data-value="${value}"]`); break;
+      case 'replace': this.replace = value; this.openDialog('offer', `[data-act="replace"][data-value="${value}"]`); break;
+      case 'take': this.takeOffer(this.offered, this.replace); break;
+      case 'decline': this.takeOffer(null, null); break;
+      case 'share': this.dialogTrigger = button; void this.share(); break;
+    }
+  }
+
+  private start(seed: number) {
+    this.closeDialog(false);
+    this.seed = seed;
+    this.run = new TradingRun(this.config, { playerId: this.selectedCharacter, seed, difficulty: this.difficulty });
+    this.personal = false;
+    this.lastCrisis = null;
+    this.clearSelection();
+    const url = new URL(location.href);
+    url.searchParams.set('seed', String(seed));
+    history.replaceState(null, '', url);
+    this.audio.unlock();
+    this.audio.play('rise');
+    this.render('[data-act="lane"]');
+    window.scrollTo(0, 0);
+    this.announce('交易所已開盤，選擇今日投資機會。');
+  }
+
+  private rememberDetails() {
+    this.selection.financeOpen = Boolean(this.screen.querySelector('[data-detail="financial"][open]'));
+    this.selection.cardOpen = Boolean(this.screen.querySelector('[data-detail="card"][open]'));
+  }
+
+  private clearSelection() {
+    this.selection.lane = null;
+    this.selection.slot = null;
+    this.selection.cardOpen = true;
+  }
+
+  private pickLane(lane: number, fromMap = false) {
+    if (!this.run?.reachable(this.run.player).some(node => node.lane === lane)) return;
+    this.rememberDetails();
+    this.selection.lane = lane;
+    if (fromMap) this.closeDialog(false);
+    this.render(`[data-act="lane"][data-value="${lane}"]`);
+  }
+
+  private trade() {
+    const run = this.run;
+    if (!run || run.closed || this.dialog.open || this.locked) return;
+    const lane = this.selection.lane;
+    const action = lane !== null ? { lane, card: this.selection.slot } : null;
+    if (!run.player.account.eliminated && !action) return;
+    this.audio.unlock();
+    if (!run.confirm(action)) return;
+    this.rememberDetails();
+    this.clearSelection();
+    const report = run.pendingRecovery ?? run.reports.at(-1);
+    if (report?.market) {
+      const tone = marketTone(report.market, this.config);
+      this.audio.play(report.market.severity === 'extreme' ? 'impact' : tone === 'negative' ? 'fall' : 'rise');
+    } else {
+      const outcome = report?.outcomes.find(item => item.investor === run.player);
+      this.audio.play(outcome?.ledger.protected ? 'shield' : outcome ? outcome.close < outcome.start ? 'fall' : 'rise' : 'flat');
+    }
+    if (this.reduced) this.afterTrade();
+    else this.animateTrade();
+  }
+
+  private animateTrade() {
+    this.locked = true;
+    this.screen.querySelectorAll('.seat').forEach(seat => seat.classList.add('executing'));
+    this.announce('四位投資人正在結算交易。');
+    const button = this.screen.querySelector<HTMLButtonElement>('[data-act="trade"]')!;
+    button.dataset.act = 'skip';
+    button.textContent = '交易結算中・點擊略過';
+    this.transitionTimer = window.setTimeout(() => this.finishAnimation(), 240);
+  }
+
+  private finishAnimation() {
+    if (!this.locked) return;
+    window.clearTimeout(this.transitionTimer);
+    this.locked = false;
+    this.afterTrade();
+  }
+
+  private afterTrade() {
+    const run = this.run!;
+    const report = run.pendingRecovery ?? run.reports.at(-1);
+    const outcome = report?.outcomes.find(item => item.investor === run.player);
+    this.closeDialog(false);
+    this.selection.animate = true;
+    this.render(run.closed ? '[data-act="replay"]' : '[data-act="lane"], [data-act="trade"]');
+    if (!this.reduced && report?.market && report.market.severity !== 'normal') void this.playMarketEffect(report);
+    if (report && outcome && (outcome.risk.call || outcome.risk.insolvent)) this.lastCrisis = { report, outcome };
+    if (run.pendingRecovery && this.lastCrisis) this.openDialog('recovery');
+    else if (outcome && !outcome.recovery && (outcome.risk.call || outcome.risk.insolvent)) this.openDialog('crisis');
+    else this.showOffer();
+    this.announce(run.closed ? '本局正式收盤。' : `第 ${run.day} 個交易日。`);
+    if (run.closed) window.scrollTo(0, 0);
+  }
+
+  private async playMarketEffect(report: DayReport) {
+    const strip = this.screen.querySelector('.market-strip');
+    if (!strip || !report.market) return;
+    try {
+      const { mountMarketEffect } = await import('./ui/market-effects');
+      if (!strip.isConnected || this.reduced || !this.run) return;
+      const host = document.createElement('div');
+      host.className = 'market-art';
+      host.setAttribute('aria-hidden', 'true');
+      strip.prepend(host);
+      const tone = marketTone(report.market, this.config);
+      const color = getComputedStyle(this.root).getPropertyValue(tone === 'negative' ? '--loss' : '--gain').trim();
+      this.disposeEffect = mountMarketEffect(host, this.run.options.seed ^ report.day, Number.parseInt(color.slice(1), 16), report.market.severity === 'extreme');
+    } catch (error) {
+      console.warn('市場像素特效無法播放', error);
+    }
+  }
+
+  private showOffer() {
+    if (!this.run?.offer || this.dialog.open) return;
+    this.offered = this.run.offer.cards.length === 1 ? 0 : null;
+    this.replace = null;
+    this.openDialog('offer');
+  }
+
+  private takeOffer(card: number | null, replace: number | null) {
+    if (!this.run?.chooseOffer(card, replace)) return;
+    this.closeDialog(false);
+    this.render('[data-act="lane"]');
+    this.showOffer();
+  }
+
+  private openDialog(kind: DialogKind, focus?: string) {
+    this.dialogKind = kind;
+    const run = this.run!;
+    let heading = '';
+    let content = '';
+    switch (kind) {
+      case 'map':
+        heading = '市場路線圖';
+        content = routeMapMarkup(run, this.selection.lane);
+        break;
+      case 'offer':
+        heading = run.offer?.source === 'draft' ? '投資機會・三選一' : '開盤抽卡';
+        content = offerMarkup(run, this.offered, this.replace);
+        break;
+      case 'crisis':
+      case 'recovery':
+        if (!this.lastCrisis) return;
+        heading = kind === 'recovery' ? '破產重整' : '財務危機';
+        content = crisisMarkup(run, this.lastCrisis.report, this.lastCrisis.outcome, kind === 'recovery');
+        break;
+      case 'settings':
+        heading = '顯示與音效設定';
+        content = `<div class="settings-options"><label><input type="checkbox" data-input="colors" ${this.international ? 'checked' : ''}> 國際配色（綠漲紅跌）</label>
+          <label><input type="checkbox" data-input="motion" ${this.reduced ? 'checked' : ''}> 減少動態・略過結算動畫</label>
+          <label><input type="checkbox" data-input="audio" ${this.audio.enabled ? 'checked' : ''}> 啟用交易音效</label></div>`;
+        break;
+      case 'share':
+        heading = '分享結算';
+        content = `<p>可複製以下結算摘要。</p><textarea aria-label="結算摘要" readonly rows="8">${escapeHtml(shareText(run))}</textarea>`;
+        break;
+    }
+    const dismissible = kind !== 'recovery' && kind !== 'offer';
+    this.dialog.className = `terminal-dialog dialog-${kind}`;
+    this.dialog.innerHTML = `<header><h2 id="dialog-heading" tabindex="-1">${heading}</h2>${dismissible ?
+      '<button type="button" data-act="close-dialog" aria-label="關閉視窗">×</button>' : ''}</header><div class="dialog-body">${content}</div>`;
+    this.paint(this.dialog);
+    if (!this.dialog.open) {
+      this.dialog.showModal();
+      this.dialog.querySelector<HTMLElement>('#dialog-heading')?.focus({ preventScroll: true });
+      this.dialog.scrollTop = 0;
+    }
+    if (kind === 'map') this.dialog.querySelector('.current-row')?.scrollIntoView({ block: 'nearest' });
+    if (focus) this.dialog.querySelector<HTMLElement>(focus)?.focus({ preventScroll: true });
+  }
+
+  private closeDialog(restore = true) {
+    if (this.closingDialog) return;
+    const previous = this.dialogKind;
+    this.closingDialog = true;
+    if (this.dialog.open) this.dialog.close();
+    this.dialogKind = null;
+    if (restore) this.dialogTrigger?.focus({ preventScroll: true });
+    this.dialogTrigger = null;
+    this.closingDialog = false;
+    if (restore && previous === 'crisis') this.showOffer();
+  }
+
+  private async share() {
+    try {
+      await navigator.clipboard.writeText(shareText(this.run!));
+      this.announce('已複製結算摘要。');
+      const trigger = this.dialogTrigger;
+      if (trigger) trigger.textContent = '已複製結算';
+    } catch {
+      this.openDialog('share');
+    }
+  }
+
+  private announce(message: string) {
+    this.root.querySelector('#announce')!.textContent = message;
   }
 
   private readonly keyDown = (event: KeyboardEvent) => {
-    const race = this.race;
-    if (this.screen !== 'race' || !race || race.result || event.altKey || event.ctrlKey || event.metaKey) return;
-    const card = /^(?:Digit|Numpad)([1-9])$/.exec(event.code);
-    if (card && !event.repeat) {
+    if (!this.run || this.run.closed || this.dialog.open || this.personal || this.locked || event.altKey || event.ctrlKey || event.metaKey ||
+      (event.target as Element).closest('input, select, textarea')) return;
+    const target = (event.target as Element).closest<HTMLButtonElement>('[data-act="trade"]');
+    if (target && !target.disabled && ['Enter', 'NumpadEnter', 'Space'].includes(event.code)) {
       event.preventDefault();
-      race.usePlayerCard(Number(card[1]) - 1);
+      if (!event.repeat) this.trade();
       return;
     }
-    const step = { ArrowLeft: -1, KeyA: -1, ArrowRight: 1, KeyD: 1 }[event.code];
-    if (step) {
+    const slot = /^Digit([1-9])$/.exec(event.code);
+    if (slot && this.run.player.hand[Number(slot[1]) - 1] && !this.run.player.account.eliminated) {
       event.preventDefault();
-      this.cycle(step);
-      return;
+      this.screen.querySelector<HTMLButtonElement>(`[data-act="card"][data-value="${Number(slot[1]) - 1}"]`)?.click();
     }
-    if ((event.code === 'Enter' || event.code === 'Space') && !event.repeat && race.selected !== null) {
-      // A focused button already activates on Enter/Space; confirming here as well would double-handle it.
-      if (event.target instanceof Element && event.target.closest('button, select, input')) return;
-      event.preventDefault();
-      this.confirm();
-    }
-  };
-
-  /** Moves the pending pick to the previous or next reachable lane. */
-  private cycle(step: number) {
-    const race = this.race!;
-    const lanes = race.reachable(race.player);
+    if (event.code !== 'ArrowLeft' && event.code !== 'ArrowRight') return;
+    const lanes = this.run.reachable(this.run.player).map(node => node.lane);
     if (!lanes.length) return;
-    const index = race.selected === null ? (step > 0 ? -1 : lanes.length) : lanes.indexOf(race.selected);
-    race.select(lanes[(index + step + lanes.length) % lanes.length]);
-    this.hud?.render();
-  }
-
-  private confirm() {
-    const race = this.race;
-    if (!race || !race.resolve()) return;
-    if (race.result) {
-      // Leave the closing news on screen briefly, then show the report.
-      window.setTimeout(() => {
-        if (this.race === race && this.screen === 'race') this.finish(race);
-      }, this.config.gameplay.newsMs);
-    }
-    this.hud?.render();
-  }
-
-  private colors() {
-    const { up, down } = this.config.theme;
-    return this.colorStyle === 'taiwan' ? { up, down } : { up: down, down: up };
-  }
-
-  private updateColors() {
-    const colors = this.colors();
-    document.documentElement.style.setProperty('--up', colors.up);
-    document.documentElement.style.setProperty('--down', colors.down);
-  }
-
-  private switchTo(screen: Screen, status: string, html: string) {
-    this.destroyCourse?.();
-    this.destroyCourse = undefined;
-    this.hud = undefined;
-    this.screen = screen;
-    this.content.className = `screen-${screen}`;
-    this.content.innerHTML = html;
-    setText(this.indicator, status);
-  }
-
-  private bind(query: string, action: () => void) {
-    element(this.content, query).addEventListener('click', action);
-  }
-
-  private home(focus = true) {
-    this.race = undefined;
-    this.switchTo('home', '待開盤', `
-      <div class="hero">
-        <div class="hero-copy">
-          <p class="eyebrow"><i class="square"></i> 財富攻頂賽</p>
-          <h1>股市<br><em>攻頂戰</em></h1>
-          <p class="hero-en" aria-hidden="true">STOCK SUMMIT</p>
-          <p class="intro">四人同步規劃路線，每個交易日一起選下一步。15 天後收盤，層數加上鈔票加成最高者勝出。</p>
-          <button id="begin" class="button primary" type="button">開始遊戲</button>
-          <nav class="menu-links" aria-label="遊戲選單">
-            <button type="button" id="guide" class="button subtle">玩法說明</button>
-            <button type="button" id="codex" class="button subtle">圖鑑</button>
-            <button type="button" id="settings" class="button subtle">設定</button>
-          </nav>
-        </div>
-        <div class="hero-scene">
-          <canvas aria-hidden="true"></canvas>
-          <div class="scene-tag"><i class="square"></i><span>黃金財富之巔</span></div>
-        </div>
-      </div>
-      <div class="keys"><span><kbd>←</kbd><kbd>→</kbd> 選擇節點</span><span><kbd>Enter</kbd> 確認進場</span><span><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> 用卡</span></div>`);
-    titleArt(element(this.content, '.hero canvas'), this.config.characters);
-    this.bind('#begin', () => this.select());
-    this.bind('#guide', () => this.guide());
-    this.bind('#codex', () => this.codex());
-    this.bind('#settings', () => this.settings());
-    if (focus) element(this.content, '#begin').focus();
-  }
-
-  private select() {
-    this.switchTo('select', '挑選選手', `
-      <div class="pane">
-        <div class="pane-top"><button class="button subtle small" id="back" type="button">返回首頁</button></div>
-        <h1>選擇角色</h1>
-        <p>四位選手能力相同。選一位出賽，其餘由電腦控制。</p>
-        <div id="characters" class="characters" role="group" aria-label="參賽角色"></div>
-        <div class="pane-actions"><button id="race-start" class="button primary" type="button">確認出賽</button></div>
-      </div>`);
-    const group = element(this.content, '#characters');
-    const refresh = () => {
-      for (const item of group.querySelectorAll<HTMLButtonElement>('button')) {
-        const selected = item.value === this.playerId;
-        item.setAttribute('aria-pressed', String(selected));
-        setText(element(item, '.role'), selected ? '玩家' : '電腦');
-      }
-    };
-    for (const character of this.config.characters) {
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.value = character.id;
-      button.className = 'character';
-      button.style.setProperty('--racer', character.color);
-      button.innerHTML = '<span class="role"></span><canvas aria-hidden="true"></canvas><strong></strong><small></small>';
-      portrait(element(button, 'canvas'), character);
-      setText(element(button, 'strong'), character.name);
-      setText(element(button, 'small'), character.description);
-      button.addEventListener('click', () => { this.playerId = character.id; refresh(); });
-      group.append(button);
-    }
-    refresh();
-    this.bind('#back', () => this.home());
-    this.bind('#race-start', () => void this.start());
-    element(group, '[aria-pressed="true"]').focus();
-  }
-
-  private guide() {
-    this.switchTo('guide', '玩法說明', `
-      <div class="pane information">
-        <div class="pane-top"><button class="button subtle small" id="back" type="button">返回首頁</button></div>
-        <h1>玩法說明</h1>
-        <dl>
-          <dt>規劃路線</dt><dd>路線圖由下往上共 15 列，每列代表一個交易日。每天只能走進與目前節點相連的下一列節點，四位選手同時選擇、同時結算，沒有時間壓力。</dd>
-          <dt>節點類型</dt><dd>穩健持有穩定上升；槓桿加碼爬得多，但下一次市場利空會放大跌幅；獲利了結不爬升而是收取鈔票；問號卡箱與研究報告提供卡片或下一次市場預告；抄底補給只有落後者能領到補給卡。</dd>
-          <dt>市場事件</dt><dd>每 3 個交易日結算後會發生一次虛構市場事件，可能讓全體或特定名次上升、下滑或停牌。停牌期間進入的節點沒有效果。</dd>
-          <dt>使用卡片</dt><dd>卡欄最多 3 張。在確認進場前按數字 1、2、3 或點卡片使用，部分卡片會鎖定前方最近的對手。</dd>
-          <dt>收盤計分</dt><dd>第 15 個交易日結束後收盤。分數等於實際層數加上鈔票加成（每 100 元加 1.2 層，最多 3 層）。</dd>
-        </dl>
-      </div>`);
-    this.bind('#back', () => this.home());
-    element(this.content, '#back').focus();
-  }
-
-  private codex() {
-    this.switchTo('codex', '遊戲圖鑑', `
-      <div class="pane information">
-        <div class="pane-top"><button class="button subtle small" id="back" type="button">返回首頁</button></div>
-        <h1>遊戲圖鑑</h1>
-        <h2>卡片</h2><ul class="card-gallery"></ul>
-        <h2>虛構市場事件</h2><ul class="catalog-events"></ul>
-      </div>`);
-    const cards = element(this.content, '.card-gallery');
-    for (const card of this.config.cards) {
-      const item = document.createElement('li');
-      item.style.setProperty('--card', card.color);
-      item.innerHTML = '<div class="card-art"><canvas aria-hidden="true"></canvas></div><div><strong></strong><p></p></div>';
-      cardIcon(element(item, 'canvas'), card);
-      setText(element(item, 'strong'), card.name);
-      setText(element(item, 'p'), card.description);
-      cards.append(item);
-    }
-    const events = element(this.content, '.catalog-events');
-    for (const news of this.config.events) {
-      const item = document.createElement('li');
-      item.innerHTML = '<canvas aria-hidden="true"></canvas><div><strong></strong><span></span></div>';
-      drawIcon(element(item, 'canvas'), news.icon, '#f3cd7b');
-      setText(element(item, 'strong'), news.title);
-      setText(element(item, 'span'), news.description);
-      events.append(item);
-    }
-    this.bind('#back', () => this.home());
-    element(this.content, '#back').focus();
-  }
-
-  private settings() {
-    this.switchTo('settings', '賽事設定', `
-      <div class="pane information">
-        <div class="pane-top"><button class="button subtle small" id="back" type="button">返回首頁</button></div>
-        <h1>設定</h1>
-        <div class="settings-list">
-          <label>電腦難度 <select id="difficulty"><option value="easy">簡單</option><option value="normal">普通</option><option value="hard">困難</option></select></label>
-          <label>漲跌配色 <select id="color"><option value="taiwan">台股 · 紅漲綠跌</option><option value="international">國際 · 綠漲紅跌</option></select></label>
-          <label>事件與用卡震動 <input id="shake" type="checkbox"></label>
-          <label>卡片音效 <input id="card-sound" type="checkbox"></label>
-        </div>
-      </div>`);
-    const difficulty = element<HTMLSelectElement>(this.content, '#difficulty');
-    const color = element<HTMLSelectElement>(this.content, '#color');
-    const shake = element<HTMLInputElement>(this.content, '#shake');
-    difficulty.value = this.difficulty;
-    color.value = this.colorStyle;
-    const sound = element<HTMLInputElement>(this.content, '#card-sound');
-    sound.checked = this.audio.enabled;
-    sound.addEventListener('change', () => {
-      this.audio.enabled = sound.checked;
-      if (sound.checked) this.audio.unlock();
-    });
-    shake.checked = this.shake;
-    difficulty.addEventListener('change', () => { this.difficulty = difficulty.value as Difficulty; });
-    color.addEventListener('change', () => { this.colorStyle = color.value; this.updateColors(); });
-    shake.addEventListener('change', () => { this.shake = shake.checked; });
-    this.bind('#back', () => this.home());
-    element(this.content, '#back').focus();
-  }
-
-  private async start(replay?: RunOptions, freshSeed = false) {
-    this.audio.unlock();
-    const requested = freshSeed ? null : this.requestedSeed;
-    const options = replay ?? {
-      playerId: this.playerId,
-      seed: requested ?? crypto.getRandomValues(new Uint32Array(1))[0],
-      difficulty: this.difficulty
-    };
-    this.switchTo('race', '交易進行中', raceMarkup);
-    const race = new Run(this.config, options);
-    this.race = race;
-    this.hud = new Hud(this.content, race, {
-      useCard: slot => { race.usePlayerCard(slot); this.hud?.render(); },
-      select: lane => { race.select(lane); this.hud?.render(); },
-      confirm: () => this.confirm()
-    });
-    this.hud.render();
-    const course = element(this.content, '#course');
-    course.style.aspectRatio = `${this.config.theme.width} / ${this.config.theme.height}`;
-    element(this.content, '#node-map').focus({ preventScroll: true });
-    try {
-      const { mountCourse } = await import('./scenes/course');
-      if (this.race !== race || this.screen !== 'race') return;
-      this.destroyCourse = mountCourse(course, {
-        race,
-        onUpdate: () => {
-          if (this.race !== race || this.screen !== 'race') return;
-          this.hud?.render();
-        },
-        shake: () => this.shake,
-        playSound: style => this.audio.play(style),
-        marketColors: () => this.colors()
-      });
-    } catch (error) {
-      if (this.race !== race || this.screen !== 'race') return;
-      console.error(error);
-      this.switchTo('home', '無法開盤', '<div class="pane"><h1>遊戲載入失敗</h1><p>請重新整理頁面後再試一次。</p><button id="back" class="button subtle" type="button">返回首頁</button></div>');
-      this.bind('#back', () => this.home());
-    }
-  }
-
-  private finish(race: Run) {
-    this.switchTo('result', '市場已收盤', reportMarkup);
-    renderReport(this.content, race);
-    this.bind('#replay', () => void this.start(race.options));
-    this.bind('#new-course', () => void this.start(undefined, true));
-    this.bind('#back', () => this.home());
-    element(this.content, '#replay').focus();
-  }
+    event.preventDefault();
+    const index = lanes.indexOf(this.selection.lane ?? -1);
+    const next = index < 0 ? 0 : (index + lanes.length + (event.code === 'ArrowLeft' ? -1 : 1)) % lanes.length;
+    this.pickLane(lanes[next]);
+  };
 }
 
-const root = element(document, '#app');
+const root = document.querySelector<HTMLElement>('#app')!;
 try {
-  new App(root, readConfig(inputConfig));
+  new TerminalApp(root, readFinancialConfig());
 } catch (error) {
-  const message = error instanceof Error ? error.message : '遊戲啟動失敗';
-  root.innerHTML = '<main class="pane"><h1>初始化失敗</h1><p></p></main>';
-  setText(element(root, 'p'), message);
+  root.innerHTML = `<main class="initial-error"><h1>交易所無法開盤</h1><p>${escapeHtml(error instanceof Error ? error.message : '初始化失敗')}</p></main>`;
   console.error(error);
 }

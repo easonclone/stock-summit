@@ -1,8 +1,0 @@
-{
-  "moveSpeed": 119,
-  "climbSpeed": 82,
-  "jumpVelocity": 465,
-  "gravity": 940,
-  "hitbox": { "width": 20, "height": 30 },
-  "ladderGrab": 12
-}

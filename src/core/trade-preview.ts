@@ -21,6 +21,7 @@ export interface DecisionView {
   eligibleAid: boolean;
   rank: number;
   gap: number;
+  opponents: readonly { id: string; name: string }[];
 }
 
 export function forecastTrade(view: DecisionView, node: RouteNode, card: TradingCard | null) {
@@ -30,7 +31,7 @@ export function forecastTrade(view: DecisionView, node: RouteNode, card: Trading
   const draw = (marketDraw: number, market: TradingEvent | null, localDraw = marketDraw) => {
     const state = copyTradingState(view.state);
     const context: EffectContext = { config, day, eventDay: view.nextEventDay,
-      recentLoss: view.recentLoss, marketDraw: localDraw, eligibleAid: view.eligibleAid };
+      recentLoss: view.recentLoss, marketDraw: localDraw, eligibleAid: view.eligibleAid, opponentCount: view.opponents.length };
     const action = applyTrade(state, kind, card, context);
     if (market) applyMarket(state, market, { ...context, marketDraw }, action.ledger);
     const risk = settleTrade(state, action.ledger, config, day === config.gameplay.turns);
@@ -64,7 +65,8 @@ export function forecastTrade(view: DecisionView, node: RouteNode, card: Trading
     gainedHedge: base.state.hedges.some((hedge, index) => hedge > (view.state.hedges[index] ?? 0)),
     afterWorth: outstandingWorth(account), ltv: marginLtv(account), warnings: average.risk.warnings,
     exposureRisk: bearish.risk.call !== null, marginRequired: bearish.risk.call?.required ?? 0,
-    synergyGain: ledger.synergyGain, synergies: ledger.synergies
+    synergyGain: ledger.synergyGain, synergies: ledger.synergies,
+    opponents: card?.opponent ? view.opponents.map(opponent => opponent.name) : []
   };
 }
 

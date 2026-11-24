@@ -28,3 +28,6 @@ pnpm-debug.log*
 
 # Local agent / tool settings
 .claude/settings.local.json
+
+# 瀏覽器驗收輸出
+test-results/

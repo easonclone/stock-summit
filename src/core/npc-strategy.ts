@@ -29,6 +29,7 @@ export function cardRetention(card: TradingCard, config: FinancialConfig, view?:
       case 'bailout': return equity < config.financial.initialCapital * 0.3 ? 60 : 160;
       case 'repay': return view && debtBalance(view.state.account) > 0 ? 260 : 80;
       case 'cash_yield': return view && view.state.account.cash > equity * 0.55 ? 340 : 175;
+      case 'maintenance': return view?.opponents.length ? 285 : 120;
       default: return 100;
     }
   }));
@@ -82,6 +83,7 @@ export function chooseTrade(view: DecisionView, random: Random, strategy: Strate
     const hedge = forecast.gainedHedge && (remaining > 0 || view.eventToday) && (forecast.investment > 0 || remaining > 2)
       ? npc.hedgeValue * (strategy === 'hedge' ? 2 : 1) : 0;
     const intel = forecast.intelDay && forecast.intelDay !== state.intelDay && remaining > 0 ? npc.intelValue : 0;
+    const competition = forecast.opponents.length * npc.warningPenalty * (0.4 + behind);
     const reserve = card && remaining > 0 ? (npc.cardReserve + cardRetention(card, config, view) * 0.13) *
       (view.hand.length < 3 ? 1.5 : 0.6) : 0;
     const synergy = forecast.synergies && strategy === 'combo' ? 450 : 0;
@@ -91,7 +93,7 @@ export function chooseTrade(view: DecisionView, random: Random, strategy: Strate
     const expected = forecast.expected + (strategy === 'cash' && remaining > 0 ? forecast.deposited * 0.022 : 0);
     const pressure = view.rank === 1 ? Math.max(0, -forecast.low) * 0.04 : 0;
     const score = expected - possibleLoss - insolvency - liquidity - ltvPressure - debt - warnings - reserve - pressure +
-      hedge + intel + draft + synergy + future + classWeight(node) + random() * npc[difficulty];
+      hedge + intel + draft + synergy + future + competition + classWeight(node) + random() * npc[difficulty];
     if (score > best) { best = score; selected = option; }
   }
   return { lane: selected.node.lane, card: selected.slot };

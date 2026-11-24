@@ -1,10 +1,6 @@
 {
   "turns": 15,
   "eventEvery": 3,
-  "inventorySize": 3,
-  "recoveryGapLayers": 3,
-  "recoveryRanks": 2,
-  "newsMs": 2800,
-  "cardNewsMs": 2850,
-  "effectAnimationMs": 620
+  "initialHand": 2,
+  "inventorySize": 5
 }

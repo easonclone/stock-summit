@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { financialInput, readFinancialConfig } from '../src/config/financial-settings';
 import { canRecover, declareBankruptcy, recoverPortfolio } from '../src/core/bankruptcy';
 import {
-  chargeClosingCost, collectDeposits, depositBalance, invest, investmentOrder, lockDeposit,
+  chargeClosingCost, chargeMarginInterest, collectDeposits, depositBalance, invest, investmentOrder, lockDeposit,
   netWorth, openPortfolio, repay, revalue, sellInvestment
 } from '../src/core/economy';
 import { settleRisk } from '../src/core/financial-risk';
@@ -46,6 +46,16 @@ describe('資產守恆', () => {
     repay(account, account.cash + 100000);
     expect(account.cash).toBe(0);
     expect(netWorth(account)).toBe(10000 - order.fee + change);
+  });
+
+  it('小額融資仍收取開辦與日息，金額不會因捨入成為無成本借款', () => {
+    const account = openPortfolio(100);
+    const order = investmentOrder(account, 0.1, 0.11, 1, rules);
+    expect(order).toEqual({ stake: 10, borrowed: 1, fee: 1 });
+    invest(account, order);
+    expect(netWorth(account)).toBe(99);
+    expect(chargeMarginInterest(account, rules)).toBe(1);
+    expect(netWorth(account)).toBe(98);
   });
 });
 

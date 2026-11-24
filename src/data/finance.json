@@ -27,6 +27,7 @@
     "selloff": {"type":"price","floor":-0.17,"ceiling":-0.17},
     "liquidity": {"type":"price","floor":-0.19,"ceiling":-0.19},
     "tight_margin": {"type":"maintenance","ltv":0.75},
+    "audit_margin": {"type":"maintenance","ltv":0.79},
     "swan": {"type":"price","floor":-0.48,"ceiling":-0.48},
     "reversal": {"type":"price","floor":0.21,"ceiling":0.21},
     "rotation": {"type":"price","floor":-0.12,"ceiling":-0.12}
@@ -56,7 +57,8 @@
     {"id":"insure","name":"資產保險","description":"抵銷下一次大部分市場損失。","condition":"至少有一格避險空間","duration":"下次符合條件的市場回撤","icon":"shield","color":"#72bee7","weight":4,"effectIds":["insurance"]},
     {"id":"bailout","name":"緊急紓困","description":"現金偏低時取得現金，同時增加本金和費用負債。","condition":"現金低於申請門檻，且仍有償債空間","duration":"立即入帳，債務持續至償還","icon":"bank","color":"#f1bd8a","weight":3,"effectIds":["bailout"]},
     {"id":"cash","name":"現金為王","description":"現金充足時，以現金水位取得收益。","condition":"現金占正淨資產的比率須達門檻","duration":"本交易日","icon":"bills","color":"#efd080","weight":6,"effectIds":["cash_yield"]},
-    {"id":"restructure","name":"債務重整","description":"以部分現金還債，支付費用並免除今日融資利息。","condition":"持有可用現金及負債","duration":"立即還款，減免當日利息","icon":"bank","color":"#a7ddd2","weight":4,"effectIds":["restructure"]}
+    {"id":"restructure","name":"債務重整","description":"以部分現金還債，支付費用並免除今日融資利息。","condition":"持有可用現金及負債","duration":"立即還款，減免當日利息","icon":"bank","color":"#a7ddd2","weight":4,"effectIds":["restructure"]},
+    {"id":"audit","name":"融資稽核","description":"收緊最近一名使用融資的領先對手的追繳門檻；同名次適用相同規則。","condition":"開盤時有融資中的領先對手","duration":"本交易日","icon":"halt","color":"#ffb491","weight":2,"opponent":"nearest_ahead","effectIds":["audit_margin"]}
   ],
   "events": [
     {"id":"ai","title":"AI 伺服器訂單爆發","description":"科技需求推升持倉市值。","fictional":true,"weight":6,"target":"all","severity":"major","effectIds":["rally"]},

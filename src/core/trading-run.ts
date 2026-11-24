@@ -37,6 +37,9 @@ export interface DayOutcome {
   recovery: RecoveryAudit | null;
   clearedCards: number;
   clearedHedges: number;
+  targetedRivals: string[];
+  incomingCards: string[];
+  marketApplied: boolean;
 }
 
 export interface DayReport {
@@ -126,13 +129,18 @@ export class TradingRun {
     const leader = standings.find(item => item.rank === 1)?.investor;
     const gap = leader ? netWorth(leader.account) - netWorth(investor.account) : 0;
     const rank = standings.find(item => item.investor === investor)?.rank ?? 4;
+    const ahead = standings.filter(item => item.rank !== null && item.rank < rank && item.investor.account.marginDebt > 0);
+    const nearestRank = ahead.at(-1)?.rank;
     return {
       config: this.config, characterId: investor.character.id, day: this.day, state: copyTradingState(investor),
       hand: [...investor.hand], routes: this.reachable(investor),
       nextRow: this.map.rows[this.day] ?? [], knownEvent: this.intelFor(investor),
       intelDay: investor.intelDay, eventToday: this.schedule.has(this.day),
       nextEventDay: this.eventAtOrAfter(this.day + 1), recentLoss: this.latestNews !== null && marketTone(this.latestNews.event, this.config) === 'negative',
-      eligibleAid: rank >= 3 && gap >= investor.account.initialCapital * this.config.financial.recoveryGap, rank, gap
+      eligibleAid: rank >= 3 && gap >= investor.account.initialCapital * this.config.financial.recoveryGap, rank, gap,
+      opponents: ahead.filter(item => item.rank === nearestRank).map(({ investor: target }) => ({
+        id: target.character.id, name: target.character.name
+      }))
     };
   }
 
@@ -201,12 +209,21 @@ export class TradingRun {
       .sort((first, second) => first.rank! - second.rank! || first.tie - second.tie)
       .map(item => item.investor);
     const targets = market ? new Set(marketTargets(market.target, ranked, this.targetRandom)) : new Set<Investor>();
+    const interference = new Map<string, TradingCard[]>();
+    for (const choice of choices) {
+      if (!choice?.card?.opponent) continue;
+      for (const target of choice.view.opponents) {
+        const pending = interference.get(target.id) ?? [];
+        pending.push(choice.card);
+        interference.set(target.id, pending);
+      }
+    }
     const outcomes = choices.map(choice => {
       const { investor, route, card, slot, view } = choice!;
       const start = investor.closes.at(-1)!;
       const kind = this.config.nodes.kinds[route.kind];
       const context: EffectContext = { config: this.config, day: this.day, eventDay: view.nextEventDay,
-        recentLoss: view.recentLoss, marketDraw: roll, eligibleAid: view.eligibleAid };
+        recentLoss: view.recentLoss, marketDraw: roll, eligibleAid: view.eligibleAid, opponentCount: view.opponents.length };
       const action = applyTrade(investor, kind, card ?? null, context);
       if (slot !== null && action.cardUsed) {
         investor.hand.splice(slot, 1);
@@ -214,12 +231,16 @@ export class TradingRun {
         investor.synergies += action.ledger.synergies;
       }
       investor.path.push(route);
-      return { investor, route, card: action.cardUsed ? card ?? null : null, start, context, action };
+      return { investor, route, card: action.cardUsed ? card ?? null : null, start, context, action,
+        targetedRivals: card?.opponent ? view.opponents.map(target => target.name) : [] };
     });
     const report: DayReport = {
-      day: this.day, market, outcomes: outcomes.map(({ investor, route, card, start, context, action }) => {
+      day: this.day, market, outcomes: outcomes.map(({ investor, route, card, start, context, action, targetedRivals }) => {
         const worthBeforeMarket = netWorth(investor.account);
-        if (market && targets.has(investor)) applyMarket(investor, market, { ...context, marketDraw: marketRandom }, action.ledger);
+        const incoming = interference.get(investor.character.id) ?? [];
+        for (const source of incoming) applyMarket(investor, source, context, action.ledger);
+        const marketApplied = market !== null && targets.has(investor);
+        if (market && marketApplied) applyMarket(investor, market, { ...context, marketDraw: marketRandom }, action.ledger);
         const marketPnl = netWorth(investor.account) - worthBeforeMarket;
         if (investor.intelDay === this.day) investor.intelDay = null;
         if (action.ledger.protected) investor.hedgesUsed += 1;
@@ -227,7 +248,8 @@ export class TradingRun {
         if (action.draft && !risk.insolvent) this.awardDraft(investor);
         return {
           investor, node: route, card, start, close: netWorth(investor.account), ledger: action.ledger, marketPnl,
-          openingInterest: investor.depositInterest, risk, recovery: null, clearedCards: 0, clearedHedges: 0
+          openingInterest: investor.depositInterest, risk, recovery: null, clearedCards: 0, clearedHedges: 0,
+          targetedRivals, incomingCards: incoming.map(item => item.name), marketApplied
         };
       })
     };

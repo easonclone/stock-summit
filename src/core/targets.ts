@@ -1,7 +1,7 @@
-import type { MarketEvent } from '../config/settings';
+import type { TradingEvent } from '../config/financial-settings';
 import type { Random } from './random';
 
-export function marketTargets<T>(style: MarketEvent['target'], ranked: T[], random: Random): T[] {
+export function marketTargets<T>(style: TradingEvent['target'], ranked: T[], random: Random): T[] {
   switch (style) {
     case 'all': return [...ranked];
     case 'first_place': return ranked.slice(0, 1);

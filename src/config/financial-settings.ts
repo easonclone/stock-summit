@@ -1,5 +1,7 @@
 import { z } from 'zod';
 import financial from './financial.json';
+import gameplay from './gameplay.json';
+import npc from './npc.json';
 import data from '../data/finance.json';
 import characters from '../data/characters.json';
 import market from '../data/market-states.json';
@@ -44,7 +46,7 @@ const schema = z.object({
     maxHedges: z.number().int().min(1).max(6), recoveryGap: rate
   }),
   gameplay: z.object({ turns: day, eventEvery: day, initialHand: day, inventorySize: day.max(9) }),
-  nodes: z.object({ lanes: z.literal(4), maxLinks: z.literal(2), attempts: day, kinds: nodes, diverse: z.literal(true).optional() }),
+  nodes: z.object({ lanes: z.literal(4), maxLinks: z.literal(2), attempts: day, kinds: nodes }),
   npc: z.object({
     easy: z.number().nonnegative(), normal: z.number().nonnegative(), hard: z.number().nonnegative(),
     lookahead: rate, liquidity: positive, bankruptcyPenalty: positive, warningPenalty: positive,
@@ -55,6 +57,7 @@ const schema = z.object({
   market: z.record(z.enum(['neutral', 'positive', 'negative']), z.object({ name: label, icon })),
   effects: z.record(id, effect),
   cards: z.array(display.extend({ id, description: label, condition: label, duration: label, weight: positive,
+    opponent: z.literal('nearest_ahead').optional(),
     effectIds: references.refine(list => list.length > 0, '卡片至少需要一項效果') })).min(3),
   events: z.array(z.object({
     id, title: label, description: label, fictional: z.literal(true), weight: positive,
@@ -76,10 +79,9 @@ export type MarketTone = keyof FinancialConfig['market'];
 
 export const financialInput = {
   financial, characters, market, theme, effects: data.effects, cards: data.cards, events: data.events,
-  gameplay: { turns: 15, eventEvery: 3, initialHand: 2, inventorySize: 5 },
-  nodes: { lanes: 4, maxLinks: 2, attempts: 24, kinds: data.nodes, diverse: true },
-  npc: { easy: 330, normal: 95, hard: 15, lookahead: 0.32, liquidity: 0.38, bankruptcyPenalty: 4300,
-    warningPenalty: 260, cardReserve: 85, hedgeValue: 230, intelValue: 250, draftValue: 205 }
+  gameplay,
+  nodes: { lanes: 4, maxLinks: 2, attempts: 24, kinds: data.nodes },
+  npc
 };
 
 export function readFinancialConfig(raw: unknown = financialInput): FinancialConfig {
@@ -111,7 +113,12 @@ export function readFinancialConfig(raw: unknown = financialInput): FinancialCon
     }), `${event.id} 的追繳門檻須高於還款目標`);
   }
   for (const card of config.cards) {
-    assert(card.effectIds.every(key => ['combo', 'hedge', 'sell', 'intel', 'bailout', 'repay', 'cash_yield'].includes(config.effects[key].type)), `${card.id} 含不支援的手牌效果`);
+    const supported = card.opponent ? ['maintenance'] : ['combo', 'hedge', 'sell', 'intel', 'bailout', 'repay', 'cash_yield'];
+    assert(card.effectIds.every(key => supported.includes(config.effects[key].type)), `${card.id} 含不支援的手牌效果`);
+    assert(card.effectIds.every(key => {
+      const item = config.effects[key];
+      return item.type !== 'maintenance' || item.ltv > rules.restoredLtv;
+    }), `${card.id} 的追繳門檻須高於還款目標`);
   }
   for (const value of Object.values(config.effects)) {
     if (value.type === 'combo') assert(Object.values(routes.kinds).some(kind => kind.tags.includes(value.nodeTag)), `卡片協同缺少節點標籤 ${value.nodeTag}`);

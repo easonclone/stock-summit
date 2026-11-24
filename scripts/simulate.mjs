@@ -19,9 +19,9 @@ try {
     return [percentile(0.1), percentile(0.5), percentile(0.9)].map(round);
   };
 
-  function play(seed, strategy) {
+  function play(seed, strategy, settings = config) {
     const playerId = config.characters[(seed - 1) % 4].id;
-    const run = new TradingRun(config, { seed, playerId, difficulty: 'normal' });
+    const run = new TradingRun(settings, { seed, playerId, difficulty: 'normal' });
     while (!run.closed) {
       if (run.pendingRecovery) run.acceptRecovery();
       while (run.offer) {
@@ -34,6 +34,11 @@ try {
       if (!accepted) throw new Error(`無法結算日 ${run.day}，種子 ${seed}`);
     }
     return run;
+  }
+
+  function playerWinShare(run) {
+    const leaders = run.standings().filter(item => item.rank === 1);
+    return leaders.some(item => item.investor === run.player) ? 1 / leaders.length : 0;
   }
 
   const leaderboard = [];
@@ -58,8 +63,7 @@ try {
       const run = play(seed, strategy);
       const player = run.player;
       const { account } = player;
-      const leaders = run.standings().filter(item => item.rank === 1);
-      const win = leaders.some(item => item.investor === player) ? 1 / leaders.length : 0;
+      const win = playerWinShare(run);
       wins += win;
       wealth.push(netWorth(account));
       drawdowns.push(account.maxDrawdown);
@@ -99,9 +103,16 @@ try {
     for (const { investor } of leaders) characterWins[investor.character.id] += 1 / leaders.length;
   }
   const dominance = leaderboard.map(entry => entry.winRate).sort((a, b) => b - a);
+  const withoutRecovery = { ...config, financial: { ...config.financial, maxRecoveries: 0 } };
+  const recoveryComparison = Object.fromEntries(['leverage', 'bankrupt'].map(strategy => {
+    let wins = 0;
+    for (let seed = 1; seed <= seeds; seed++) wins += playerWinShare(play(seed, strategy, withoutRecovery));
+    const withRecovery = leaderboard.find(entry => entry.strategy === strategy).winRate;
+    return [strategy, { withRecovery, withoutRecovery: round(wins / seeds), change: round(withRecovery - wins / seeds) }];
+  }));
   console.log(JSON.stringify({
     seeds, startingSeed: 1, characterWinRates: Object.fromEntries(Object.entries(characterWins).map(([id, wins]) => [id, round(wins / seeds)])),
-    gapBetweenTopStrategies: round(dominance[0] - dominance[1]), leaderboard
+    gapBetweenTopStrategies: round(dominance[0] - dominance[1]), recoveryComparison, leaderboard
   }, null, 2));
 } finally {
   await server.close();

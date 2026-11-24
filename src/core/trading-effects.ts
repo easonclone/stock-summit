@@ -18,6 +18,7 @@ export interface EffectContext {
   recentLoss: boolean;
   marketDraw: number;
   eligibleAid: boolean;
+  opponentCount: number;
 }
 
 interface EffectLedger {
@@ -145,8 +146,8 @@ function applyEffect(state: TradingState, effect: FinanceEffect, context: Effect
 export function applyTrade(state: TradingState, kind: InvestmentKind, card: TradingCard | null, context: EffectContext) {
   const { config } = context;
   const ledger = effectLedger(config);
-  const effects = card?.effectIds.map(id => config.effects[id]) ?? [];
-  let cardUsed = false;
+  const effects = card && !card.opponent ? card.effectIds.map(id => config.effects[id]) : [];
+  let cardUsed = Boolean(card?.opponent && context.opponentCount);
   for (const effect of effects) {
     if (effect.type !== 'combo' && applyEffect(state, effect, context, ledger)) cardUsed = true;
   }
@@ -170,7 +171,7 @@ export function applyTrade(state: TradingState, kind: InvestmentKind, card: Trad
   return { ledger, cardUsed, funded, draft: eligible && Boolean(kind.draft) };
 }
 
-export function applyMarket(state: TradingState, event: TradingEvent, context: EffectContext, ledger: EffectLedger) {
+export function applyMarket(state: TradingState, event: Pick<TradingEvent, 'effectIds'>, context: EffectContext, ledger: EffectLedger) {
   for (const id of event.effectIds) applyEffect(state, context.config.effects[id], context, ledger, 0, true);
 }
 

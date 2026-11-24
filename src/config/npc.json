@@ -1,17 +1,13 @@
 {
-  "choiceNoise": {
-    "easy": 2.6,
-    "normal": 1.1,
-    "hard": 0.1
-  },
-  "lookahead": 0.5,
-  "cardValue": 1.6,
-  "intelValue": 0.5,
-  "shieldValue": 1,
-  "exposurePenalty": 0.9,
-  "cardUseChance": {
-    "easy": 0.45,
-    "normal": 0.8,
-    "hard": 1
-  }
+  "easy": 330,
+  "normal": 95,
+  "hard": 15,
+  "lookahead": 0.32,
+  "liquidity": 0.38,
+  "bankruptcyPenalty": 4300,
+  "warningPenalty": 260,
+  "cardReserve": 85,
+  "hedgeValue": 230,
+  "intelValue": 250,
+  "draftValue": 205
 }

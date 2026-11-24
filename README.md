@@ -34,3 +34,5 @@ npm run simulate -- 1000
 [文案比較](docs/COPY_AUDIT.md) · [30 張卡牌規劃](docs/CARD_PLAN.md)
 
 卡片可在持股時直接用，搭對路線可取得更高加成。股息與融資券可以提前布局，手牌選中時可使用每局三次的免費換牌。卡牌四組對照可執行 `npm run simulate -- 1000 --cards`；只驗證桌面可執行 `node scripts/verify-browser.mjs --desktop-only`。
+
+30 張卡已上線。卡牌對照報告可重跑 `npm run simulate -- 1000 --cards --expanded`。

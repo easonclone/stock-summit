@@ -19,3 +19,5 @@
 `src/data/market-events.json` 收錄 60 則虛構新聞。六類代碼依序為 `ai`、`taiwan`、`us`、`global`、`flows`、`memes`，數量為 12、12、10、8、10、8。事件只引用既有的股票漲跌及追繳效果。新聞文案不存效果百分比，畫面依效果設定和當日帳本輸出。
 
 卡片新增 `freedom`，搭配效果可設定 `base` 與 `prepareDays`；`fee_coupon.days` 設定融資券期限。玩法開關及換牌上限設定於 `src/config/card-rules.json`。
+
+完整牌池加入 `rarity`、`expandedOnly` 及選用的 `pairing`。`timed` 記錄持續或一次性布局，`route_card` 調整自有股票風險，`attack` 透過開盤目標套用。設定 `cardRules.rarity` 控制 65／30／5 的稀有度權重。

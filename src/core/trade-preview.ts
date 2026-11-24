@@ -1,15 +1,18 @@
-import type { FinancialConfig, InvestmentKind, TradingCard, TradingEvent } from '../config/financial-settings';
-import { debtBalance, depositBalance, marginLtv, netWorth, outstandingWorth } from './economy';
+import type { AllocationOption, FinancialConfig, InvestmentKind, TradingCard, TradingEvent } from '../config/financial-settings';
+import { netWorth } from './economy';
 import type { RouteNode } from './node-map';
 import { applyMarket, applyTrade, copyTradingState, marketTone, settleTrade, type EffectContext, type TradingState } from './trading-effects';
 
-export interface TradeChoice { lane: number; card: number | null; prepare?: boolean }
+/** Allocation id is locked with the route and card before any market result is known. */
+export interface TradeChoice { lane: number; card: number | null; prepare?: boolean; allocation?: string }
 
 export interface DecisionView {
   config: FinancialConfig;
   characterId: string;
   day: number;
   state: TradingState;
+  /** Allocation kept from the previous day; the default for today's choice. */
+  allocation: string;
   hand: readonly TradingCard[];
   routes: readonly RouteNode[];
   nextRow: readonly RouteNode[];
@@ -27,21 +30,27 @@ export interface DecisionView {
   followingEventDay: number | null;
 }
 
+export function allocationOption(config: FinancialConfig, id: string | undefined): AllocationOption {
+  return config.allocation.options.find(option => option.id === id)
+    ?? config.allocation.options.find(option => option.id === config.allocation.initial)!;
+}
+
 export function targetsFor(view: DecisionView, card: TradingCard | null) {
   return card?.opponent ? view.attackTargets[card.opponent] : [];
 }
 
-export function forecastTrade(view: DecisionView, node: RouteNode, card: TradingCard | null, showCardImpact = false, prepare = false) {
+export function forecastTrade(view: DecisionView, node: RouteNode, card: TradingCard | null, showCardImpact = false, prepare = false, allocationId = view.allocation) {
   const { config, day } = view;
+  const allocation = allocationOption(config, allocationId);
   const kind = config.nodes.kinds[node.kind];
   const initial = netWorth(view.state.account);
   const draw = (marketDraw: number, market: TradingEvent | null, localDraw = marketDraw, selectedCard = card) => {
     const state = copyTradingState(view.state);
-    const context: EffectContext = { config, day, eventDay: view.nextEventDay,
+    const context: EffectContext = { config, day, eventDay: view.nextEventDay, allocation,
       recentLoss: view.recentLoss, marketDraw: localDraw, eligibleAid: view.eligibleAid, opponentCount: targetsFor(view, selectedCard).length, followingEventDay: view.followingEventDay, marketToday: view.eventToday };
     const action = applyTrade(state, kind, selectedCard, context, selectedCard === card && prepare);
     if (market) applyMarket(state, market, { ...context, marketDraw }, action.ledger);
-    const risk = settleTrade(state, action.ledger, config, day === config.gameplay.turns);
+    const risk = settleTrade(state);
     return { state, action, risk, delta: netWorth(state.account) - initial };
   };
 
@@ -58,7 +67,6 @@ export function forecastTrade(view: DecisionView, node: RouteNode, card: Trading
   const average = publicEvents ? draw(0.5, publicEvents.typical) : base;
   const { account } = average.state;
   const { ledger } = base.action;
-  const currentDebt = debtBalance(view.state.account);
   const extraProtection = showCardImpact && card && base.action.cardUsed && bearish.action.ledger.protected
     ? Math.max(0, bearish.action.ledger.protected - draw(0, downside, 0, null).action.ledger.protected) : 0;
   return {
@@ -67,13 +75,12 @@ export function forecastTrade(view: DecisionView, node: RouteNode, card: Trading
     high: Math.max(bearish.delta, base.delta, bullish.delta),
     expected: (base.delta + average.delta + (bullish.delta + bearish.delta) * 0.5) / 3,
     riskOfLoss: Math.max(0, -bearish.delta), insolvencyRisk: Number(bearish.risk.insolvent) || Number(base.risk.insolvent),
-    cash: account.cash, investment: account.investmentValue, deposits: depositBalance(account),
-    debt: debtBalance(account), debtChange: debtBalance(account) - currentDebt, orderDebt: ledger.borrowed,
-    invested: ledger.invested, sold: ledger.sold, repaid: ledger.repaid, deposited: ledger.deposited,
+    cash: account.cash, investment: account.investmentValue,
+    rebalance: ledger.rebalance, sold: ledger.sold,
+    marketLow: bearish.action.ledger.baseMarket, marketHigh: bullish.action.ledger.baseMarket,
     fees: ledger.fees, hedgeCount: base.state.hedges.length, intelDay: base.state.intelDay,
     gainedHedge: base.state.hedges.some((hedge, index) => hedge > (view.state.hedges[index] ?? 0)),
-    afterWorth: outstandingWorth(account), ltv: marginLtv(account), warnings: average.risk.warnings,
-    exposureRisk: bearish.risk.call !== null, marginRequired: bearish.risk.call?.required ?? 0,
+    afterWorth: netWorth(account),
     synergyGain: ledger.synergyGain, synergies: ledger.synergies, cardImpact: base.action.cardImpact, cardBlock: base.action.cardBlock, extraProtection,
     preparation: base.action.preparation, baseGain: ledger.baseGain, activeComboGain: ledger.activeComboGain, feeSaved: ledger.feeSaved,
     opponents: targetsFor(view, card).map(opponent => opponent.name), bonusDraw: ledger.bonusDraw, intelCount: [base.state.intelDay, ...base.state.extraIntel].filter(day => day !== null).length
@@ -87,18 +94,18 @@ export function cardPreparationAvailable(config: FinancialConfig, card: TradingC
   });
 }
 
-export function inspectCard(view: DecisionView, node: RouteNode, card: TradingCard, prepare = false) {
+export function inspectCard(view: DecisionView, node: RouteNode, card: TradingCard, prepare = false, allocationId = view.allocation) {
   return applyTrade(copyTradingState(view.state), view.config.nodes.kinds[node.kind], card, {
-    config: view.config, day: view.day, eventDay: view.nextEventDay, recentLoss: view.recentLoss,
+    config: view.config, allocation: allocationOption(view.config, allocationId), day: view.day, eventDay: view.nextEventDay, recentLoss: view.recentLoss,
     marketDraw: 0.5, eligibleAid: view.eligibleAid, opponentCount: targetsFor(view, card).length, followingEventDay: view.followingEventDay, marketToday: view.eventToday
   }, prepare);
 }
 
-export function handAvailability(view: DecisionView) {
+export function handAvailability(view: DecisionView, allocationId = view.allocation) {
   return view.hand.map(card => {
     const results = view.routes.flatMap(node => [
-      inspectCard(view, node, card),
-      ...(cardPreparationAvailable(view.config, card) ? [inspectCard(view, node, card, true)] : [])
+      inspectCard(view, node, card, false, allocationId),
+      ...(cardPreparationAvailable(view.config, card) ? [inspectCard(view, node, card, true, allocationId)] : [])
     ]);
     return { usable: results.some(result => result.cardUsed), routeBlocked: results.length > 0 &&
       results.every(result => result.cardBlock === 'route') };

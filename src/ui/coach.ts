@@ -1,14 +1,15 @@
 import type { TradingRun } from '../core/trading-run';
 import type { TerminalSelection } from './trading-terminal';
+import { marketTone } from '../core/trading-effects';
 
-export type TipId = 'leverage' | 'deposit' | 'shield' | 'margin_call' | 'bankruptcy';
+export type TipId = 'allocation' | 'cards' | 'cash_safe' | 'shield' | 'bankruptcy';
 
 const tips: Record<TipId, string> = {
-  leverage: '開槓桿＝借錢買股：賺賠都放大，每天還要付利息。',
-  deposit: '定存會鎖幾天，每天領利息，不受新聞漲跌影響，到期領回本金。',
+  allocation: '先選今天買多少股票。股票會跟著市場漲跌，現金不會。',
+  cards: '卡片可以讓你多賺或少賠，一天最多用一張，也可以留著以後用。',
+  cash_safe: '股票跌的時候，留在手上的現金一毛都不會少。',
   shield: '護盾會在利空時自動擋下部分損失，擋一次就用掉。',
-  margin_call: '借錢買的股票跌太多，券商會要你補錢；補不出來就強制賣股。',
-  bankruptcy: '收盤時總身家變負就破產出局。借錢前先想好最壞情況。'
+  bankruptcy: '總身家歸零時，第一次可以拿翻身資金重來，第二次就出局。'
 };
 
 const storageKey = 'stock-summit-coach';
@@ -44,18 +45,18 @@ export class Coach {
     } catch { /* ignore */ }
   }
 
-  /** Which first-encounter tip applies now, from the selected route and the player's real account. */
-  private tipFor(run: TradingRun, ui: TerminalSelection): TipId | null {
-    const { account, hedges } = run.player;
-    const node = ui.lane === null ? null : run.reachable(run.player).find(item => item.lane === ui.lane);
-    const latest = run.reports.at(-1)?.outcomes.find(item => item.investor === run.player);
-    const preview = ui.lane === null ? null : run.preview(ui.lane, ui.slot, false, ui.prepare);
+  /** Which first-encounter tip applies now, from the player's real record. */
+  private tipFor(run: TradingRun): TipId | null {
+    const { hedges } = run.player;
+    const latest = run.reports.at(-1);
+    const outcome = latest?.outcomes.find(item => item.investor === run.player);
+    const fell = Boolean(latest?.market && outcome?.marketApplied && marketTone(latest.market, run.config) === 'negative');
     const checks: [TipId, boolean][] = [
-      ['bankruptcy', run.investors.some(item => item.account.eliminated) || Boolean(latest?.risk.insolvent)],
-      ['margin_call', account.financialStatus === 'margin_call' || account.financialStatus === 'warning' || Boolean(latest?.risk.call) || Boolean(preview?.exposureRisk)],
-      ['leverage', Boolean(preview?.orderDebt) || account.marginDebt > 0],
-      ['deposit', node?.kind === 'deposit' || account.deposits.length > 0],
-      ['shield', hedges.length > 0]
+      ['bankruptcy', run.investors.some(item => item.account.eliminated) || Boolean(outcome?.risk.insolvent)],
+      ['allocation', run.day === 1],
+      ['cash_safe', fell],
+      ['shield', hedges.length > 0],
+      ['cards', run.day >= 2]
     ];
     return checks.find(([id, hit]) => hit && !this.seen.has(id))?.[0] ?? null;
   }
@@ -64,11 +65,11 @@ export class Coach {
     if (!this.enabled || run.player.account.eliminated) return '';
     const parts: string[] = [];
     if (run.reports.length < 3) {
-      const step = ui.lane !== null ? 2 : ui.slot !== null ? 1 : 0;
-      parts.push(`<ol class="coach-steps" aria-label="怎麼玩">${['選卡', '選投資', '下單', '看結果'].map((label, index) =>
+      const step = ui.slot !== null ? 2 : ui.allocation !== null ? 1 : 0;
+      parts.push(`<ol class="coach-steps" aria-label="怎麼玩">${['買多少股票', '用卡（可不用）', '開始交易'].map((label, index) =>
         `<li class="${index < step ? 'done' : index === step ? 'now' : ''}">${label}</li>`).join('')}</ol>`);
     }
-    const tip = this.tipFor(run, ui);
+    const tip = this.tipFor(run);
     if (tip) parts.push(`<p class="coach-tip" role="note"><span>${tips[tip]}</span><button type="button" class="text-button" data-act="tip-ok" data-value="${tip}">知道了</button></p>`);
     if (!parts.length) return '';
     return `<div class="coach">${parts.join('')}<button type="button" class="coach-off" data-act="coach-off" aria-label="關閉新手提示">略過教學</button></div>`;

@@ -51,10 +51,8 @@ try {
     for (const strategy of strategies) {
       const wealth = [];
       const drawdowns = [];
-      const visits = {};
       let wins = 0;
-      let warnings = 0;
-      let liquidations = 0;
+      const allocations = {};
       let bankruptcies = 0;
       let repeatBankruptcies = 0;
       let recovered = 0;
@@ -64,7 +62,6 @@ try {
       let synergies = 0;
       let turnCount = 0;
       let comeback = 0;
-      let forgiven = 0;
       for (let seed = 1; seed <= seeds; seed++) {
         const run = play(seed, strategy);
         const player = run.player;
@@ -73,8 +70,10 @@ try {
         wins += win;
         wealth.push(netWorth(account));
         drawdowns.push(account.maxDrawdown);
-        warnings += Number(account.stats.warnings > 0);
-        liquidations += Number(account.stats.liquidations > 0);
+        for (const report of run.reports) {
+          const outcome = report.outcomes.find(item => item.investor === player);
+          if (outcome) allocations[outcome.allocation] = (allocations[outcome.allocation] ?? 0) + 1;
+        }
         bankruptcies += Number(account.bankruptcyCount > 0);
         repeatBankruptcies += Number(account.bankruptcyCount > 1);
         recovered += Number(player.recoveries > 0);
@@ -84,20 +83,17 @@ try {
         synergies += player.synergies;
         turnCount += player.path.length;
         comeback += Number(win > 0 && player.ranks.slice(1, -1).some(rank => rank !== null && rank > 1));
-        forgiven += account.stats.debtForgiven;
-        for (const node of player.path) visits[node.kind] = (visits[node.kind] ?? 0) + 1;
       }
       const roi = wealth.map(value => value / config.financial.initialCapital - 1);
       const entry = {
         strategy, winRate: round(wins / seeds), meanNetWorth: round(wealth.reduce((sum, amount) => sum + amount, 0) / seeds),
         netWorthP10P50P90: distribution(wealth), returnP10P50P90: distribution(roi),
-        drawdownP10P50P90: distribution(drawdowns), warningRate: round(warnings / seeds),
-        liquidationRate: round(liquidations / seeds), firstBankruptcyRate: round(bankruptcies / seeds),
+        drawdownP10P50P90: distribution(drawdowns), firstBankruptcyRate: round(bankruptcies / seeds),
         secondBankruptcyRate: round(repeatBankruptcies / seeds), recoveryCount: recovered,
         recoverySurvivalRate: round(fraction(recoveredAlive, recovered)), recoveryWinRate: round(fraction(recoveredWins, recovered)),
-        forgivenDebtPerRecovery: round(fraction(forgiven, recovered)), cardUsageRate: round(fraction(cards, turnCount)),
+        cardUsageRate: round(fraction(cards, turnCount)),
         synergyRate: round(fraction(synergies, turnCount)), comebackRate: round(comeback / seeds),
-        nodeRates: Object.fromEntries(Object.entries(visits).sort().map(([kind, total]) => [kind, round(fraction(total, turnCount))]))
+        allocationRates: Object.fromEntries(Object.entries(allocations).sort().map(([id, total]) => [id, round(fraction(total, turnCount))]))
       };
       leaderboard.push(entry);
       console.error(`${strategy}：${entry.winRate} 勝率、${entry.firstBankruptcyRate} 首次破產率、平均 ${entry.meanNetWorth}`);
@@ -110,7 +106,7 @@ try {
     }
     const dominance = leaderboard.map(entry => entry.winRate).sort((a, b) => b - a);
     const withoutRecovery = { ...config, financial: { ...config.financial, maxRecoveries: 0 } };
-    const recoveryComparison = Object.fromEntries(['leverage', 'bankrupt'].map(strategy => {
+    const recoveryComparison = Object.fromEntries(['all', 'random'].map(strategy => {
       let wins = 0;
       for (let seed = 1; seed <= seeds; seed++) wins += playerWinShare(play(seed, strategy, withoutRecovery));
       const withRecovery = leaderboard.find(entry => entry.strategy === strategy).winRate;

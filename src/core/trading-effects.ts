@@ -1,13 +1,12 @@
-import type { FinanceEffect, FinancialConfig, InvestmentKind, TradingCard, TradingEvent } from '../config/financial-settings';
+import type { AllocationOption, FinanceEffect, FinancialConfig, InvestmentKind, TradingCard, TradingEvent } from '../config/financial-settings';
 import {
-  chargeClosingCost, chargeMarginInterest, copyPortfolio, debtBalance, invest, investmentOrder,
-  lockDeposit, netWorth, repay, revalue, sellInvestment, type Portfolio
+  copyPortfolio, netWorth, rebalance, revalue, type Portfolio, type Rebalance
 } from './economy';
 import { settleRisk } from './financial-risk';
 
 export interface PreparedCard {
   id: string;
-  kind: 'dividend' | 'fee' | 'deposit' | 'stock' | 'rally' | 'short' | 'safe_shield';
+  kind: 'dividend' | 'cash' | 'stock' | 'rally' | 'short' | 'safe_shield';
   cap?: number;
   incomeTriggered?: boolean;
   amount: number;
@@ -29,22 +28,24 @@ export interface EffectContext {
   eventDay: number | null;
   recentLoss: boolean;
   marketDraw: number;
+  /** Independent per-investor draw for luck nodes; defaults to marketDraw in previews. */
+  luckDraw?: number;
+  allocation: AllocationOption;
   eligibleAid: boolean;
   opponentCount: number;
   followingEventDay?: number | null;
   marketToday?: boolean;
-  creditBlocked?: boolean;
 }
 
 export type CardBlock = 'no_stock' | 'full_shield' | 'no_news' | 'known_news' | 'cash_high' |
-  'cannot_borrow' | 'no_debt' | 'low_cash' | 'no_opponent' | 'route' | 'need_downturn' | 'already_prepared' | 'no_days' | 'no_deposit' | 'recovery_required' | 'already_used' | 'equity_high';
+  'low_cash' | 'no_opponent' | 'route' | 'need_downturn' | 'already_prepared' | 'no_days' | 'recovery_required' | 'already_used' | 'equity_high';
 
 interface EffectLedger {
-  invested: number;
-  borrowed: number;
+  rebalance: Rebalance | null;
+  /** Gain or loss from the shared daily market move on stock held after rebalancing. */
+  baseMarket: number;
+  gamble: number;
   sold: number;
-  repaid: number;
-  deposited: number;
   fees: number;
   dividends: number;
   investmentPnl: number;
@@ -53,25 +54,21 @@ interface EffectLedger {
   marketRate: number | null;
   synergies: number;
   synergyGain: number;
-  interestWaived: boolean;
   preparedTriggers: number;
   feeSaved: number;
   cardGain: number;
   baseGain: number;
   stockCardGain: number;
   activeComboGain: number;
-  maintenance: number;
   marketCardGain: number;
   bonusDraw: boolean;
   cardDraft: boolean;
-  interestMultiplier: number;
 }
 
 function effectLedger(config: FinancialConfig): EffectLedger {
-  return { invested: 0, borrowed: 0, sold: 0, repaid: 0, deposited: 0, fees: 0, dividends: 0,
-    investmentPnl: 0, cashYield: 0, protected: 0, marketRate: null, synergies: 0, synergyGain: 0, interestWaived: false, preparedTriggers: 0, feeSaved: 0, cardGain: 0, baseGain: 0, stockCardGain: 0, activeComboGain: 0,
-    marketCardGain: 0, bonusDraw: false, cardDraft: false, interestMultiplier: 1,
-    maintenance: config.financial.callLtv };
+  return { rebalance: null, baseMarket: 0, gamble: 0, sold: 0, fees: 0, dividends: 0,
+    investmentPnl: 0, cashYield: 0, protected: 0, marketRate: null, synergies: 0, synergyGain: 0, preparedTriggers: 0, feeSaved: 0, cardGain: 0, baseGain: 0, stockCardGain: 0, activeComboGain: 0,
+    marketCardGain: 0, bonusDraw: false, cardDraft: false };
 }
 
 export function marketTone(event: TradingEvent, config: FinancialConfig) {
@@ -79,22 +76,21 @@ export function marketTone(event: TradingEvent, config: FinancialConfig) {
   return !price ? 'neutral' : price.floor + price.ceiling > 0 ? 'positive' : price.floor + price.ceiling < 0 ? 'negative' : 'neutral';
 }
 
-const ownStocks = (account: Portfolio) => Math.max(0, account.investmentValue - account.marginDebt);
+const ownStocks = (account: Portfolio) => Math.max(0, account.investmentValue);
 
 export function hedgeLayers(state: TradingState) {
   return state.hedges.length + state.prepared.filter(item => item.kind === 'safe_shield').length;
 }
 
-export function openingCardIncome(state: TradingState, rules: FinancialConfig['financial']) {
+export function openingCardIncome(state: TradingState) {
   const { account } = state;
-  let deposit = 0;
+  let cash = 0;
   let stock = 0;
   let triggers = 0;
   for (const effect of state.prepared) {
-    if (effect.kind === 'deposit') {
-      const reward = account.deposits.reduce((total, item) =>
-        total + Math.round(Math.round(item.balance * rules.depositDailyRate) * effect.amount), 0);
-      deposit += reward;
+    if (effect.kind === 'cash' && netWorth(account) > 0) {
+      const reward = Math.min(effect.cap ?? Infinity, Math.max(0, Math.round(account.cash * effect.amount)));
+      cash += reward;
       if (reward && !effect.incomeTriggered) { effect.incomeTriggered = true; triggers++; }
     }
     if (effect.kind === 'stock') {
@@ -103,32 +99,15 @@ export function openingCardIncome(state: TradingState, rules: FinancialConfig['f
       if (reward && !effect.incomeTriggered) { effect.incomeTriggered = true; triggers++; }
     }
   }
-  account.cash += deposit + stock;
-  account.stats.depositYield += deposit;
-  account.stats.cashYield += stock;
-  return { deposit, stock, triggers };
+  account.cash += cash + stock;
+  account.stats.cashYield += cash + stock;
+  return { cash, stock, triggers };
 }
 
 function applyEffect(state: TradingState, effect: FinanceEffect, context: EffectContext, ledger: EffectLedger, extra = 0, market = false): true | CardBlock {
   const account = state.account;
   const rules = context.config.financial;
   switch (effect.type) {
-    case 'invest': {
-      if (effect.borrow > 0 && context.creditBlocked) return 'cannot_borrow';
-      const order = investmentOrder(account, effect.fraction, effect.borrow, context.day, rules);
-      const coupon = order.borrowed > 0 ? state.prepared.find(item => item.kind === 'fee' && item.expires >= context.day) : undefined;
-      if (coupon) {
-        ledger.feeSaved += order.fee;
-        ledger.preparedTriggers++;
-        state.prepared = state.prepared.filter(item => item !== coupon);
-        order.fee = 0;
-      }
-      invest(account, order);
-      ledger.invested += order.stake;
-      ledger.borrowed += order.borrowed;
-      ledger.fees += order.fee;
-      return order.stake > 0 || 'cannot_borrow';
-    }
     case 'price': {
       const rate = effect.floor + (effect.ceiling - effect.floor) * context.marketDraw;
       const scenario = rate + extra;
@@ -169,18 +148,6 @@ function applyEffect(state: TradingState, effect: FinanceEffect, context: Effect
       if (extra) ledger.synergyGain += profit - Math.round(before * rate);
       return profit !== 0 || 'no_stock';
     }
-    case 'sell': {
-      const sale = sellInvestment(account, effect.fraction);
-      ledger.sold += sale;
-      const paid = effect.repay ? repay(account, sale) : { margin: 0, bailout: 0 };
-      ledger.repaid += paid.margin + paid.bailout;
-      return sale > 0 || 'no_stock';
-    }
-    case 'deposit': {
-      const deposited = lockDeposit(account, effect.fraction, context.day, rules);
-      ledger.deposited += deposited;
-      return deposited > 0 || 'low_cash';
-    }
     case 'dividend': {
       const dividend = Math.round(account.investmentValue * effect.rate * (1 + extra));
       account.cash += dividend;
@@ -205,32 +172,6 @@ function applyEffect(state: TradingState, effect: FinanceEffect, context: Effect
       ledger.bonusDraw ||= effect.bonusDraw === true;
       return true;
     }
-    case 'maintenance':
-      ledger.maintenance = Math.min(ledger.maintenance, effect.ltv);
-      return true;
-    case 'bailout': {
-      const worth = netWorth(account);
-      const borrowing = effect.amount + effect.fee;
-      if (account.cash >= account.initialCapital * effect.cashThreshold) return 'cash_high';
-      if (worth <= effect.fee || debtBalance(account) + borrowing > (worth - effect.fee) * rules.maxDebtToEquity || account.closingPayable) return 'cannot_borrow';
-      account.cash += effect.amount;
-      account.bailoutDebt += borrowing;
-      account.stats.fees += effect.fee;
-      ledger.fees += effect.fee;
-      return true;
-    }
-    case 'repay': {
-      const budget = Math.floor(account.cash * effect.fraction);
-      const paid = repay(account, Math.min(debtBalance(account), Math.floor(budget / (1 + effect.feeRate))));
-      const repaid = paid.margin + paid.bailout;
-      const fee = Math.round(repaid * effect.feeRate);
-      account.cash -= fee;
-      account.stats.fees += fee;
-      ledger.fees += fee;
-      ledger.repaid += repaid;
-      ledger.interestWaived ||= repaid > 0;
-      return repaid > 0 || (debtBalance(account) ? 'low_cash' : 'no_debt');
-    }
     case 'cash_yield': {
       if (account.cash < netWorth(account) * effect.threshold || netWorth(account) <= 0) return 'low_cash';
       const income = Math.round(account.cash * effect.rate);
@@ -247,10 +188,12 @@ function applyEffect(state: TradingState, effect: FinanceEffect, context: Effect
       account.stats.cashYield += effect.amount;
       ledger.cashYield += effect.amount;
       return true;
-    case 'redeem': {
-      if (!account.deposits.length) return 'no_deposit';
-      account.cash += account.deposits.reduce((sum, item) => sum + item.balance, 0);
-      account.deposits = [];
+    case 'gamble': {
+      const draw = context.luckDraw ?? context.marketDraw;
+      const amount = Math.max(-account.cash, Math.round(effect.floor + (effect.ceiling - effect.floor) * draw));
+      account.cash += amount;
+      account.stats.cashYield += amount;
+      ledger.gamble += amount;
       return true;
     }
     case 'card_draft':
@@ -260,8 +203,7 @@ function applyEffect(state: TradingState, effect: FinanceEffect, context: Effect
     case 'combo':
     case 'timed':
     case 'route_card':
-    case 'attack':
-    case 'fee_coupon': return 'route';
+    case 'attack': return 'route';
   }
 }
 
@@ -271,36 +213,39 @@ function pairedEffect(effect: FinanceEffect, bonus: number): FinanceEffect {
   switch (effect.type) {
     case 'hedge': return { ...effect, protection: Math.min(1, effect.protection + bonus) };
     case 'cash_yield': return { ...effect, rate: Math.min(1, effect.rate + bonus) };
-    case 'sell': return { ...effect, fraction: Math.min(1, effect.fraction + bonus) };
-    case 'repay': return { ...effect, feeRate: Math.max(0, effect.feeRate - bonus) };
     case 'cash_grant': return { ...effect, amount: Math.round(effect.amount * (1 + bonus)) };
-    case 'bailout': return { ...effect, fee: Math.max(0, effect.fee - Math.round(effect.amount * bonus)) };
     default: return effect;
   }
 }
 
+export function allocationTags(kind: InvestmentKind, allocation: AllocationOption) {
+  return [...new Set([...kind.tags, ...allocation.tags])];
+}
+
+/**
+ * One investor's locked daily action, in rule order: rebalance to the chosen allocation, card and node effects,
+ * then the shared daily market move. News (applyMarket), interest and risk follow in the caller.
+ */
 export function applyTrade(state: TradingState, kind: InvestmentKind, card: TradingCard | null, context: EffectContext, prepare = false) {
   const { config } = context;
   const ledger = effectLedger(config);
+  const tags = allocationTags(kind, context.allocation);
   const effects = card && !card.opponent ? card.effectIds.map(id => config.effects[id]) : [];
   let cardUsed = Boolean(card?.opponent && context.opponentCount);
   let cardBlock: CardBlock = card?.opponent ? 'no_opponent' : 'route';
-  const coupon = effects.find(effect => effect.type === 'fee_coupon');
-  const pairing = config.cardRules.expanded && card?.pairing && kind.tags.some(tag => card.pairing!.tags.includes(tag)) ? card.pairing.amount : 0;
+  const pairing = config.cardRules.expanded && card?.pairing && tags.some(tag => card.pairing!.tags.includes(tag)) ? card.pairing.amount : 0;
   const timed = effects.find(effect => effect.type === 'timed');
   const routeCard = effects.find(effect => effect.type === 'route_card');
-  const hasPrice = kind.effectIds.some(id => config.effects[id].type === 'price');
   const routeBonus = routeCard && (routeCard.mode === 'cushion' || netWorth(state.account) < state.account.initialCapital * routeCard.equity!);
   if (routeCard?.mode === 'desperate' && !routeBonus) cardBlock = 'equity_high';
   let routeApplied = false;
   let placed: PreparedCard | null = null;
   const futureDividend = effects.find(effect => effect.type === 'combo' && effect.prepareDays !== undefined);
-  const setUp = coupon && context.config.cardRules.preparations ? {
-    kind: 'fee' as const, days: coupon.days, amount: 0
-  } : prepare && context.config.cardRules.preparations && futureDividend?.type === 'combo' ? {
+  const setUp = prepare && context.config.cardRules.preparations && futureDividend?.type === 'combo' ? {
     kind: 'dividend' as const, days: futureDividend.prepareDays!, amount: futureDividend.amount
   } : null;
   if (prepare && !setUp) return { ledger, cardUsed: false, funded: false, cardImpact: null, cardBlock, draft: false, preparation: null };
+  ledger.rebalance = rebalance(state.account, context.allocation.ratio);
   const preparation = setUp && card ? {
     id: card.id, kind: setUp.kind, amount: setUp.amount,
     expires: Math.min(context.day + setUp.days, config.gameplay.turns)
@@ -311,31 +256,23 @@ export function applyTrade(state: TradingState, kind: InvestmentKind, card: Trad
     else cardUsed = true;
   }
   const openingCash = state.account.cash;
-  const openingDebt = debtBalance(state.account);
   for (const effect of effects) {
-    if (effect.type === 'combo' || effect.type === 'fee_coupon' || effect.type === 'timed' || effect.type === 'route_card') continue;
+    if (effect.type === 'combo' || effect.type === 'timed' || effect.type === 'route_card') continue;
     const result = applyEffect(state, pairing ? pairedEffect(effect, pairing) : effect, context, ledger);
     if (result === true) { cardUsed = true; if (pairing) ledger.synergies++; }
     else cardBlock = result;
   }
   const cardImpact = card ? {
-    cash: state.account.cash - openingCash, debt: debtBalance(state.account) - openingDebt,
-    sold: ledger.sold, repaid: ledger.repaid, fees: ledger.fees
+    cash: state.account.cash - openingCash
   } : null;
   const eligible = kind.draft !== 'catchup' || context.eligibleAid;
   const combos = (setUp ? [] : effects).filter(effect => effect.type === 'combo')
-    .filter(effect => kind.tags.includes(effect.nodeTag) && (!effect.afterLoss || context.recentLoss));
+    .filter(effect => tags.includes(effect.nodeTag) && (!effect.afterLoss || context.recentLoss));
   if (effects.some(effect => effect.type === 'combo' && effect.afterLoss && !context.recentLoss)) cardBlock = 'need_downturn';
   const boosted = new Set<FinanceEffect>();
-  let funded = true;
-  for (const id of eligible ? kind.effectIds : []) {
+  const dailyMarket = config.allocation.dailyMarket;
+  for (const id of [...(eligible ? kind.effectIds : []), dailyMarket]) {
     const effect = config.effects[id];
-    if (effect.type === 'invest') {
-      funded = applyEffect(state, effect, context, ledger) === true || effect.borrow === 0;
-      if (!funded && combos.length) cardBlock = 'cannot_borrow';
-      continue;
-    }
-    if (!funded) continue;
     if (!state.account.investmentValue && combos.some(combo => combo.mode === effect.type)) cardBlock = 'no_stock';
     const pendingDividend = effect.type === 'dividend' && Math.round(state.account.investmentValue * effect.rate) > 0
       ? state.prepared.find(item => item.kind === 'dividend' && item.expires >= context.day) : undefined;
@@ -352,7 +289,9 @@ export function applyTrade(state: TradingState, kind: InvestmentKind, card: Trad
         routeApplied = true;
       }
     }
+    const pnlBefore = ledger.investmentPnl;
     applyEffect(state, effect, context, ledger, extra);
+    if (id === dailyMarket) ledger.baseMarket += ledger.investmentPnl - pnlBefore - (ledger.synergyGain - before);
     if (pendingDividend && pendingDividend.amount >= activeBonus) {
       state.prepared = state.prepared.filter(item => item !== pendingDividend);
       ledger.preparedTriggers++;
@@ -399,15 +338,14 @@ export function applyTrade(state: TradingState, kind: InvestmentKind, card: Trad
   }
   if (routeCard && routeApplied) {
     cardUsed = true;
-    if (routeCard.mode === 'cushion' && hasPrice && ledger.synergyGain > 0) ledger.synergies++;
+    if (routeCard.mode === 'cushion' && ledger.synergyGain > 0) ledger.synergies++;
   }
   if (timed && card) {
     const hasMarket = context.eventDay !== null || context.marketToday;
-    const isYield = timed.kind === 'deposit' || timed.kind === 'stock';
+    const isYield = timed.kind === 'cash' || timed.kind === 'stock';
     if (state.prepared.some(item => item.id === card.id)) cardBlock = 'already_prepared';
     else if (isYield && context.day >= configLastDay(context)) cardBlock = 'no_days';
     else if (!isYield && !hasMarket) cardBlock = 'no_news';
-    else if (timed.kind === 'deposit' && !state.account.deposits.length) cardBlock = 'no_deposit';
     else if ((timed.kind === 'stock' || timed.kind === 'short') && !ownStocks(state.account)) cardBlock = 'no_stock';
     else if (timed.kind === 'safe_shield' && hedgeLayers(state) >= config.financial.maxHedges) cardBlock = 'full_shield';
     else {
@@ -420,7 +358,7 @@ export function applyTrade(state: TradingState, kind: InvestmentKind, card: Trad
   }
   if (preparation && cardUsed) { placed = preparation; state.prepared.push(placed); }
   ledger.cardGain += ledger.cashYield + ledger.feeSaved;
-  return { ledger, cardUsed, funded, cardImpact, cardBlock: card && !cardUsed ? cardBlock : null,
+  return { ledger, cardUsed, funded: true, cardImpact, cardBlock: card && !cardUsed ? cardBlock : null,
     draft: eligible && Boolean(kind.draft), preparation: placed };
 }
 
@@ -428,24 +366,17 @@ export function applyMarket(state: TradingState, event: Pick<TradingEvent, 'effe
   for (const id of event.effectIds) applyEffect(state, context.config.effects[id], context, ledger, 0, true);
 }
 
-export function applyCompetition(state: TradingState, effects: FinanceEffect[], ledger: EffectLedger, context: EffectContext) {
+export function applyCompetition(state: TradingState, effects: FinanceEffect[], ledger: EffectLedger) {
   for (const effect of effects) {
-    if (effect.type === 'maintenance') applyEffect(state, effect, context, ledger);
-    if (effect.type !== 'attack') continue;
-    if (effect.mode === 'price') ledger.investmentPnl += revalue(state.account, -effect.amount);
-    if (effect.mode === 'interest') ledger.interestMultiplier = Math.max(ledger.interestMultiplier, 1 + effect.amount);
+    if (effect.type === 'attack') ledger.investmentPnl += revalue(state.account, -effect.amount);
   }
 }
 
-export function settleTrade(state: TradingState, ledger: EffectLedger, config: FinancialConfig, finalDay: boolean) {
-  if (!ledger.interestWaived) ledger.fees += chargeMarginInterest(state.account,
-    ledger.interestMultiplier > 1 ? { ...config.financial, marginDailyRate: config.financial.marginDailyRate * ledger.interestMultiplier } : config.financial);
-  if (finalDay) ledger.fees += chargeClosingCost(state.account);
-  const result = settleRisk(state.account, config.financial, ledger.maintenance);
-  ledger.fees += result.call?.fee ?? 0;
-  return result;
+/** 收盤：沒有利息或費用，只檢查總身家是否歸零。 */
+export function settleTrade(state: TradingState) {
+  return settleRisk(state.account);
 }
 
 export function copyTradingState(state: TradingState): TradingState {
-  return { account: copyPortfolio(state.account), hedges: [...state.hedges], intelDay: state.intelDay, extraIntel: [...state.extraIntel], usedRelief: state.usedRelief, prepared: [...state.prepared] };
+  return { account: copyPortfolio(state.account), hedges: [...state.hedges], intelDay: state.intelDay, extraIntel: [...state.extraIntel], usedRelief: state.usedRelief, prepared: state.prepared.map(item => ({ ...item })) };
 }

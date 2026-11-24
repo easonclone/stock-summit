@@ -49,15 +49,16 @@ describe('市場事件劇場', () => {
           const index = run.reports.indexOf(report);
           const before = outcome.investor.ranks[index];
           const after = outcome.investor.ranks[index + 1];
-          const kind = outcome.node?.kind;
+          const all = outcome.allocation === 'all';
           seen.add(step.situation);
           const expectations: Record<string, boolean> = {
-            lev_up: kind === 'margin' && outcome.marketPnl > 0, lev_down: kind === 'margin' && outcome.marketPnl < 0,
+            allin_up: all && outcome.marketPnl > 0, allin_down: all && outcome.marketPnl < 0,
             shield: outcome.ledger.protected > 0, combo: outcome.ledger.synergies > 0 && outcome.close > outcome.start,
-            margin_call: Boolean(outcome.risk.call), bankrupt: outcome.risk.insolvent && !outcome.recovery, recovery: Boolean(outcome.recovery),
+            bankrupt: outcome.risk.insolvent && !outcome.recovery, recovery: Boolean(outcome.recovery),
             attacked: outcome.incomingCards.length > 0 && outcome.close < outcome.start,
-            cash_rally: outcome.exposure.stock <= 0 && outcome.marketApplied, sold_rally: outcome.exposure.stock <= 0 && kind === 'cash',
-            cash_dodge: outcome.exposure.stock <= 0 && outcome.marketApplied, deposit_safe: outcome.exposure.stock <= 0 && outcome.exposure.deposits > 0,
+            cash_rally: outcome.exposure.stock <= 0 && outcome.marketApplied && outcome.allocationBefore === 'cash',
+            sold_rally: outcome.exposure.stock <= 0 && outcome.allocationBefore !== 'cash',
+            cash_dodge: outcome.exposure.stock <= 0 && outcome.marketApplied, half_safe: outcome.allocation === 'half' && outcome.marketPnl < 0 && -outcome.marketPnl < outcome.start * 0.08,
             overtake: before !== null && after !== null && after < before, rank_drop: before !== null && after !== null && after - before >= 2,
             market_gain: outcome.marketPnl > 0, market_loss: outcome.marketPnl < 0,
             champion: run.closed && run.standings().find(item => item.investor === outcome.investor)?.rank === 1

@@ -6,15 +6,14 @@ import { CardAudio } from './ui/audio';
 import { crisisMarkup } from './ui/crisis-dialog';
 import { escapeHtml, money, signedMoney } from './ui/format';
 import { drawIcon, portrait, sprite, type SpriteMood } from './ui/pixels';
-import { routeMapMarkup } from './ui/route-map';
 import { settlementMarkup, shareText } from './ui/settlement';
-import { cardRulesMarkup, chartDialogMarkup, financeDetailMarkup, newsMarkup, offerMarkup, openingMarkup, tradingMarkup, type TerminalSelection } from './ui/trading-terminal';
+import { cardRulesMarkup, chartDialogMarkup, newsMarkup, offerMarkup, openingMarkup, tradingMarkup, type TerminalSelection } from './ui/trading-terminal';
 import { Coach, type TipId } from './ui/coach';
 import { readTheaterConfig, type TheaterConfig } from './config/theater-settings';
 import { MarketTheater } from './ui/theater';
 import { buildTheater, type Step, type TheaterMode } from './ui/theater-script';
 
-type DialogKind = 'map' | 'crisis' | 'recovery' | 'offer' | 'settings' | 'share' | 'chart' | 'finance' | 'news' | 'card-rules';
+type DialogKind = 'crisis' | 'recovery' | 'offer' | 'settings' | 'share' | 'chart' | 'news' | 'card-rules';
 const freshSeed = () => crypto.getRandomValues(new Uint32Array(1))[0];
 
 class TerminalApp {
@@ -22,7 +21,7 @@ class TerminalApp {
   private readonly screen: HTMLElement;
   private readonly dialog: HTMLDialogElement;
   private readonly audio = new CardAudio();
-  private readonly selection: TerminalSelection = { lane: null, slot: null, prepare: false, animate: false };
+  private readonly selection: TerminalSelection = { allocation: null, slot: null, prepare: false, animate: false };
   private selectedCharacter: string;
   private difficulty: TradingDifficulty = 'normal';
   private seed: number;
@@ -158,8 +157,7 @@ class TerminalApp {
       case 'replay': this.start(this.run!.options.seed); break;
       case 'new': this.start(freshSeed()); break;
       case 'settings': this.dialogTrigger = button; this.openDialog('settings'); break;
-      case 'map': this.dialogTrigger = button; this.openDialog('map'); break;
-      case 'chart': case 'finance': case 'news': this.dialogTrigger = button; this.openDialog(act); break;
+      case 'chart': case 'news': this.dialogTrigger = button; this.openDialog(act); break;
       case 'card-rules': this.dialogTrigger = button; this.rulesSlot = value; this.openDialog('card-rules'); break;
       case 'tip-ok': this.coach.dismiss(button.dataset.value as TipId); this.render('[data-act="trade"]'); break;
       case 'coach-off': this.coach.setEnabled(false); this.render('[data-act="trade"]'); break;
@@ -167,8 +165,7 @@ class TerminalApp {
       case 'close-dialog': this.closeDialog(); break;
       case 'personal': this.personal = true; this.closeDialog(false); this.render('[data-act="spectate"]'); window.scrollTo(0, 0); break;
       case 'spectate': this.personal = false; this.render('[data-act="trade"]'); window.scrollTo(0, 0); break;
-      case 'lane':
-      case 'map-pick': this.pickLane(value, act === 'map-pick'); break;
+      case 'alloc': this.pickAllocation(button.dataset.value ?? ''); break;
       case 'card':
         this.selection.slot = value === this.selection.slot ? null : value;
         this.selection.prepare = false;
@@ -211,30 +208,28 @@ class TerminalApp {
     history.replaceState(null, '', url);
     this.audio.unlock();
     this.audio.play('rise');
-    this.render('[data-act="lane"]');
+    this.render('[data-act="alloc"][aria-pressed="true"]');
     window.scrollTo(0, 0);
-    this.announce('開盤啦，選一條路下單。');
+    this.announce('開盤啦，先決定今天買多少股票。');
   }
 
   private clearSelection() {
-    this.selection.lane = null;
+    this.selection.allocation = null;
     this.selection.slot = null;
     this.selection.prepare = false;
   }
 
-  private pickLane(lane: number, fromMap = false) {
-    if (!this.run?.reachable(this.run.player).some(node => node.lane === lane)) return;
-    this.selection.lane = lane;
-    if (fromMap) this.closeDialog(false);
-    this.render(`[data-act="lane"][data-value="${lane}"]`);
+  private pickAllocation(id: string) {
+    if (!this.run?.config.allocation.options.some(option => option.id === id)) return;
+    this.selection.allocation = id;
+    this.render(`[data-act="alloc"][data-value="${id}"]`);
   }
 
   private trade() {
     const run = this.run;
     if (!run || run.closed || this.dialog.open || this.locked) return;
-    const lane = this.selection.lane;
-    const action = lane !== null ? { lane, card: this.selection.slot, prepare: this.selection.prepare } : null;
-    if (!run.player.account.eliminated && !action) return;
+    const action = run.player.account.eliminated ? null : { lane: 0, card: this.selection.slot, prepare: this.selection.prepare,
+      allocation: this.selection.allocation ?? run.player.allocation };
     this.audio.unlock();
     if (!run.confirm(action)) return;
     this.clearSelection();
@@ -266,8 +261,8 @@ class TerminalApp {
     const outcome = report?.outcomes.find(item => item.investor === run.player);
     this.closeDialog(false);
     this.selection.animate = !this.reduced;
-    this.render(run.closed ? '[data-act="replay"]' : '[data-act="lane"], [data-act="trade"]');
-    if (report && outcome && (outcome.risk.call || outcome.risk.insolvent)) this.lastCrisis = { report, outcome };
+    this.render(run.closed ? '[data-act="replay"]' : '[data-act="trade"]');
+    if (report && outcome && outcome.risk.insolvent) this.lastCrisis = { report, outcome };
     // The theater waits for a finished day: a pending recovery is decided first, then the show plays once.
     const settled = report && !run.pendingRecovery && this.theaterDay !== report.day ? report : null;
     const steps = settled ? buildTheater(run, settled, this.theater, this.theaterMode) : [];
@@ -275,7 +270,7 @@ class TerminalApp {
     if (!steps.length && !this.reduced && report?.market && !run.closed) void this.playMarketEffect(report);
     const next = () => {
       if (run.pendingRecovery && this.lastCrisis) this.openDialog('recovery');
-      else if (outcome && !outcome.recovery && (outcome.risk.call || outcome.risk.insolvent)) this.openDialog('crisis');
+      else if (outcome && !outcome.recovery && outcome.risk.insolvent) this.openDialog('crisis');
       else this.showOffer();
     };
     if (settled && steps.length) {
@@ -290,7 +285,7 @@ class TerminalApp {
   private playSound(report: DayReport, outcome: DayOutcome) {
     const ranks = this.run!.player.ranks;
     const climbed = ranks.length > 1 && ranks.at(-1)! < ranks.at(-2)!;
-    const sound = outcome.risk.call || outcome.risk.insolvent ? 'alarm'
+    const sound = outcome.risk.insolvent ? 'alarm'
       : report.market?.severity === 'extreme' ? 'impact'
       : outcome.ledger.protected ? 'shield'
       : outcome.ledger.synergies ? 'combo'
@@ -354,7 +349,7 @@ class TerminalApp {
   private takeOffer(card: number | null, replace: number | null) {
     if (!this.run?.chooseOffer(card, replace)) return;
     this.closeDialog(false);
-    this.render('[data-act="lane"]');
+    this.render('[data-act="trade"]');
     this.showOffer();
   }
 
@@ -364,10 +359,6 @@ class TerminalApp {
     let heading = '';
     let content = '';
     switch (kind) {
-      case 'map':
-        heading = '市場路線圖';
-        content = routeMapMarkup(run, this.selection.lane);
-        break;
       case 'offer':
         heading = run.offer?.source === 'draft' ? '抽張好牌・三選一' : '開盤抽卡';
         content = offerMarkup(run, this.offered, this.replace);
@@ -390,10 +381,6 @@ class TerminalApp {
       case 'chart':
         heading = '總身家走勢';
         content = chartDialogMarkup(run);
-        break;
-      case 'finance':
-        heading = '財務明細';
-        content = financeDetailMarkup(run);
         break;
       case 'news':
         heading = '市場快訊';
@@ -421,7 +408,6 @@ class TerminalApp {
       this.dialog.querySelector<HTMLElement>('#dialog-heading')?.focus({ preventScroll: true });
       this.dialog.scrollTop = 0;
     }
-    if (kind === 'map') this.dialog.querySelector('.current-row')?.scrollIntoView({ block: 'nearest' });
     if (focus) this.dialog.querySelector<HTMLElement>(focus)?.focus({ preventScroll: true });
   }
 
@@ -468,12 +454,11 @@ class TerminalApp {
       this.screen.querySelector<HTMLButtonElement>(`[data-act="card"][data-value="${Number(slot[1]) - 1}"]`)?.click();
     }
     if (event.code !== 'ArrowLeft' && event.code !== 'ArrowRight') return;
-    const lanes = this.run.reachable(this.run.player).map(node => node.lane);
-    if (!lanes.length) return;
+    if (this.run.player.account.eliminated) return;
+    const ids = this.run.config.allocation.options.map(option => option.id);
     event.preventDefault();
-    const index = lanes.indexOf(this.selection.lane ?? -1);
-    const next = index < 0 ? 0 : (index + lanes.length + (event.code === 'ArrowLeft' ? -1 : 1)) % lanes.length;
-    this.pickLane(lanes[next]);
+    const index = ids.indexOf(this.selection.allocation ?? this.run.player.allocation);
+    this.pickAllocation(ids[Math.max(0, Math.min(ids.length - 1, index + (event.code === 'ArrowLeft' ? -1 : 1)))]);
   };
 }
 

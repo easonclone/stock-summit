@@ -113,7 +113,7 @@ async function layout(width, height, dock = false) {
     return {
       width: innerWidth, doc: document.documentElement.scrollWidth, body: document.body.scrollWidth,
       dock: rect && rect.top >= 0 && rect.bottom <= innerHeight && (ctr === trade || trade.contains(ctr)),
-      touch: Array.from(document.querySelectorAll('.hand-card,.action-tile,.gold-button')).filter(el=>el.getClientRects().length).every(el=>el.getBoundingClientRect().height >= 44)
+      touch: Array.from(document.querySelectorAll('.hand-card,.alloc-button,.gold-button')).filter(el=>el.getClientRects().length).every(el=>el.getBoundingClientRect().height >= 44)
     };
   })()`);
   assert.equal(dims.width, width);
@@ -135,10 +135,12 @@ async function openMarket(width, height, mobile, seed, reduced) {
   await action('chart');
   assert.equal(await js('document.querySelectorAll("dialog[open] .chart polyline").length'), 4);
   await action('close-dialog');
-  for (const hidden of ['無融資', '交易正常', '正常交易', '無避險']) assert(!(await js('document.querySelector("main").innerText')).includes(hidden), '主畫面不顯示 ' + hidden);
+  for (const hidden of ['無融資', '交易正常', '正常交易', '無避險', '融資', '借款', '利息', '追繳', '定存', '欠款', '路線']) assert(!(await js('document.querySelector("main").innerText')).includes(hidden), '主畫面不顯示 ' + hidden);
+  assert.equal(await js('document.querySelectorAll(\'[data-act="alloc"]\').length'), 3, '三個配置按鈕');
+  assert.equal(await js('document.querySelector(\'[data-act="alloc"][aria-pressed="true"]\').dataset.value'), 'half', '預設一半買股');
 }
 
-const transitions = { draw: 0, draft: 0, liquidation: 0, recovery: 0, skip: 0, effect: 0, personal: 0, show: 0 };
+const transitions = { draw: 0, draft: 0, recovery: 0, skip: 0, effect: 0, personal: 0, show: 0 };
 async function clearDialogs(replaceOne = false) {
   for (let n = 0; n < 6; n++) {
     if (await has('.theater')) {
@@ -150,14 +152,10 @@ async function clearDialogs(replaceOne = false) {
     const dialog = await js('document.querySelector("dialog[open]")?.className ?? ""');
     if (!dialog) return;
     if (dialog.includes('dialog-recovery') && transitions.recovery === 0) await screenshot('recovery-320');
-    const details = 'dialog[open] .crisis-details summary';
-    if (await has(details)) await click(details);
     const body = await js('document.querySelector("dialog").innerText');
-    const sold = body.match(/部位處分金額\s+\$([\d,]+)/);
-    if (sold && Number(sold[1].replaceAll(',', '')) > 0) transitions.liquidation++;
     if (dialog.includes('dialog-recovery')) {
-      assert.match(body, /宣告破產/);
-      assert.match(body, /收盤應付重整費/);
+      assert.match(body, /身家歸零/);
+      assert.match(body, /不用還/);
       transitions.recovery++;
       await action('recover');
     } else if (dialog.includes('dialog-crisis')) {
@@ -204,22 +202,16 @@ try {
     if (!mobile) {
       await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'ArrowRight', code: 'ArrowRight' });
       await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'ArrowRight', code: 'ArrowRight' });
-      assert(await has(pressed('lane')));
-    } else await action('lane');
+      assert.equal(await js('document.querySelector('+JSON.stringify(pressed('alloc'))+')?.dataset.value'), 'all', '方向鍵切換配置');
+    } else await click(on('alloc') + '[data-value="all"]');
     const card = await js('document.querySelector('+JSON.stringify(pressed('card'))+')?.dataset.value');
-    const lane = await js('document.querySelector('+JSON.stringify(pressed('lane'))+')?.dataset.value');
-    await action('map');
-    assert.equal(await js('document.querySelectorAll(".map-row").length'), 15);
-    assert.equal(await js('document.querySelector("dialog").scrollWidth === document.querySelector("dialog").clientWidth'), true);
+    assert.match(await js('document.querySelector(".alloc-section .preview").innerText'), /現金 \$0 · 股票 \$10,000/, '全部買股預覽');
     if (width === 390) {
-      await screenshot('map-390');
       await resize(844, 390, true);
       await layout(844, 390);
       await resize(width, height, true);
     }
-    await action('close-dialog');
     assert.equal(await js('document.querySelector('+JSON.stringify(pressed('card'))+')?.dataset.value'), card);
-    assert.equal(await js('document.querySelector('+JSON.stringify(pressed('lane'))+')?.dataset.value'), lane);
     assert(await has('[data-card-status]'));
     if (width === 390) {
       await js('document.querySelector("[data-card-status]").scrollIntoView({block:"center"})');
@@ -245,8 +237,7 @@ try {
       for (let day = 2; day <= 15 && !(await has('main.settlement')); day++) {
         await clearDialogs(!early);
         if (await has('main.settlement')) break;
-        const next = await js(`Array.from(document.querySelectorAll('${on('lane')}')).find(el=>el.dataset.kind === '${early ? 'margin' : 'steady'}')?.dataset.value`);
-        if (await has(on('lane'))) await click(next == null ? on('lane') : on('lane')+'[data-value="'+next+'"]');
+        if (await has(on('alloc'))) await click(on('alloc') + '[data-value="' + (early ? 'all' : ['half', 'cash', 'all'][day % 3]) + '"]');
         if (!mobile && await has('[data-act="trade"]')) {
           await js('document.querySelector(\'[data-act="trade"]\').focus()');
           await send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: ' ', code: 'Space', windowsVirtualKeyCode: 32, nativeVirtualKeyCode: 49 });
@@ -260,7 +251,6 @@ try {
         }
         await clearDialogs(!early);
         if (!early && await has('main.trading') && /06/.test(await js('document.querySelector(".session-counter strong").textContent'))) {
-          if (await has(on('lane'))) await action('lane');
           await js('scrollTo(0,0)');
           await screenshot('trading-desktop');
         }
@@ -282,8 +272,7 @@ try {
         await openMarket(width, height, false, 23, true);
       }
     } else {
-      await action('lane');
-      await js('scrollTo(0, document.querySelector(".hand-section").offsetTop - 15)');
+      await js('scrollTo(0, document.querySelector(".alloc-section").offsetTop - 15)');
       await layout(width, height, true);
       if (width === 390) { await screenshot('trading-390'); await js('scrollTo(0,0)'); await screenshot('market-390'); }
     }
@@ -293,8 +282,7 @@ try {
   await openMarket(1440, 900, false, 6, true);
   await click(on('card') + '[data-card-id="dividend"]');
   await action('prepare');
-  assert.match(await js('document.querySelector("[data-card-status]").textContent'), /可以提前布局/);
-  await action('lane');
+  assert.match(await js('document.querySelector("[data-card-status]").textContent'), /先存著/);
   await trustedClick(on('trade'), false, false);
   await clearDialogs();
   assert.match(await js('document.querySelector(".pending-cards").textContent'), /還有 3 個交易日。可觸發 1 次/);
@@ -309,23 +297,24 @@ try {
 
   if (!desktopOnly) {
     await openMarket(390, 844, true, 15, true);
-    const firstLane = await js(`document.querySelector('${on('lane')}[data-kind="steady"]')?.dataset.value ?? document.querySelector('${on('lane')}').dataset.value`);
-    await click(on('lane') + '[data-value="' + firstLane + '"]');
     await action('trade');
     await clearDialogs();
-    await click(on('lane') + '[data-kind="margin"]');
-    await click(on('card') + '[data-card-id="margin"]');
-    assert.match(await js('document.querySelector("[data-card-status]").textContent'), /現在可以使用/);
-    assert.match(await js('document.querySelector("[data-card-impact]").textContent'), /估計多賺 \$[0-9,]+/);
-    await js('document.querySelector("[data-card-status]").scrollIntoView({block:"center"})');
-    await screenshot('leverage-card-390');
+    await click(on('alloc') + '[data-value="cash"]');
+    if (await has(on('card') + '[data-card-id="trend"]')) {
+      await click(on('card') + '[data-card-id="trend"]');
+      assert.match(await js('document.querySelector("[data-card-status]").textContent'), /沒有股票/, '全留現金時說明卡片不會多賺');
+      await click(on('alloc') + '[data-value="half"]');
+      assert.match(await js('document.querySelector("[data-card-status]").textContent'), /連招/);
+      assert.match(await js('document.querySelector("[data-card-impact]").textContent'), /估計多賺 \$[0-9,]+/);
+      await js('document.querySelector("[data-card-status]").scrollIntoView({block:"center"})');
+      await screenshot('combo-card-390');
+    }
     await layout(390, 844, true);
 
-    // 種子 13 一律走第一條路時，第 6 日出現極端新聞，驗證全螢幕演出與略過。
+    // 種子 13 的第 6 日固定是極端新聞（新聞排程只看種子），驗證全螢幕演出與略過。
     await openMarket(390, 844, true, 13, false);
     for (let day = 1; day <= 6; day++) {
       await clearDialogs();
-      await action('lane');
       await action('trade');
       for (let i = 0; i < 40 && await has(on('skip')); i++) await delay(25);
       if (day === 3) {
@@ -358,31 +347,22 @@ try {
     await js('(() => { const s = document.querySelector("[data-input=theater]"); s.value = "off"; s.dispatchEvent(new Event("change", { bubbles: true })); })()');
     await action('close-dialog');
     await clearDialogs();
-    await action('lane');
     await action('trade');
     for (let i = 0; i < 40 && await has(on('skip')); i++) await delay(25);
     assert(!(await has('.theater')), '略過演出模式不播放');
     await js('localStorage.removeItem("stock-summit-theater")');
 
-    // 此種子固定重整於第 6 日，於第 11 日再出局。
-    const crisisLanes = [1, 0, 0, 0, 0, 1, 2, 1, 1, 2, 1];
+    // 新聞影響說明（沒有借款後，一般遊玩不會歸零；歸零與翻身由單元測試覆蓋）。
     await openMarket(320, 640, true, 7893, true);
-    for (let day = 1; day <= 15 && !(await has('main.settlement')); day++) {
-      if (await has(on('lane'))) await click(on('lane') + '[data-value="' + crisisLanes[day - 1] + '"]');
+    for (let day = 1; day <= 3; day++) {
+      await click(on('alloc') + '[data-value="all"]');
       await action('trade');
       await clearDialogs();
-      if (day === 3) {
-        await action('news');
-        assert(await has('dialog[open] [data-market-impact]'));
-        await screenshot('market-impact-320');
-        await action('close-dialog');
-      }
-      if (await has('.spectator')) await layout(320, 640, true);
     }
-    assert(await has('main.settlement'), '觀戰能到收盤');
-    assert(transitions.personal > 0, '手機出局、個人結算與返回觀戰');
-    assert(transitions.recovery > 0, '手機破產重整路徑');
-    assert(transitions.liquidation > 0, '強制平倉明細');
+    await action('news');
+    assert(await has('dialog[open] [data-market-impact]'));
+    await screenshot('market-impact-320');
+    await action('close-dialog');
   }
   assert(transitions.draw > 0, '滿手抽卡替換');
   assert(transitions.skip > 0, '略過動畫');

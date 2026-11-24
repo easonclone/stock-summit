@@ -6,8 +6,8 @@ import lines from '../data/character-lines.json';
 export const sceneIds = ['ai_lab', 'fab', 'exchange', 'central_bank', 'press', 'port', 'energy', 'vault', 'chatroom', 'broker', 'black_swan', 'party'] as const;
 export const animationIds = ['rally', 'drift_up', 'rebound', 'dip', 'crash', 'rotate', 'swan', 'glitch'] as const;
 export const soundIds = ['breaking', 'chime', 'alarm', 'fanfare', 'gavel', 'bell', 'phone', 'notify', 'siren'] as const;
-export const situations = ['lev_up', 'lev_down', 'cash_rally', 'sold_rally', 'cash_dodge', 'deposit_safe', 'shield', 'combo', 'attacked',
-  'margin_call', 'overtake', 'rank_drop', 'bankrupt', 'recovery', 'champion', 'market_gain', 'market_loss'] as const;
+export const situations = ['allin_up', 'allin_down', 'cash_rally', 'sold_rally', 'cash_dodge', 'half_safe', 'shield', 'combo', 'attacked',
+  'overtake', 'rank_drop', 'bankrupt', 'recovery', 'champion', 'market_gain', 'market_loss'] as const;
 export type SceneId = typeof sceneIds[number];
 export type AnimationId = typeof animationIds[number];
 export type TheaterSound = typeof soundIds[number];

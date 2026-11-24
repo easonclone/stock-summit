@@ -21,16 +21,16 @@ export type Step =
   | { kind: 'results'; rows: ResultRow[]; final: boolean };
 
 const base: Record<Situation, number> = {
-  champion: 100, bankrupt: 95, recovery: 90, margin_call: 85, lev_down: 75, lev_up: 72, shield: 70, attacked: 65, combo: 60,
-  sold_rally: 58, rank_drop: 55, overtake: 50, deposit_safe: 45, cash_dodge: 44, cash_rally: 40, market_loss: 30, market_gain: 30
+  champion: 100, bankrupt: 95, recovery: 90, allin_down: 75, allin_up: 72, shield: 70, attacked: 65, combo: 60,
+  sold_rally: 58, rank_drop: 55, overtake: 50, half_safe: 45, cash_dodge: 44, cash_rally: 40, market_loss: 30, market_gain: 30
 };
 export const situationMood: Record<Situation, SpriteMood> = {
-  champion: 'win', bankrupt: 'broke', recovery: 'recover', margin_call: 'call', lev_down: 'loss', lev_up: 'gain', shield: 'shield',
-  attacked: 'hit', combo: 'gain', sold_rally: 'loss', rank_drop: 'loss', overtake: 'gain', deposit_safe: 'idle', cash_dodge: 'idle',
+  champion: 'win', bankrupt: 'broke', recovery: 'recover', allin_down: 'loss', allin_up: 'gain', shield: 'shield',
+  attacked: 'hit', combo: 'gain', sold_rally: 'loss', rank_drop: 'loss', overtake: 'gain', half_safe: 'idle', cash_dodge: 'idle',
   cash_rally: 'think', market_loss: 'loss', market_gain: 'gain'
 };
 /** Whether the situation is good news for the speaker; used to pick contrasting pairs. */
-const upbeat = (situation: Situation) => ['champion', 'recovery', 'lev_up', 'shield', 'combo', 'overtake', 'deposit_safe', 'cash_dodge', 'market_gain'].includes(situation);
+const upbeat = (situation: Situation) => ['champion', 'recovery', 'allin_up', 'shield', 'combo', 'overtake', 'half_safe', 'cash_dodge', 'market_gain'].includes(situation);
 
 /**
  * Every situation an investor's actual record supports for this day, strongest first.
@@ -41,7 +41,8 @@ export function cuesFor(outcome: DayOutcome, tone: Tone, rankBefore: number | nu
   const net = outcome.close - outcome.start;
   const hit = outcome.marketApplied;
   const empty = outcome.exposure.stock <= 0;
-  const kind = outcome.node?.kind;
+  const all = outcome.allocation === 'all';
+  const previous = outcome.allocationBefore;
   const add = (situation: Situation, amount = 0, when = true) => {
     if (!when) return;
     const weight = Math.min(15, Math.abs(amount) / config.financial.initialCapital * 20);
@@ -50,20 +51,20 @@ export function cuesFor(outcome: DayOutcome, tone: Tone, rankBefore: number | nu
   add('champion', 0, champion);
   add('bankrupt', 0, outcome.risk.insolvent && !outcome.recovery);
   add('recovery', 0, Boolean(outcome.recovery));
-  add('margin_call', 0, Boolean(outcome.risk.call) && !outcome.risk.insolvent);
   add('shield', outcome.ledger.protected, outcome.ledger.protected > 0);
-  add('lev_up', outcome.marketPnl, hit && kind === 'margin' && outcome.marketPnl > 0);
-  add('lev_down', outcome.marketPnl, hit && kind === 'margin' && outcome.marketPnl < 0);
+  add('allin_up', outcome.marketPnl, hit && all && outcome.marketPnl > 0);
+  add('allin_down', outcome.marketPnl, hit && all && outcome.marketPnl < 0 && !outcome.ledger.protected);
   add('attacked', net, outcome.incomingCards.length > 0 && net < 0);
   add('combo', net, outcome.ledger.synergies > 0 && net > 0);
-  add('sold_rally', 0, hit && tone === 'positive' && empty && kind === 'cash');
-  add('cash_rally', 0, hit && tone === 'positive' && empty && kind !== 'cash');
-  add('deposit_safe', 0, hit && tone === 'negative' && empty && outcome.exposure.deposits > 0);
-  add('cash_dodge', 0, hit && tone === 'negative' && empty && outcome.exposure.deposits <= 0);
+  add('sold_rally', 0, hit && tone === 'positive' && empty && previous !== 'cash');
+  add('cash_rally', 0, hit && tone === 'positive' && empty && previous === 'cash');
+  const heavy = -outcome.marketPnl >= outcome.start * 0.08;
+  add('half_safe', outcome.marketPnl, hit && tone === 'negative' && outcome.allocation === 'half' && outcome.marketPnl < 0 && !heavy);
+  add('cash_dodge', 0, hit && tone === 'negative' && empty);
   add('overtake', 0, rankBefore !== null && rankAfter !== null && rankAfter < rankBefore);
   add('rank_drop', 0, rankBefore !== null && rankAfter !== null && rankAfter - rankBefore >= 2);
-  add('market_gain', outcome.marketPnl, hit && outcome.marketPnl > 0 && kind !== 'margin');
-  add('market_loss', outcome.marketPnl, hit && outcome.marketPnl < 0 && kind !== 'margin' && !outcome.ledger.protected);
+  add('market_gain', outcome.marketPnl, hit && outcome.marketPnl > 0 && !all);
+  add('market_loss', outcome.marketPnl, hit && outcome.marketPnl < 0 && !all && (outcome.allocation !== 'half' || heavy) && !outcome.ledger.protected);
   return cues.sort((a, b) => b.score - a.score);
 }
 

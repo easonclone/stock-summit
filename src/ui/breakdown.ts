@@ -1,7 +1,7 @@
 import type { DayOutcome } from '../core/trading-run';
 
 export interface BreakdownLine {
-  key: 'investment' | 'income' | 'market' | 'fees';
+  key: 'stock' | 'news' | 'income' | 'other';
   label: string;
   amount: number;
 }
@@ -12,29 +12,28 @@ export interface DayBreakdown {
   lines: BreakdownLine[];
   /** Part of the lines above that came from cards. Informational only, never added again. */
   cardShare: number;
-  /** Loss the shield absorbed. Informational only: the market line already reflects it. */
+  /** Loss the shield absorbed. Informational only: the news line already reflects it. */
   shielded: number;
   combos: number;
 }
 
 /**
- * Splits one day's actual net-worth change into readable parts using the settlement ledger.
- * Income, market and fees come straight from the record; the investment line is the remainder, so liquidation,
- * restructuring and rival attacks stay inside it and the total can never drift from the real close.
+ * Splits one day's actual total-worth change using the settlement ledger: the shared daily stock move, the news,
+ * cash income, and the remainder (card boosts, rival attacks, restarting after hitting zero). The parts always
+ * add up to the real change.
  */
 export function dayBreakdown(outcome: DayOutcome): DayBreakdown {
   const { ledger } = outcome;
   const net = outcome.close - outcome.start;
   const income = outcome.openingInterest + outcome.openingStockIncome + ledger.dividends + ledger.cashYield;
-  const market = outcome.marketPnl;
-  const fees = -ledger.fees;
-  const investment = net - income - market - fees;
-  const restructured = Boolean(outcome.recovery || outcome.risk.call?.liquidated || outcome.risk.insolvent);
+  const stock = ledger.baseMarket;
+  const news = outcome.marketPnl;
+  const other = net - income - stock - news;
   const lines: BreakdownLine[] = [
-    { key: 'investment', label: restructured ? '投資、平倉與重整' : '投資損益', amount: investment },
-    { key: 'income', label: '股息與利息', amount: income },
-    { key: 'market', label: '市場新聞', amount: market },
-    { key: 'fees', label: '費用', amount: fees }
+    { key: 'stock', label: '今日股市', amount: stock },
+    { key: 'news', label: '市場新聞', amount: news },
+    { key: 'income', label: '現金收入', amount: income },
+    { key: 'other', label: outcome.recovery ? '歸零翻身' : '卡片與對手', amount: other }
   ];
   return {
     net, lines: lines.filter(line => line.amount !== 0),

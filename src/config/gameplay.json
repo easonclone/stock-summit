@@ -2,5 +2,7 @@
   "turns": 15,
   "eventEvery": 3,
   "initialHand": 2,
-  "inventorySize": 5
+  "inventorySize": 5,
+  "routeMap": false,
+  "dailyRoute": "trade"
 }

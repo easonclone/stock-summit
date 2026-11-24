@@ -1,0 +1,9 @@
+{
+  "initial": "half",
+  "dailyMarket": "market_day",
+  "options": [
+    { "id": "cash", "name": "全留現金", "short": "現金", "detail": "股票 0%：今天漲跌都跟你無關。", "ratio": 0, "tags": ["cash"] },
+    { "id": "half", "name": "一半買股", "short": "一半", "detail": "股票 50%：賺賠都是一半。", "ratio": 0.5, "tags": ["buy", "steady", "cash"] },
+    { "id": "all", "name": "全部買股", "short": "全部", "detail": "股票 100%：上漲全賺，下跌全賠。", "ratio": 1, "tags": ["buy", "all_in"] }
+  ]
+}

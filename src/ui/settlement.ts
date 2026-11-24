@@ -1,5 +1,5 @@
 import type { TradingRun, Investor } from '../core/trading-run';
-import { debtBalance, depositBalance, netWorth, returnRate } from '../core/economy';
+import { netWorth, returnRate } from '../core/economy';
 import { arrow, direction, escapeHtml, money, percent, signedMoney, signedPercent } from './format';
 import { performanceChart } from './performance-chart';
 
@@ -9,31 +9,29 @@ function titleFor(run: TradingRun, investor: Investor, rank: number | null) {
   if (rank === 1 && run.closed) return '本局股神';
   if (investor.hedgesUsed >= 2) return '避險大師';
   if (investor.synergies >= 3) return '連招大師';
-  if (investor.path.filter(node => run.config.nodes.kinds[node.kind].tags.includes('margin')).length >= 3) return '槓桿狂人';
-  if (investor.account.stats.depositYield >= investor.account.initialCapital * 0.03) return '存股達人';
-  if (investor.account.cash >= netWorth(investor.account) * 0.7) return '現金為王';
+  const days = run.reports.flatMap(report => report.outcomes.filter(item => item.investor === investor).map(item => item.allocation));
+  if (days.filter(id => id === 'all').length >= days.length * 0.7 && days.length) return '全押狂人';
+  if (investor.account.stats.dividends >= investor.account.initialCapital * 0.03) return '存股達人';
+  if (days.filter(id => id === 'cash').length >= days.length * 0.5 && days.length) return '現金為王';
   return '慢慢存、穩穩賺';
 }
 
 function detailMarkup(run: TradingRun, investor: Investor) {
   const { account, character } = investor;
+  const gains = run.reports.flatMap(report => report.outcomes.filter(item => item.investor === investor).map(item => item.close - item.start));
   const details = [
-    ['最高淨資產（總身家）', money(account.peakNetWorth)], ['最大回撤（最大跌幅）', percent(account.maxDrawdown)],
-    ['現金／定存餘額', `${money(account.cash)}／${money(depositBalance(account))}`],
-    ['現金策略收益', signedMoney(account.stats.cashYield)], ['定存利息', signedMoney(account.stats.depositYield)],
-    ['股息收益', signedMoney(account.stats.dividends)], ['投資損益', signedMoney(account.stats.investmentPnl)],
-    ['融資／紓困負債', `${money(account.marginDebt)}／${money(account.bailoutDebt)}`],
-    ['融資與重整費用', money(account.stats.fees)], ['出牌／卡片連招', `${investor.used}／${investor.synergies} 次`],
-    ['成功避險', `${investor.hedgesUsed} 次`], ['強制平倉', `${account.stats.liquidations} 次`],
-    ['破產／重整', `${account.bankruptcyCount}／${investor.recoveries} 次`], ['舊債減免', money(account.stats.debtForgiven)]
+    ['最高總身家', money(account.peakNetWorth)], ['最大單日獲利', signedMoney(Math.max(0, ...gains))],
+    ['現金／股票', `${money(account.cash)}／${money(account.investmentValue)}`],
+    ['股票賺賠', signedMoney(account.stats.investmentPnl)], ['現金收入', signedMoney(account.stats.cashYield + account.stats.dividends)],
+    ['用卡／連招', `${investor.used}／${investor.synergies} 次`], ['護盾擋下', `${investor.hedgesUsed} 次`],
+    ...(account.bankruptcyCount ? [['歸零／翻身', `${account.bankruptcyCount}／${investor.recoveries} 次`]] : [])
   ];
   const events = run.reports.flatMap(report => {
     const outcome = report.outcomes.find(item => item.investor === investor);
     const changedRank = report.day > 1 && (investor.ranks[report.day - 1] ?? 0) > (investor.ranks[report.day] ?? Infinity);
     const notes = [
-      outcome?.risk.call?.liquidated ? `強制平倉 ${money(outcome.risk.call.sold)}` : '',
-      outcome?.recovery ? `破產重整、減免 ${money(outcome.recovery.marginForgiven + outcome.recovery.bailoutForgiven)}` :
-        outcome?.risk.insolvent ? '破產出局' : '',
+      outcome?.recovery ? `歸零翻身，拿到 ${money(outcome.recovery.recoveryCash)}` :
+        outcome?.risk.insolvent ? '歸零出局' : '',
       changedRank ? `排名 ${investor.ranks[report.day - 1]} → ${investor.ranks[report.day]}` : ''
     ].filter(Boolean);
     return notes.length ? [`第 ${report.day} 日・${notes.join('、')}`] : [];

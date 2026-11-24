@@ -24,5 +24,5 @@ export function routeMapMarkup(run: TradingRun, selectedLane: number | null) {
     }).join('')}</div>
     ${index < run.map.rows.length - 1 ? `<svg class="map-lines" viewBox="0 0 160 25" preserveAspectRatio="none" aria-hidden="true">${lines(row)}</svg>` : ''}
     </section>`).join('');
-  return `<div class="map-intro"><span>亮框為今日可前往節點</span><span>色點標示已公開路線</span></div><div class="map-rows">${rows}</div>`;
+  return `<div class="map-intro"><span>亮框是今天可以走的路</span><span>色點是大家走過的路</span></div><div class="map-rows">${rows}</div>`;
 }

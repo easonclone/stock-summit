@@ -38,8 +38,8 @@ export function performanceChart(run: TradingRun) {
   const horizontal = yLabels.map(value => `<path d="M46 ${y(value)}H644" class="${value ? 'chart-grid' : 'chart-baseline'}"/>
     <text x="2" y="${y(value) + 5}">${signedPercent(value)}</text>`).join('');
   return `<figure class="chart">
-    <figcaption><span class="section-title">投資績效走勢</span><span class="chart-period">${lastDay ? `已結算 ${lastDay} 日` : '等待首筆結算'}</span></figcaption>
-    <svg viewBox="0 0 652 212" preserveAspectRatio="none" role="img" aria-label="四位投資人的逐日實際報酬率，虛線為市場或財務事件，方塊為財務危機">
+    <figcaption><span class="section-title">總報酬走勢</span><span class="chart-period">${lastDay ? `已結算 ${lastDay} 日` : '等待首筆結算'}</span></figcaption>
+    <svg viewBox="0 0 652 212" preserveAspectRatio="none" role="img" aria-label="四位投資人的逐日實際總報酬，虛線為市場或財務事件，方塊為財務危機">
       ${grid}${horizontal}${eventLines}${curves}
     </svg>
     <div class="chart-key">${run.investors.map(({ character }) => `<span><i style="--ink:${character.color}"></i>${escapeHtml(character.name)}</span>`).join('')}<span class="chart-markers">┊ 事件　▪ 財務危機</span></div>

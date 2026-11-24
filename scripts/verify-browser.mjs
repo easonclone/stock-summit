@@ -217,7 +217,7 @@ try {
       for (let day = 2; day <= 15 && !(await has('main.settlement')); day++) {
         await clearDialogs(!early);
         if (await has('main.settlement')) break;
-        const next = await js(`Array.from(document.querySelectorAll('${on('lane')}')).find(el=>el.innerText.includes('${early ? '槓桿加碼' : '穩健投資'}'))?.dataset.value`);
+        const next = await js(`Array.from(document.querySelectorAll('${on('lane')}')).find(el=>el.dataset.kind === '${early ? 'margin' : 'steady'}')?.dataset.value`);
         if (await has(on('lane'))) await click(next == null ? on('lane') : on('lane')+'[data-value="'+next+'"]');
         if (!mobile && await has('[data-act="trade"]')) {
           await js('document.querySelector(\'[data-act="trade"]\').focus()');
@@ -265,9 +265,9 @@ try {
   await openMarket(320, 640, true, 469, true);
   const earlyRecovery = transitions.recovery;
   for (let day = 1; day <= 15 && !(await has('main.settlement')); day++) {
-    const preferences = transitions.recovery > earlyRecovery ? ['穩健投資', '神秘事件', '股息收入'] : ['槓桿加碼', '穩健投資', '神秘事件'];
+    const preferences = transitions.recovery > earlyRecovery ? ['steady', 'mystery', 'dividend'] : ['margin', 'steady', 'mystery'];
     if (await has(on('lane'))) {
-      const available = await js(`Array.from(document.querySelectorAll('${on('lane')}')).map(el=>({name:el.querySelector('strong').textContent,lane:el.dataset.value}))`);
+      const available = await js(`Array.from(document.querySelectorAll('${on('lane')}')).map(el=>({name:el.dataset.kind,lane:el.dataset.value}))`);
       const action = preferences.map(name=>available.find(node=>node.name===name)).find(Boolean) ?? available[0];
       await click(on('lane')+'[data-value="'+action.lane+'"]');
     }

@@ -69,7 +69,7 @@ class TerminalApp {
       <strong>${String(run.closed ? run.reports.length : run.day).padStart(2, '0')} <small>／ ${run.config.gameplay.turns}</small></strong></div>` : '';
     this.screen.innerHTML = `<header class="masthead"><div class="brand-lockup"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
       <div><b>STOCK SUMMIT</b><small>股市攻頂戰 · Market Showdown</small></div></div><div class="masthead-tools">${status}
-      <button class="gear" type="button" data-act="settings" aria-label="顯示與音效設定" title="顯示與音效設定">⚙</button></div></header>
+      <button class="gear" type="button" data-act="settings" aria-label="畫面與音效" title="畫面與音效">⚙</button></div></header>
       ${run ? complete ? settlementMarkup(run, this.personal) : tradingMarkup(run, this.selection)
         : `<main>${openingMarkup(this.config, this.seed, this.selectedCharacter, this.difficulty)}</main>`}`;
     this.paint(this.screen);
@@ -84,9 +84,9 @@ class TerminalApp {
       portrait(canvas, character);
       const context = canvas.getContext('2d')!;
       const response = canvas.dataset.reaction;
-      if (!response || response === '持平' || response === '等待交易') return;
+      if (!response || response === '持平' || response === '等開盤') return;
       context.fillStyle = '#151a26';
-      if (response === '交易獲利' || response === '收盤勝利' || response === '避險成功' || response === '重整完成') {
+      if (response === '這筆有賺' || response === '收盤勝利' || response === '避險成功' || response === '重整完成') {
         context.fillRect(15, 14, 5, 1);
         context.fillRect(16, 15, 3, 1);
       } else if (response === '宣告破產' || response === '強制平倉' || response === '融資追繳') {
@@ -174,7 +174,7 @@ class TerminalApp {
     this.audio.play('rise');
     this.render('[data-act="lane"]');
     window.scrollTo(0, 0);
-    this.announce('交易所已開盤，選擇今日投資機會。');
+    this.announce('開盤啦，選一條路下單。');
   }
 
   private rememberDetails() {
@@ -294,20 +294,20 @@ class TerminalApp {
         content = routeMapMarkup(run, this.selection.lane);
         break;
       case 'offer':
-        heading = run.offer?.source === 'draft' ? '投資機會・三選一' : '開盤抽卡';
+        heading = run.offer?.source === 'draft' ? '抽張好牌・三選一' : '開盤抽卡';
         content = offerMarkup(run, this.offered, this.replace);
         break;
       case 'crisis':
       case 'recovery':
         if (!this.lastCrisis) return;
-        heading = kind === 'recovery' ? '破產重整' : '財務危機';
+        heading = kind === 'recovery' ? '翻身機會' : '這筆交易出狀況了';
         content = crisisMarkup(run, this.lastCrisis.report, this.lastCrisis.outcome, kind === 'recovery');
         break;
       case 'settings':
-        heading = '顯示與音效設定';
-        content = `<div class="settings-options"><label><input type="checkbox" data-input="colors" ${this.international ? 'checked' : ''}> 國際配色（綠漲紅跌）</label>
-          <label><input type="checkbox" data-input="motion" ${this.reduced ? 'checked' : ''}> 減少動態・略過結算動畫</label>
-          <label><input type="checkbox" data-input="audio" ${this.audio.enabled ? 'checked' : ''}> 啟用交易音效</label></div>`;
+        heading = '畫面與音效';
+        content = `<div class="settings-options"><label><input type="checkbox" data-input="colors" ${this.international ? 'checked' : ''}> 切換綠漲紅跌</label>
+          <label><input type="checkbox" data-input="motion" ${this.reduced ? 'checked' : ''}> 減少動態，直接看結算</label>
+          <label><input type="checkbox" data-input="audio" ${this.audio.enabled ? 'checked' : ''}> 播放交易音效</label></div>`;
         break;
       case 'share':
         heading = '分享結算';
@@ -383,6 +383,6 @@ const root = document.querySelector<HTMLElement>('#app')!;
 try {
   new TerminalApp(root, readFinancialConfig());
 } catch (error) {
-  root.innerHTML = `<main class="initial-error"><h1>交易所無法開盤</h1><p>${escapeHtml(error instanceof Error ? error.message : '初始化失敗')}</p></main>`;
+  root.innerHTML = `<main class="initial-error"><h1>開盤卡住了</h1><p>${escapeHtml(error instanceof Error ? error.message : '遊戲資料讀取失敗')}</p></main>`;
   console.error(error);
 }

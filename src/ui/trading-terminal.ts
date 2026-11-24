@@ -51,11 +51,18 @@ function marketMarkup(run: TradingRun, animate: boolean) {
     outcome.marketPnl > 0 ? `你的股票多了 ${money(outcome.marketPnl)}。` :
     outcome.marketPnl < 0 ? `你的股票少了 ${money(-outcome.marketPnl)}。` :
     '這次你的股票損益為 $0。';
+  const eventRules = current?.event.effectIds.map(id => run.config.effects[id]) ?? [];
+  const maintenance = eventRules.find(rule => rule.type === 'maintenance');
   return `<section class="market-strip ${tone} ${current?.event.severity ?? ''} ${animate && current?.day === run.reports.at(-1)?.day ? 'market-flash' : ''}" aria-label="市場快訊">
     <div class="market-main"><span class="market-icon" aria-hidden="true">${tone === 'negative' ? '▼' : tone === 'positive' ? '▲' : '◆'}</span>
       <div><span class="market-caption">市場快訊 · 虛構情境</span><strong>${current ? escapeHtml(current.event.title) : '交易所已開盤'}</strong></div></div>
     <div class="market-info"><span><b>${run.config.market[tone].name}</b> 盤勢</span><span>${next === null ? '市場事件已結束' : `下次事件・第 ${next} 日`}</span></div>
-    ${current && report ? `<p class="intel" data-market-impact>${effect}${impact}</p>` : ''}
+    ${current ? `<div class="market-story">
+      <p class="market-subtitle">${escapeHtml(current.event.subtitle)}</p>
+      ${report ? `<p data-market-impact>${effect}${impact}${maintenance && outcome?.marketApplied && outcome.investor.account.marginDebt ? ' 借錢買股今天更容易被追繳。' : ''}</p>` : ''}
+      <details><summary>看這則新聞的規則</summary><p>${escapeHtml(current.event.description)}
+      ${maintenance ? `這天的追繳門檻收緊至 ${percent(Math.min(maintenance.ltv, run.config.financial.callLtv))}。` : ''}</p></details>
+    </div>` : ''}
     ${intel ? `<p class="intel">◆ 已取得情報・第 ${run.player.intelDay} 日・${escapeHtml(intel.title)}：${escapeHtml(intel.description)}</p>` : ''}
   </section>`;
 }

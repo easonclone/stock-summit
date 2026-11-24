@@ -5,6 +5,7 @@ import { generateNodeMap, type RouteNode } from './node-map';
 import { cardRetention, chooseTrade, type Planner } from './npc-strategy';
 import { seededRandom, weighted, type Random } from './random';
 import { marketTargets } from './targets';
+import { buildMarketSchedule, eligibleMarketEvents } from './market-events';
 import { forecastTrade, type DecisionView, type TradeChoice } from './trade-preview';
 import { applyMarket, applyTrade, copyTradingState, marketTone, settleTrade, type EffectContext, type TradingState } from './trading-effects';
 
@@ -66,7 +67,8 @@ export class TradingRun {
   offer: Offer | null = null;
   pendingRecovery: DayReport | null = null;
   latestNews: { day: number; event: TradingEvent } | null = null;
-  private readonly schedule = new Map<number, TradingEvent>();
+  private readonly schedule: Map<number, TradingEvent>;
+  private publicEventPool: TradingEvent[] = [];
   private readonly cardRandom = new Map<Investor, Random>();
   private readonly marketRoll: Random;
   private readonly drafts = new Map<Investor, TradingCard[]>();
@@ -77,14 +79,7 @@ export class TradingRun {
     this.marketRoll = seededRandom(localSeed(options.seed, 'market roll'));
     this.targetRandom = seededRandom(localSeed(options.seed, 'market targeting'));
     const eventRandom = seededRandom(localSeed(options.seed, 'market schedule'));
-    let previous: TradingEvent | null = null;
-    const warmEvents = config.events.filter(event => marketTone(event, config) !== 'negative');
-    for (let day = config.gameplay.eventEvery; day <= config.gameplay.turns; day += config.gameplay.eventEvery) {
-      const pool: TradingEvent[] = previous && marketTone(previous, config) === 'negative' && warmEvents.length ? warmEvents : config.events;
-      const event = weighted(pool, eventRandom);
-      this.schedule.set(day, event);
-      previous = event;
-    }
+    this.schedule = buildMarketSchedule(config, eventRandom);
     this.investors = config.characters.map(character => ({
       character, account: openPortfolio(config.financial.initialCapital), hand: [], hedges: [], intelDay: null,
       path: [], closes: [config.financial.initialCapital], ranks: [1], used: 0,
@@ -135,7 +130,7 @@ export class TradingRun {
       config: this.config, characterId: investor.character.id, day: this.day, state: copyTradingState(investor),
       hand: [...investor.hand], routes: this.reachable(investor),
       nextRow: this.map.rows[this.day] ?? [], knownEvent: this.intelFor(investor),
-      intelDay: investor.intelDay, eventToday: this.schedule.has(this.day),
+      intelDay: investor.intelDay, eventToday: this.schedule.has(this.day), publicEvents: this.publicEventPool,
       nextEventDay: this.eventAtOrAfter(this.day + 1), recentLoss: this.latestNews !== null && marketTone(this.latestNews.event, this.config) === 'negative',
       eligibleAid: rank >= 3 && gap >= investor.account.initialCapital * this.config.financial.recoveryGap, rank, gap,
       opponents: ahead.filter(item => item.rank === nearestRank).map(({ investor: target }) => ({
@@ -305,6 +300,8 @@ export class TradingRun {
   }
 
   private openDay() {
+    this.publicEventPool = this.schedule.has(this.day) ? eligibleMarketEvents(this.config,
+      this.reports.flatMap(report => report.market ? [report.market] : [])) : [];
     for (const investor of this.investors) {
       if (investor.account.eliminated) continue;
       investor.depositInterest = collectDeposits(investor.account, this.day, this.config.financial);

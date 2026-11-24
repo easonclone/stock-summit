@@ -3,6 +3,7 @@ import financial from './financial.json';
 import gameplay from './gameplay.json';
 import npc from './npc.json';
 import data from '../data/finance.json';
+import events from '../data/market-events.json';
 import characters from '../data/characters.json';
 import market from '../data/market-states.json';
 import theme from './ui-theme.json';
@@ -60,7 +61,8 @@ const schema = z.object({
     opponent: z.literal('nearest_ahead').optional(),
     effectIds: references.refine(list => list.length > 0, '卡片至少需要一項效果') })).min(3),
   events: z.array(z.object({
-    id, title: label, description: label, fictional: z.literal(true), weight: positive,
+    id, title: label, subtitle: label, description: label, fictional: z.literal(true), weight: positive,
+    category: z.enum(['ai', 'taiwan', 'us', 'global', 'flows', 'memes']),
     target: z.enum(['all', 'random_one', 'random_two', 'first_place', 'last_place']),
     severity: z.enum(['normal', 'major', 'extreme']),
     effectIds: references.refine(list => list.length > 0, '市場事件至少需要一項效果')
@@ -78,7 +80,7 @@ export type TradingDifficulty = 'easy' | 'normal' | 'hard';
 export type MarketTone = keyof FinancialConfig['market'];
 
 export const financialInput = {
-  financial, characters, market, theme, effects: data.effects, cards: data.cards, events: data.events,
+  financial, characters, market, theme, effects: data.effects, cards: data.cards, events,
   gameplay,
   nodes: { lanes: 4, maxLinks: 2, attempts: 24, kinds: data.nodes },
   npc

@@ -16,6 +16,7 @@ export interface DecisionView {
   knownEvent: TradingEvent | null;
   intelDay: number | null;
   eventToday: boolean;
+  publicEvents: readonly TradingEvent[];
   nextEventDay: number | null;
   recentLoss: boolean;
   eligibleAid: boolean;
@@ -39,7 +40,7 @@ export function forecastTrade(view: DecisionView, node: RouteNode, card: Trading
   };
 
   const knownToday = view.eventToday && view.intelDay === day ? view.knownEvent : null;
-  const publicEvents = view.eventToday && !knownToday ? publicScenarios(config, view.recentLoss) : null;
+  const publicEvents = view.eventToday && !knownToday && view.publicEvents.length ? publicScenarios(config, view.publicEvents) : null;
   const guaranteed = knownToday?.target === 'all' ? knownToday : null;
   const base = draw(0.5, guaranteed);
   const downside = knownToday && !guaranteed && marketTone(knownToday, config) === 'negative'
@@ -78,10 +79,8 @@ export function futureValue(node: RouteNode, next: readonly RouteNode[], kinds: 
   return Math.max(...routes.map(kind => Number(kind.tags.some(tag => tags.includes(tag))))) + (routes.length - 1) * 0.25;
 }
 
-const cachedScenarios = new WeakMap<FinancialConfig, ReturnType<typeof calculateScenarios>[]>();
-function calculateScenarios(config: FinancialConfig, recentLoss: boolean) {
-  const pool = config.events.filter(event => !recentLoss || marketTone(event, config) !== 'negative');
-  const candidates = pool.length ? pool : config.events;
+const cachedScenarios = new WeakMap<readonly TradingEvent[], ReturnType<typeof calculateScenarios>>();
+function calculateScenarios(config: FinancialConfig, candidates: readonly TradingEvent[]) {
   const impact = (event: TradingEvent) => {
     const effect = event.effectIds.map(id => config.effects[id]).find(effect => effect.type === 'price');
     return effect ? (effect.floor + effect.ceiling) / 2 : 0;
@@ -93,11 +92,11 @@ function calculateScenarios(config: FinancialConfig, recentLoss: boolean) {
     typical: ordered.reduce((best, event) => Math.abs(impact(best) - average) < Math.abs(impact(event) - average) ? best : event) };
 }
 
-function publicScenarios(config: FinancialConfig, recentLoss: boolean) {
-  let scenarios = cachedScenarios.get(config);
+function publicScenarios(config: FinancialConfig, candidates: readonly TradingEvent[]) {
+  let scenarios = cachedScenarios.get(candidates);
   if (!scenarios) {
-    scenarios = [calculateScenarios(config, false), calculateScenarios(config, true)];
-    cachedScenarios.set(config, scenarios);
+    scenarios = calculateScenarios(config, candidates);
+    cachedScenarios.set(candidates, scenarios);
   }
-  return scenarios[Number(recentLoss)];
+  return scenarios;
 }

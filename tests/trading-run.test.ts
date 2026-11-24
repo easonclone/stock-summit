@@ -23,7 +23,7 @@ function playDay(run: TradingRun, planner = first) {
 
 function removeVolatility(config: FinancialConfig) {
   config.events = [{
-    id: 'test', title: '測試事件', description: '虛構', fictional: true, weight: 1, target: 'all', severity: 'normal', effectIds: ['none']
+    id: 'test', title: '測試事件', subtitle: '測試用', category: 'flows', description: '虛構', fictional: true, weight: 1, target: 'all', severity: 'normal', effectIds: ['none']
   }];
   config.effects.none = { type: 'price', floor: 0, ceiling: 0 };
   for (const kind of Object.values(config.nodes.kinds)) kind.effectIds = [];

@@ -32,3 +32,5 @@ npm run simulate -- 1000
 [架構](docs/ARCHITECTURE.md) · [經濟與破產規則](docs/ECONOMY.md) · [改版前基準](docs/MIGRATION.md) · [平衡模擬](docs/BALANCE.md) · [驗收](docs/IMPLEMENTATION_PLAN.md)
 
 [文案比較](docs/COPY_AUDIT.md) · [30 張卡牌規劃](docs/CARD_PLAN.md)
+
+卡片可在持股時直接用，搭對路線可取得更高加成。股息與融資券可以提前布局，手牌選中時可使用每局三次的免費換牌。卡牌四組對照可執行 `npm run simulate -- 1000 --cards`；只驗證桌面可執行 `node scripts/verify-browser.mjs --desktop-only`。

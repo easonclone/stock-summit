@@ -17,3 +17,5 @@
 協同可依節點標籤與已發生的盤勢判斷，追加重估率或股息倍數。市場調整由效果種類定義，不需要為不同新聞加入程式分支。
 
 `src/data/market-events.json` 收錄 60 則虛構新聞。六類代碼依序為 `ai`、`taiwan`、`us`、`global`、`flows`、`memes`，數量為 12、12、10、8、10、8。事件只引用既有的股票漲跌及追繳效果。新聞文案不存效果百分比，畫面依效果設定和當日帳本輸出。
+
+卡片新增 `freedom`，搭配效果可設定 `base` 與 `prepareDays`；`fee_coupon.days` 設定融資券期限。玩法開關及換牌上限設定於 `src/config/card-rules.json`。

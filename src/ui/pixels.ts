@@ -103,3 +103,67 @@ export function drawIcon(canvas: HTMLCanvasElement, icon: PixelIcon, color: stri
     });
   });
 }
+
+export type SpriteMood = 'idle' | 'think' | 'gain' | 'loss' | 'shield' | 'hit' | 'call' | 'broke' | 'recover' | 'win';
+
+/**
+ * Full-body arena sprite (24×30 at 2× scale inside a 28×34 canvas) with a mood face and prop.
+ * Motion itself (bounce, shake, slump) is CSS on the canvas so it stays skippable and reduced-motion safe.
+ */
+export function sprite(canvas: HTMLCanvasElement, character: InvestorCharacter, mood: SpriteMood) {
+  canvas.width = 28;
+  canvas.height = 34;
+  const ctx = canvas.getContext('2d')!;
+  ctx.clearRect(0, 0, 28, 34);
+  const fill = (color: string, x: number, y: number, w: number, h: number) => { ctx.fillStyle = color; ctx.fillRect(x, y, w, h); };
+  const ox = 2;
+  const oy = 3;
+  const at = (color: string, x: number, y: number, w = 1, h = 1) => fill(color, ox + x * 2, oy + y * 2, w * 2, h * 2);
+  fill('#0006', 5, 32, 18, 2);
+  drawInvestor(fill, character, ox, oy, 2);
+  const dark = '#101521';
+  const skin = '#f3c29b';
+  // Face: eye at (7,4), mouth row 6.
+  if (mood === 'broke') {
+    at(skin, 7, 4); fill(dark, ox + 14, oy + 8, 1, 1); fill(dark, ox + 15, oy + 9, 1, 1); fill(dark, ox + 15, oy + 8, 1, 1); fill(dark, ox + 14, oy + 9, 1, 1);
+    at(dark, 6, 6, 2, 1);
+  } else if (mood === 'gain' || mood === 'win' || mood === 'recover') {
+    at('#ffe0b2', 6, 5, 3, 1); at(dark, 6, 6, 3, 1); fill('#d65a5a', ox + 14, oy + 13, 2, 1);
+  } else if (mood === 'loss' || mood === 'hit') {
+    at(dark, 6, 6, 2, 1); fill('#7fd0ff', ox + 4, oy + 6, 2, 3);
+  } else if (mood === 'call') {
+    at(dark, 7, 5, 1, 2); fill('#ffffff', ox + 14, oy + 8, 1, 1);
+  } else if (mood === 'think') {
+    fill(dark, ox + 12, oy + 13, 4, 1);
+  }
+  // Props drawn in canvas space.
+  if (mood === 'gain' || mood === 'win') {
+    // arms up
+    at(skin, 0, 5, 1, 3); at(skin, 11, 5, 1, 3);
+    fill('#f3cb62', 0, 0, 4, 4); fill('#c18c3d', 1, 1, 2, 2);
+  }
+  if (mood === 'win') {
+    fill('#f3cb62', ox + 6, 0, 12, 3); fill('#f3cb62', ox + 6, 0, 2, 1); fill('#ffe58a', ox + 11, 0, 2, 1);
+    fill('#c18c3d', ox + 6, 2, 12, 1);
+  }
+  if (mood === 'shield') {
+    ctx.strokeStyle = '#a4d2ec';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(0.5, 0.5, 27, 31);
+    fill('#a4d2ec', 22, 14, 5, 7); fill('#e8f6ff', 23, 15, 3, 1);
+  }
+  if (mood === 'call') {
+    fill('#ffa995', 24, 2, 2, 7); fill('#ffa995', 24, 11, 2, 2);
+  }
+  if (mood === 'hit') {
+    fill('#ffa995', 22, 4, 4, 1); fill('#ffa995', 23, 2, 1, 5); fill('#ffa995', 25, 7, 2, 1);
+  }
+  if (mood === 'think') {
+    fill('#a4d2ec', 22, 1, 2, 2); fill('#a4d2ec', 24, 4, 3, 3);
+  }
+  if (mood === 'broke') {
+    ctx.globalCompositeOperation = 'source-atop';
+    fill('#2a3140aa', 0, 0, 28, 34);
+    ctx.globalCompositeOperation = 'source-over';
+  }
+}

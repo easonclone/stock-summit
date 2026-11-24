@@ -4,13 +4,14 @@ import { TradingRun, type DayOutcome, type DayReport } from './core/trading-run'
 import { marketTone } from './core/trading-effects';
 import { CardAudio } from './ui/audio';
 import { crisisMarkup } from './ui/crisis-dialog';
-import { escapeHtml } from './ui/format';
-import { drawIcon, portrait } from './ui/pixels';
+import { escapeHtml, money, signedMoney } from './ui/format';
+import { drawIcon, portrait, sprite, type SpriteMood } from './ui/pixels';
 import { routeMapMarkup } from './ui/route-map';
 import { settlementMarkup, shareText } from './ui/settlement';
-import { offerMarkup, openingMarkup, tradingMarkup, type TerminalSelection } from './ui/trading-terminal';
+import { cardRulesMarkup, chartDialogMarkup, financeDetailMarkup, newsMarkup, offerMarkup, openingMarkup, tradingMarkup, type TerminalSelection } from './ui/trading-terminal';
+import { Coach, type TipId } from './ui/coach';
 
-type DialogKind = 'map' | 'crisis' | 'recovery' | 'offer' | 'settings' | 'share';
+type DialogKind = 'map' | 'crisis' | 'recovery' | 'offer' | 'settings' | 'share' | 'chart' | 'finance' | 'news' | 'card-rules';
 const freshSeed = () => crypto.getRandomValues(new Uint32Array(1))[0];
 
 class TerminalApp {
@@ -18,7 +19,7 @@ class TerminalApp {
   private readonly screen: HTMLElement;
   private readonly dialog: HTMLDialogElement;
   private readonly audio = new CardAudio();
-  private readonly selection: TerminalSelection = { lane: null, slot: null, prepare: false, financeOpen: false, cardOpen: false, animate: false };
+  private readonly selection: TerminalSelection = { lane: null, slot: null, prepare: false, animate: false };
   private selectedCharacter: string;
   private difficulty: TradingDifficulty = 'normal';
   private seed: number;
@@ -34,6 +35,9 @@ class TerminalApp {
   private transitionTimer: number | undefined;
   private disposeEffect: (() => void) | undefined;
   private lastCrisis: { report: DayReport; outcome: DayOutcome } | null = null;
+  private readonly coach = new Coach();
+  private rulesSlot = 0;
+  private showTimer: number | undefined;
 
   constructor(private readonly root: HTMLElement, private readonly config: FinancialConfig) {
     const fromUrl = new URLSearchParams(location.search).get('seed') ?? '';
@@ -70,7 +74,7 @@ class TerminalApp {
     this.screen.innerHTML = `<header class="masthead"><div class="brand-lockup"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
       <div><b>STOCK SUMMIT</b><small>股市攻頂戰 · Market Showdown</small></div></div><div class="masthead-tools">${status}
       <button class="gear" type="button" data-act="settings" aria-label="畫面與音效" title="畫面與音效">⚙</button></div></header>
-      ${run ? complete ? settlementMarkup(run, this.personal) : tradingMarkup(run, this.selection)
+      ${run ? complete ? settlementMarkup(run, this.personal) : tradingMarkup(run, this.selection, this.coach.markup(run, this.selection))
         : `<main>${openingMarkup(this.config, this.seed, this.selectedCharacter, this.difficulty)}</main>`}`;
     this.paint(this.screen);
     this.selection.animate = false;
@@ -95,6 +99,10 @@ class TerminalApp {
         context.fillRect(15, 15, 4, 1);
       }
     });
+    parent.querySelectorAll<HTMLCanvasElement>('[data-sprite]').forEach(canvas => {
+      const character = this.config.characters.find(item => item.id === canvas.dataset.sprite);
+      if (character) sprite(canvas, character, (canvas.dataset.mood ?? 'idle') as SpriteMood);
+    });
     parent.querySelectorAll<HTMLCanvasElement>('[data-icon]').forEach(canvas => {
       drawIcon(canvas, canvas.dataset.icon as FinancialConfig['cards'][number]['icon'], canvas.dataset.color!);
     });
@@ -106,6 +114,7 @@ class TerminalApp {
     if (target.dataset.input === 'motion') this.reduced = target.checked;
     if (target.dataset.input === 'colors') this.international = target.checked;
     if (target.dataset.input === 'audio') this.audio.enabled = target.checked;
+    if (target.dataset.input === 'tips') { this.coach.setEnabled(target.checked); if (this.run && !this.dialog.open) this.render(); }
     this.setPreferences();
   }
 
@@ -135,6 +144,11 @@ class TerminalApp {
       case 'new': this.start(freshSeed()); break;
       case 'settings': this.dialogTrigger = button; this.openDialog('settings'); break;
       case 'map': this.dialogTrigger = button; this.openDialog('map'); break;
+      case 'chart': case 'finance': case 'news': this.dialogTrigger = button; this.openDialog(act); break;
+      case 'card-rules': this.dialogTrigger = button; this.rulesSlot = value; this.openDialog('card-rules'); break;
+      case 'tip-ok': this.coach.dismiss(button.dataset.value as TipId); this.render('[data-act="trade"]'); break;
+      case 'coach-off': this.coach.setEnabled(false); this.render('[data-act="trade"]'); break;
+      case 'show-skip': this.endShow(); break;
       case 'crisis': this.dialogTrigger = button; this.openDialog('crisis'); break;
       case 'close-dialog': this.closeDialog(); break;
       case 'personal': this.personal = true; this.closeDialog(false); this.render('[data-act="spectate"]'); window.scrollTo(0, 0); break;
@@ -142,10 +156,8 @@ class TerminalApp {
       case 'lane':
       case 'map-pick': this.pickLane(value, act === 'map-pick'); break;
       case 'card':
-        this.rememberDetails();
         this.selection.slot = value === this.selection.slot ? null : value;
         this.selection.prepare = false;
-        this.selection.cardOpen = false;
         this.render(`[data-act="card"][data-value="${value}"]`);
         break;
       case 'prepare':
@@ -188,21 +200,14 @@ class TerminalApp {
     this.announce('開盤啦，選一條路下單。');
   }
 
-  private rememberDetails() {
-    this.selection.financeOpen = Boolean(this.screen.querySelector('[data-detail="financial"][open]'));
-    this.selection.cardOpen = Boolean(this.screen.querySelector('[data-detail="card"][open]'));
-  }
-
   private clearSelection() {
     this.selection.lane = null;
     this.selection.slot = null;
     this.selection.prepare = false;
-    this.selection.cardOpen = false;
   }
 
   private pickLane(lane: number, fromMap = false) {
     if (!this.run?.reachable(this.run.player).some(node => node.lane === lane)) return;
-    this.rememberDetails();
     this.selection.lane = lane;
     if (fromMap) this.closeDialog(false);
     this.render(`[data-act="lane"][data-value="${lane}"]`);
@@ -216,28 +221,20 @@ class TerminalApp {
     if (!run.player.account.eliminated && !action) return;
     this.audio.unlock();
     if (!run.confirm(action)) return;
-    this.rememberDetails();
     this.clearSelection();
-    const report = run.pendingRecovery ?? run.reports.at(-1);
-    if (report?.market) {
-      const tone = marketTone(report.market, this.config);
-      this.audio.play(report.market.severity === 'extreme' ? 'impact' : tone === 'negative' ? 'fall' : 'rise');
-    } else {
-      const outcome = report?.outcomes.find(item => item.investor === run.player);
-      this.audio.play(outcome?.ledger.protected ? 'shield' : outcome ? outcome.close < outcome.start ? 'fall' : 'rise' : 'flat');
-    }
     if (this.reduced) this.afterTrade();
     else this.animateTrade();
   }
 
+  /** Short "orders going in" beat; the result is already settled and the button skips it. */
   private animateTrade() {
     this.locked = true;
-    this.screen.querySelectorAll('.seat').forEach(seat => seat.classList.add('executing'));
-    this.announce('四位投資人正在結算交易。');
+    this.screen.querySelector('.arena')?.classList.add('executing');
+    this.announce('四位投資人正在下單。');
     const button = this.screen.querySelector<HTMLButtonElement>('[data-act="trade"]')!;
     button.dataset.act = 'skip';
-    button.textContent = '交易結算中・點擊略過';
-    this.transitionTimer = window.setTimeout(() => this.finishAnimation(), 240);
+    button.textContent = '下單中・點擊略過';
+    this.transitionTimer = window.setTimeout(() => this.finishAnimation(), 320);
   }
 
   private finishAnimation() {
@@ -252,30 +249,79 @@ class TerminalApp {
     const report = run.pendingRecovery ?? run.reports.at(-1);
     const outcome = report?.outcomes.find(item => item.investor === run.player);
     this.closeDialog(false);
-    this.selection.animate = true;
+    this.selection.animate = !this.reduced;
     this.render(run.closed ? '[data-act="replay"]' : '[data-act="lane"], [data-act="trade"]');
-    if (!this.reduced && report?.market && report.market.severity !== 'normal') void this.playMarketEffect(report);
+    if (report && outcome) this.playSound(report, outcome);
+    if (!this.reduced && report?.market && !run.closed) void this.playMarketEffect(report);
     if (report && outcome && (outcome.risk.call || outcome.risk.insolvent)) this.lastCrisis = { report, outcome };
-    if (run.pendingRecovery && this.lastCrisis) this.openDialog('recovery');
-    else if (outcome && !outcome.recovery && (outcome.risk.call || outcome.risk.insolvent)) this.openDialog('crisis');
-    else this.showOffer();
-    this.announce(run.closed ? '本局正式收盤。' : `第 ${run.day} 個交易日。`);
+    const next = () => {
+      if (run.pendingRecovery && this.lastCrisis) this.openDialog('recovery');
+      else if (outcome && !outcome.recovery && (outcome.risk.call || outcome.risk.insolvent)) this.openDialog('crisis');
+      else this.showOffer();
+    };
+    if (!this.reduced && report?.market?.severity === 'extreme' && !run.closed) this.extremeShow(report, next);
+    else next();
+    this.announce(run.closed ? '本局正式收盤。' : `第 ${run.day} 個交易日。${outcome ? `你昨天 ${signedMoney(outcome.close - outcome.start)}。` : ''}`);
     if (run.closed) window.scrollTo(0, 0);
   }
 
+  /** One sound per day, picked from the settlement record in order of importance. */
+  private playSound(report: DayReport, outcome: DayOutcome) {
+    const ranks = this.run!.player.ranks;
+    const climbed = ranks.length > 1 && ranks.at(-1)! < ranks.at(-2)!;
+    const sound = outcome.risk.call || outcome.risk.insolvent ? 'alarm'
+      : report.market?.severity === 'extreme' ? 'impact'
+      : outcome.ledger.protected ? 'shield'
+      : outcome.ledger.synergies ? 'combo'
+      : climbed ? 'rank'
+      : report.market ? marketTone(report.market, this.config) === 'negative' ? 'fall' : 'rise'
+      : outcome.close < outcome.start ? 'fall' : outcome.close > outcome.start ? 'rise' : 'flat';
+    this.audio.play(sound);
+  }
+
+  /** Full-screen news flash for extreme events only; built from the real report and dismissable at once. */
+  private extremeShow(report: DayReport, then: () => void) {
+    const tone = marketTone(report.market!, this.config);
+    const lines = report.outcomes.map(item => `<li style="--ink:${item.investor.character.color}"><span>${escapeHtml(item.investor.character.name)}</span>
+      <b class="${item.marketPnl > 0 ? 'gain' : item.marketPnl < 0 ? 'loss' : 'flat'}">${item.marketPnl ? signedMoney(item.marketPnl) : '不受影響'}</b>${item.ledger.protected ? `<small>◆ 擋 ${money(item.ledger.protected)}</small>` : ''}</li>`).join('');
+    const show = document.createElement('div');
+    show.className = `news-show ${tone}`;
+    show.setAttribute('role', 'alert');
+    show.innerHTML = `<div class="show-card"><p class="show-kicker">重大快訊 · 第 ${report.day} 日</p><h2>${escapeHtml(report.market!.title)}</h2>
+      <p>${escapeHtml(report.market!.subtitle)}</p><ul>${lines}</ul><button type="button" class="gold-button" data-act="show-skip">繼續</button></div>`;
+    this.root.append(show);
+    this.showThen = then;
+    show.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true });
+    this.showTimer = window.setTimeout(() => this.endShow(), 2600);
+  }
+
+  private showThen: (() => void) | null = null;
+
+  private endShow() {
+    window.clearTimeout(this.showTimer);
+    this.root.querySelector('.news-show')?.remove();
+    const then = this.showThen;
+    this.showThen = null;
+    then?.();
+    if (!this.dialog.open) this.screen.querySelector<HTMLElement>('[data-act="trade"]')?.focus({ preventScroll: true });
+  }
+
   private async playMarketEffect(report: DayReport) {
-    const strip = this.screen.querySelector('.market-strip');
-    if (!strip || !report.market) return;
+    const arena = this.screen.querySelector<HTMLElement>('.arena');
+    if (!arena || !report.market) return;
     try {
       const { mountMarketEffect } = await import('./ui/market-effects');
-      if (!strip.isConnected || this.reduced || !this.run) return;
+      if (!arena.isConnected || this.reduced || !this.run) return;
       const host = document.createElement('div');
       host.className = 'market-art';
       host.setAttribute('aria-hidden', 'true');
-      strip.prepend(host);
+      arena.prepend(host);
       const tone = marketTone(report.market, this.config);
       const color = getComputedStyle(this.root).getPropertyValue(tone === 'negative' ? '--loss' : '--gain').trim();
-      this.disposeEffect = mountMarketEffect(host, this.run.options.seed ^ report.day, Number.parseInt(color.slice(1), 16), report.market.severity === 'extreme');
+      const width = Math.max(120, Math.round(arena.clientWidth / 2));
+      const height = Math.max(60, Math.round(arena.clientHeight / 2));
+      this.disposeEffect = mountMarketEffect(host, this.run.options.seed ^ report.day, Number.parseInt(color.slice(1), 16),
+        report.market.severity !== 'normal', width, height, tone !== 'negative');
     } catch (error) {
       console.warn('市場像素特效無法播放', error);
     }
@@ -319,8 +365,28 @@ class TerminalApp {
         heading = '畫面與音效';
         content = `<div class="settings-options"><label><input type="checkbox" data-input="colors" ${this.international ? 'checked' : ''}> 切換綠漲紅跌</label>
           <label><input type="checkbox" data-input="motion" ${this.reduced ? 'checked' : ''}> 減少動態，直接看結算</label>
-          <label><input type="checkbox" data-input="audio" ${this.audio.enabled ? 'checked' : ''}> 播放交易音效</label></div>`;
+          <label><input type="checkbox" data-input="audio" ${this.audio.enabled ? 'checked' : ''}> 播放交易音效</label>
+          <label><input type="checkbox" data-input="tips" ${this.coach.enabled ? 'checked' : ''}> 顯示新手提示</label></div>`;
         break;
+      case 'chart':
+        heading = '總身家走勢';
+        content = chartDialogMarkup(run);
+        break;
+      case 'finance':
+        heading = '財務明細';
+        content = financeDetailMarkup(run);
+        break;
+      case 'news':
+        heading = '市場快訊';
+        content = newsMarkup(run);
+        break;
+      case 'card-rules': {
+        const card = run.player.hand[this.rulesSlot];
+        if (!card) return;
+        heading = '卡片規則';
+        content = cardRulesMarkup(run, card);
+        break;
+      }
       case 'share':
         heading = '分享結算';
         content = `<p>可複製以下結算摘要。</p><textarea aria-label="結算摘要" readonly rows="8">${escapeHtml(shareText(run))}</textarea>`;
@@ -368,6 +434,7 @@ class TerminalApp {
   }
 
   private readonly keyDown = (event: KeyboardEvent) => {
+    if (this.showThen && (event.code === 'Escape' || event.code === 'Enter' || event.code === 'Space')) { event.preventDefault(); this.endShow(); return; }
     if (!this.run || this.run.closed || this.dialog.open || this.personal || this.locked || event.altKey || event.ctrlKey || event.metaKey ||
       (event.target as Element).closest('input, select, textarea')) return;
     const target = (event.target as Element).closest<HTMLButtonElement>('[data-act="trade"]');

@@ -125,12 +125,21 @@ async function openMarket(width, height, mobile, seed, reduced) {
   await trustedClick(on('start'), mobile);
   await waitFor('main.trading');
   await layout(width, height, true);
-  assert.equal(await js('document.querySelectorAll(".chart polyline").length'), 4);
+  await action('chart');
+  assert.equal(await js('document.querySelectorAll("dialog[open] .chart polyline").length'), 4);
+  await action('close-dialog');
+  for (const hidden of ['無融資', '交易正常', '正常交易', '無避險']) assert(!(await js('document.querySelector("main").innerText')).includes(hidden), '主畫面不顯示 ' + hidden);
 }
 
-const transitions = { draw: 0, draft: 0, liquidation: 0, recovery: 0, skip: 0, effect: 0, personal: 0 };
+const transitions = { draw: 0, draft: 0, liquidation: 0, recovery: 0, skip: 0, effect: 0, personal: 0, show: 0 };
 async function clearDialogs(replaceOne = false) {
   for (let n = 0; n < 6; n++) {
+    if (await has('.news-show')) {
+      assert.match(await js('document.querySelector(".news-show").innerText'), /重大快訊/);
+      transitions.show++;
+      await click('.news-show [data-act="show-skip"]');
+      assert(!(await has('.news-show')), '重大新聞演出可略過');
+    }
     const dialog = await js('document.querySelector("dialog[open]")?.className ?? ""');
     if (!dialog) return;
     if (dialog.includes('dialog-recovery') && transitions.recovery === 0) await screenshot('recovery-320');
@@ -154,7 +163,7 @@ async function clearDialogs(replaceOne = false) {
         await action('close-dialog');
       }
     } else if (dialog.includes('dialog-offer')) {
-      const draft = body.includes('三選一');
+      const draft = (await js('document.querySelector("dialog #dialog-heading").textContent')).includes('三選一');
       if (draft) {
         transitions.draft++;
         assert.equal(await js('document.querySelectorAll(".offer-card").length'), 3);
@@ -218,7 +227,10 @@ try {
     }
     await clearDialogs();
     assert.match(await js('document.querySelector(".session-counter strong").textContent'), /02/);
-    assert.equal(await js('document.querySelector(".chart polyline").getAttribute("points").split(" ").length'), 2);
+    await action('chart');
+    assert.equal(await js('document.querySelector("dialog[open] .chart polyline").getAttribute("points").split(" ").length'), 2);
+    await action('close-dialog');
+    assert(await has('.day-result'), '每日結算分項');
     await layout(width, height, true);
 
     if (width === 320 || !mobile) {
@@ -234,8 +246,8 @@ try {
           await send('Input.dispatchKeyEvent', { type: 'keyUp', key: ' ', code: 'Space', windowsVirtualKeyCode: 32, nativeVirtualKeyCode: 49 });
           assert(await has(on('skip')), '使用鍵盤空白鍵確認交易，第 '+day+' 日');
         } else await action('trade');
-        if (await has(on('skip'))) await delay(280);
-        if (!mobile && await has('.market-strip.market-flash.major, .market-strip.market-flash.extreme')) {
+        for (let i = 0; i < 40 && await has(on('skip')); i++) await delay(25);
+        if (!mobile && await has('.arena.fresh-news.sev-major, .arena.fresh-news.sev-extreme')) {
           for (let i = 0; i < 20 && !(await has('.market-art canvas')); i++) await delay(25);
           if (await has('.market-art canvas')) transitions.effect++;
         }
@@ -264,7 +276,7 @@ try {
       }
     } else {
       await action('lane');
-      await js('scrollTo(0, document.querySelector(".chart").offsetTop - 15)');
+      await js('scrollTo(0, document.querySelector(".hand-section").offsetTop - 15)');
       await layout(width, height, true);
       if (width === 390) { await screenshot('trading-390'); await js('scrollTo(0,0)'); await screenshot('market-390'); }
     }
@@ -302,6 +314,18 @@ try {
     await screenshot('leverage-card-390');
     await layout(390, 844, true);
 
+    // 種子 13 一律走第一條路時，第 6 日出現極端新聞，驗證全螢幕演出與略過。
+    await openMarket(390, 844, true, 13, false);
+    for (let day = 1; day <= 6; day++) {
+      await clearDialogs();
+      await action('lane');
+      await action('trade');
+      for (let i = 0; i < 40 && await has(on('skip')); i++) await delay(25);
+      if (day === 6) { assert(await has('.news-show'), '極端新聞全螢幕演出'); await screenshot('news-show-390'); }
+      await clearDialogs();
+    }
+    assert(transitions.show > 0, '極端新聞演出可略過');
+
     // 此種子固定重整於第 6 日，於第 11 日再出局。
     const crisisLanes = [1, 0, 0, 0, 0, 1, 2, 1, 1, 2, 1];
     await openMarket(320, 640, true, 7893, true);
@@ -310,9 +334,10 @@ try {
       await action('trade');
       await clearDialogs();
       if (day === 3) {
-        assert(await has('[data-market-impact]'));
-        await js('scrollTo(0,0)');
+        await action('news');
+        assert(await has('dialog[open] [data-market-impact]'));
         await screenshot('market-impact-320');
+        await action('close-dialog');
       }
       if (await has('.spectator')) await layout(320, 640, true);
     }

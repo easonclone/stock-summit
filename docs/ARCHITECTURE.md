@@ -1,0 +1,4 @@
+# 架構
+src/data/{characters,events,effects,cards,market-states}.json；src/data/maps/mountain-01.json；src/config/{gameplay,physics,npc,ui-theme}.json。
+src/scenes/：Boot、Menu、CharacterSelect、Game、HUD、Result；src/entities/：Character、Platform、Ladder、CardPickup；src/controllers/：PlayerController、NPCController、CameraController；src/systems/：EventSystem、EffectSystem、CardSystem、MovementSystem、MapSystem、RankingSystem、VictorySystem、MarketSystem；src/core/：GameState、GameClock、RandomGenerator、EventBus；src/schemas/、src/types/、src/ui/、tests/。
+事件抽取 -> 目標解析（同一事件開始時快照） -> effectIds 查表 -> EffectSystem -> handler -> 共用狀態/移動服務 -> UI 訂閱。卡片同一流程。渲染與核心邏輯分離，避免場景巨型類別。地圖提供平台 ID、層、落點、相鄰邊及邊類型，NPC 路徑與效果位移共用。暫停凍結遊戲時計、事件、效果、NPC；重玩清理訂閱、計時器及狀態。使用 seed 可重現事件與卡片抽取。不要過度設計，先交付垂直切片。

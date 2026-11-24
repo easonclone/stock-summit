@@ -9,8 +9,8 @@ const ratio = (numerator, denominator) => denominator ? Number((numerator / deno
 
 export function compareCards({ seeds, config, TradingRun, chooseTrade, strategies, handAvailability, netWorth }) {
   const report = {};
-  for (const [variant, cardRules] of Object.entries(variants)) {
-    const settings = { ...config, cardRules };
+  for (const [variant, cardRules] of Object.entries(process.argv.includes('--expanded') ? { E: config.cardRules } : variants)) {
+    const settings = { ...config, cardRules: { ...config.cardRules, ...cardRules, expanded: variant === 'E' } };
     report[variant] = strategies.map(strategy => {
       const totals = { hands: 0, cards: 0, usable: 0, dead: 0, routeBlocked: 0, age: 0, removed: 0, offers: 0,
         declined: 0, replacements: 0, exchanged: 0, used: 0, synergies: 0, prepared: 0, triggered: 0,
@@ -57,7 +57,7 @@ export function compareCards({ seeds, config, TradingRun, chooseTrade, strategie
           totals.triggered += ledger.preparedTriggers;
           totals.cardGain += ledger.cardGain;
           totals.grossGain += Math.max(0, ledger.investmentPnl - ledger.stockCardGain) + ledger.stockCardGain +
-            ledger.dividends + ledger.cashYield + outcome.openingInterest + ledger.feeSaved;
+            ledger.dividends + ledger.cashYield + outcome.openingInterest + outcome.openingStockIncome + ledger.feeSaved;
         }
       }
       const result = {

@@ -97,14 +97,19 @@ export function chooseTrade(view: DecisionView, random: Random, strategy: Strate
         .filter(effect => effect.type === 'dividend').map(effect => effect.rate))) * prep.amount * 0.65 :
       prep?.kind === 'fee' && (strategy === 'leverage' || strategy === 'bankrupt' || strategy === 'mixed')
         ? forecast.cash * config.financial.originationFee * (nextKinds.some(kind => kind.tags.includes('margin')) ? 1 : 0.25) : 0;
-    const synergy = forecast.synergies && strategy === 'combo' ? 450 : 0;
+    const futureIncome = prep?.kind === 'deposit' ? forecast.deposits * config.financial.depositDailyRate * prep.amount * 1.7
+      : prep?.kind === 'stock' ? Math.min(prep.cap ?? Infinity, Math.max(0, forecast.investment - forecast.debt) * prep.amount) * 1.7
+      : prep?.kind === 'rally' || prep?.kind === 'short' || prep?.kind === 'safe_shield' ? npc.hedgeValue * 0.55 : 0;
+    const synergy = forecast.synergies ? (strategy === 'combo' ? (config.cardRules.expanded ? 240 : 450) : config.cardRules.expanded ? 85 : 0) : 0;
+    const activePrep = forecast.bonusDraw ? npc.draftValue * 0.65 : 0;
+    const expandedRetention = card && config.cardRules.expanded && forecast.enabledCard ? Math.min(60, reserve) : 0;
     const draft = forecast.draft && remaining > 0 ? npc.draftValue * (strategy === 'combo' ? 1.6 : 1) : 0;
     const future = remaining > 0 ? npc.lookahead * (difficulty === 'easy' ? 0.5 : 1) * 260 *
       futureValue(node, view.nextRow, config.nodes.kinds, preferred[strategy]) : 0;
     const expected = forecast.expected + (strategy === 'cash' && remaining > 0 ? forecast.deposited * 0.022 : 0);
     const pressure = view.rank === 1 ? Math.max(0, -forecast.low) * 0.04 : 0;
     const score = expected - possibleLoss - insolvency - liquidity - ltvPressure - debt - warnings - reserve - pressure +
-      hedge + intel + draft + synergy + future + preparedValue + competition + classWeight(node) + random() * npc[difficulty];
+      hedge + intel + draft + synergy + future + preparedValue + futureIncome + competition + activePrep + expandedRetention + classWeight(node) + random() * npc[difficulty];
     if (score > best) { best = score; selected = option; }
   }
   return { lane: selected.node.lane, card: selected.slot, prepare: selected.prepare };

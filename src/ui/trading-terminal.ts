@@ -3,7 +3,7 @@ import { canBorrow, debtBalance, depositBalance, leverageExposure, netWorth, ret
 import type { TradingRun, DayOutcome } from '../core/trading-run';
 import type { RouteNode } from '../core/node-map';
 import { cardPreparationAvailable } from '../core/trade-preview';
-import type { CardBlock } from '../core/trading-effects';
+import { hedgeLayers, type CardBlock } from '../core/trading-effects';
 import { marketTone } from '../core/trading-effects';
 import { arrow, direction, escapeHtml, money, percent, signedMoney, signedPercent } from './format';
 import { performanceChart } from './performance-chart';
@@ -39,7 +39,7 @@ export function openingMarkup(config: FinancialConfig, seed: number, chosen: str
 
 function marketMarkup(run: TradingRun, animate: boolean) {
   const current = run.latestNews;
-  const intel = run.intelFor(run.player);
+  const intel = run.intelligenceFor(run.player);
   const tone = current ? marketTone(current.event, run.config) : 'neutral';
   const next = run.nextEventDay;
   const report = current ? run.reports.find(item => item.day === current.day) : null;
@@ -60,11 +60,11 @@ function marketMarkup(run: TradingRun, animate: boolean) {
     <div class="market-info"><span><b>${run.config.market[tone].name}</b> 盤勢</span><span>${next === null ? '市場事件已結束' : `下次事件・第 ${next} 日`}</span></div>
     ${current ? `<div class="market-story">
       <p class="market-subtitle">${escapeHtml(current.event.subtitle)}</p>
-      ${report ? `<p data-market-impact>${effect}${impact}${maintenance && outcome?.marketApplied ? ' 這天有融資的人更容易被要求補錢。' : ''}</p>` : ''}
+      ${report ? `<p data-market-impact>${effect}${impact}${outcome?.ledger.marketCardGain ? `策略牌影響 ${money(outcome.ledger.marketCardGain)}。` : ''}${maintenance && outcome?.marketApplied ? ' 這天有融資的人更容易被要求補錢。' : ''}</p>` : ''}
       <details><summary>看這則新聞的規則</summary><p>${escapeHtml(current.event.description)}
       ${maintenance ? `這天的追繳門檻收緊至 ${percent(Math.min(maintenance.ltv, run.config.financial.callLtv))}。` : ''}</p></details>
     </div>` : ''}
-    ${intel ? `<p class="intel">◆ 已取得情報・第 ${run.player.intelDay} 日・${escapeHtml(intel.title)}：${escapeHtml(intel.description)}</p>` : ''}
+    ${intel.map(({ day, event }) => `<p class="intel">◆ 已取得情報・第 ${day} 日・${escapeHtml(event.title)}：${escapeHtml(event.description)}</p>`).join('')}
   </section>`;
 }
 
@@ -99,7 +99,7 @@ function seatsMarkup(run: TradingRun, selected: boolean, animated: boolean) {
       <strong class="seat-value">${money(netWorth(account))}</strong>
       <span class="seat-return ${direction(returnRate(account))}">${arrow(returnRate(account))} ${signedPercent(returnRate(account))}</span>
       <span class="seat-status">${state === 'normal' ? response : financialLabels[state]}${animated && delta ? ` · ${signedMoney(delta)}` : ''}</span>
-      <span class="seat-position">${account.marginDebt ? '融資中' : '無融資'}${investor.hedges.length ? ` · ◆${investor.hedges.length}` : ''}</span>
+      <span class="seat-position">${account.marginDebt ? '融資中' : '無融資'}${hedgeLayers(investor) ? ` · ◆${hedgeLayers(investor)}` : ''}</span>
     </article>`;
   }).join('')}</section>`;
 }
@@ -114,7 +114,7 @@ function financialMarkup(run: TradingRun, expanded: boolean) {
     <div class="financial-kpis">
       <div><span>總身家</span><strong class="gold">${money(netWorth(account))}</strong></div>
       <div><span>手上現金</span><strong>${money(account.cash)}</strong></div>
-      <div><span>防跌保護</span><strong class="ice">◆ ${hedges.length}</strong></div>
+      <div><span>防跌保護</span><strong class="ice">◆ ${hedgeLayers(run.player)}</strong></div>
     </div>
     ${warnings.length || restrictions ? `<div class="warning-bar">▲ ${warnings.join('。') || '破產重整期間'}。暫時不能借錢加碼${restrictions ? `（剩 ${restrictions} 日）` : ''}。可以先賣股、還錢，或加點保護。</div>` : ''}
     <details data-detail="financial" ${expanded ? 'open' : ''}><summary>資產負債明細</summary><dl class="finance-detail">
@@ -147,7 +147,7 @@ function handMarkup(run: TradingRun, lane: number | null, slot: number | null, e
       <strong>${escapeHtml(card.name)}</strong><span>${synergy ? '◆ 可以接連招' : card.duration.length <= 6 ? escapeHtml(card.duration) : ''}</span></button>`;
   }).join('');
   return `<section class="hand-section" aria-label="今日手牌"><div class="section-head"><h2>今日手牌</h2><span>今天最多打 1 張 · ${run.player.hand.length}／${run.config.gameplay.inventorySize}</span></div>
-    ${run.player.prepared.length ? `<p class="pending-cards">${run.player.prepared.map(item => `${item.kind === 'fee' ? '融資優惠券' : '股息布局'}：還有 ${item.expires - run.day + 1} 個交易日，可觸發 1 次。`).join(' ')}</p>` : ''}
+    ${run.player.prepared.length ? `<p class="pending-cards">${run.player.prepared.map(item => `${escapeHtml(run.config.cards.find(card => card.id === item.id)?.name ?? '卡片布局')}：還有 ${item.expires - run.day + 1} 個交易日。${['deposit','stock'].includes(item.kind) ? '符合條件時每日領取。' : '可觸發 1 次。'}`).join(' ')}</p>` : ''}
     <div class="hand-grid">${cards}</div>
     ${selectedCard ? cardDescription(run, selectedCard, lane, slot!, expanded, prepare) : '<p class="hand-hint">點卡看效果，也可直接挑一條路。</p>'}
   </section>`;
@@ -160,7 +160,9 @@ const cardBlockCopy: Record<CardBlock, string> = {
   no_debt: '目前沒有欠款。', low_cash: '手上現金不足。',
   no_opponent: '前方沒有符合條件的對手。', route: '這張牌要搭配指定路線。',
   need_downturn: '要等市場出現利空，才能打這張牌。',
-  already_prepared: '同一張牌的布局已在等觸發。', no_days: '本局已沒有後續交易日。'
+  already_prepared: '同一張牌的布局已在等觸發。', no_days: '本局已沒有後續交易日。',
+  no_deposit: '手上沒有定存。', recovery_required: '重整後才能用這張牌。',
+  already_used: '這張牌在本局已經用過。', equity_high: '總身家需低於起手本金的一半。'
 };
 
 function cardDescription(run: TradingRun, card: TradingCard, lane: number | null, slot: number, expanded: boolean, prepare: boolean) {
@@ -213,7 +215,7 @@ function cardDescription(run: TradingRun, card: TradingCard, lane: number | null
     ${rulesCopy.length ? `<p>${rulesCopy.join(' ')}</p>` : ''}
     <p class="${usable ? 'gold' : 'ice'}" data-card-status tabindex="-1">${status}</p>
     ${results.length ? `<p class="synergy-note" data-card-impact>${results.join(' · ')}</p>` : ''}
-    ${prep ? `<p>後續 ${prep.expires - run.day} 個交易日內，首次${prep.kind === 'dividend' ? '領股息' : '成功借款'}時生效一次。</p>` : ''}
+    ${prep && ['dividend','fee'].includes(prep.kind) ? `<p>後續 ${prep.expires - run.day} 個交易日內，首次${prep.kind === 'dividend' ? '領股息' : '成功借款'}時生效一次。</p>` : ''}
     ${canPrepare || run.player.exchangeLeft > 0 ? `<div class="card-buttons">
       ${canPrepare ? `<button type="button" data-act="prepare" aria-pressed="${prepare}">${prepare ? '改為今天使用' : '改為提前布局'}</button>` : ''}
       ${run.player.exchangeLeft > 0 ? `<button type="button" data-act="exchange">免費換這張・剩 ${run.player.exchangeLeft} 次</button>` : ''}
@@ -277,6 +279,7 @@ function latestMarkup(run: TradingRun) {
     <div><b>${player.node ? escapeHtml(run.config.nodes.kinds[player.node.kind].name) : '場外'}</b>
     <p>${[
       player.openingInterest ? `定存利息 ${signedMoney(player.openingInterest)}` : '',
+      player.openingStockIncome ? `持股入帳 ${signedMoney(player.openingStockIncome)}` : '',
       player.card ? escapeHtml(player.card.name) : '',
       player.targetedRivals.length ? `影響 ${player.targetedRivals.map(escapeHtml).join('、')}` : '',
       player.incomingCards.length ? `受到${player.incomingCards.map(escapeHtml).join('、')}` : '',

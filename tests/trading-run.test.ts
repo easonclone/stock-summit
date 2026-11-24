@@ -135,6 +135,7 @@ describe('交易入口及種子', () => {
 
   it('先用避險再結算市場，已知未來事件不計入今日收益', () => {
     const config = removeVolatility(readFinancialConfig());
+    config.cardRules.expanded = false;
     config.effects.none = { type: 'price', floor: -0.5, ceiling: -0.5 };
     const run = start(config);
     run.player.hand[0] = config.cards.find(card => card.id === 'hedge')!;
@@ -169,6 +170,7 @@ describe('交易入口及種子', () => {
 
   it('卡片預覽提供引擎判斷的即時原因、金額及護盾效果', () => {
     const config = removeVolatility(readFinancialConfig());
+    config.cardRules.expanded = false;
     const run = start(config);
     const lane = run.reachable(run.player)[0].lane;
     const choose = (id: string) => { run.player.hand[0] = config.cards.find(card => card.id === id)!; };
@@ -356,5 +358,154 @@ describe('卡牌自由度', () => {
       expect(run.player.hand).toHaveLength(3);
     }
     expect(runs[0].player.hand).toEqual(runs[1].player.hand);
+  });
+});
+
+
+describe('完整卡池', () => {
+  it('卡牌規劃的 30 張均接上資料，抽牌及換牌保持可重現', () => {
+    const config = readFinancialConfig();
+    expect(config.cards).toHaveLength(30);
+    expect(new Set(config.cards.map(card => card.id)).size).toBe(30);
+    for (const [freedom, expected] of [['free',18],['pair',9],['special',3]] as const) {
+      expect(config.cards.filter(card => card.freedom === freedom)).toHaveLength(expected);
+    }
+    expect(start(config).investors.map(item => item.hand)).toEqual(start(config).investors.map(item => item.hand));
+    expect(start(config).investors.every(item => new Set(item.hand.map(card => card.id)).size === item.hand.length)).toBe(true);
+  });
+
+  it('新資料的基本效果不用綁死路線，實際加成可從帳本辨識', () => {
+    const config = removeVolatility(readFinancialConfig());
+    const run = start(config);
+    const [node] = run.reachable(run.player);
+    const kind = config.nodes.kinds[node.kind];
+    run.player.hand[0] = config.cards.find(card => card.id === 'gift')!;
+    kind.tags = ['speculative'];
+    expect(run.preview(node.lane, 0)?.cardImpact?.cash).toBe(300);
+    expect(run.preview(node.lane, 0)?.synergies).toBe(0);
+    kind.tags = ['steady'];
+    expect(run.preview(node.lane, 0)?.cardImpact?.cash).toBe(360);
+    expect(run.preview(node.lane, 0)?.synergies).toBe(1);
+  });
+
+  it('定存加息只收一次，解約取回本金而不增加總身家', () => {
+    const config = removeVolatility(readFinancialConfig());
+    const run = start(config);
+    run.player.account.cash = 9000;
+    run.player.account.deposits.push({ balance: 1000, maturity: 4 });
+    run.player.hand[0] = config.cards.find(card => card.id === 'compound')!;
+    expect(run.confirm({lane: run.reachable(run.player)[0].lane, card: 0}, first)).toBe(true);
+    expect(run.player.account.stats.depositYield).toBeGreaterThan(22);
+    const cash = run.player.account.cash;
+    run.player.hand[0] = config.cards.find(card => card.id === 'redeem')!;
+    expect(run.preview(run.reachable(run.player)[0].lane, 0)?.cardImpact?.cash).toBe(1000);
+    expect(run.player.account.cash).toBe(cash);
+  });
+
+  it('獨家消息只揭露給用牌者；重新洗牌不會抽回同一效果', () => {
+    const config = removeVolatility(readFinancialConfig());
+    const run = start(config);
+    run.player.hand[0] = config.cards.find(card => card.id === 'exclusive')!;
+    expect(run.confirm({ lane: run.reachable(run.player)[0].lane, card: 0 }, first)).toBe(true);
+    expect(run.intelligenceFor(run.player).map(item => item.day)).toEqual([3, 6]);
+    expect(run.intelligenceFor(run.investors[1])).toEqual([]);
+    declineOffers(run);
+    run.player.hand[0] = config.cards.find(card => card.id === 'reshuffle')!;
+    expect(run.confirm({ lane: run.reachable(run.player)[0].lane, card: 0 }, first)).toBe(true);
+    while (run.offer?.source === 'draw') expect(run.chooseOffer(null)).toBe(true);
+    expect(run.offer?.source).toBe('draft');
+    expect(new Set(run.offer?.cards.map(card => card.id)).size).toBe(3);
+    expect(run.offer?.cards.some(card => card.id === 'reshuffle')).toBe(false);
+  });
+
+  it('融資管制鎖定開盤領先者，完成交易後不會新增其融資', () => {
+    const config = removeVolatility(readFinancialConfig());
+    const run = start(config);
+    const player = run.player;
+    const rival = run.investors[1];
+    rival.account.cash = 20000;
+    run.player.hand[0] = config.cards.find(card => card.id === 'credit')!;
+    for (const kind of Object.values(config.nodes.kinds)) kind.effectIds = ['margin_buy'];
+    expect(run.confirm({ lane: run.reachable(player)[0].lane, card: 0 }, first)).toBe(true);
+    expect(rival.account.marginDebt).toBe(0);
+    expect(run.reports[0].outcomes.find(item => item.investor === rival)?.incomingCards).toEqual(['信用管制']);
+  });
+});
+
+
+describe('新增卡片的財務邊界', () => {
+  it.each([
+    ['tailwind', 0.2, 2350],
+    ['escape', -0.5, -1500],
+    ['short_chief', -0.5, 500]
+  ] as const)('%s 只放大或保護自有股票', (id, change, expected) => {
+    const config = removeVolatility(readFinancialConfig());
+    config.gameplay.eventEvery = 1;
+    config.effects.none = { type: 'price', floor: change, ceiling: change };
+    const run = start(config);
+    Object.assign(run.player.account, { cash: 0, investmentValue: 10000, marginDebt: 3000 });
+    run.player.hand[0] = config.cards.find(card => card.id === id)!;
+    const [node] = run.reachable(run.player);
+    config.nodes.kinds[node.kind].tags = ['speculative'];
+    expect(run.confirm({ lane: node.lane, card: 0 }, first)).toBe(true);
+    expect(run.reports[0].outcomes[0].marketPnl).toBe(expected);
+  });
+
+  it.each([
+    ['airbag', 10000, 3000, -1300],
+    ['all_in', 3000, 0, -900]
+  ] as const)('%s 的路線效果不放大借款部位', (id, stocks, debt, expected) => {
+    const config = removeVolatility(readFinancialConfig());
+    const run = start(config);
+    Object.assign(run.player.account, { cash: 0, investmentValue: stocks, marginDebt: debt });
+    const [node] = run.reachable(run.player);
+    config.effects.drop = { type: 'price', floor: -0.2, ceiling: -0.2 };
+    config.nodes.kinds[node.kind].effectIds = ['drop'];
+    run.player.hand[0] = config.cards.find(card => card.id === id)!;
+    expect(run.confirm({ lane: node.lane, card: 0 }, first)).toBe(true);
+    expect(run.reports[0].outcomes[0].ledger.investmentPnl).toBe(expected);
+  });
+
+  it.each(['snipe','higher_interest'] as const)('%s 只在領先目標的帳本生效', id => {
+    const config = removeVolatility(readFinancialConfig());
+    const run = start(config);
+    const rival = run.investors[1];
+    Object.assign(rival.account, { cash: 10000, investmentValue: 5000, marginDebt: 1000 });
+    run.player.hand[0] = config.cards.find(card => card.id === id)!;
+    expect(run.confirm({ lane: run.reachable(run.player)[0].lane, card: 0 }, first)).toBe(true);
+    expect(rival.account.investmentValue).toBe(id === 'snipe' ? 4750 : 5000);
+    expect(rival.account.stats.fees).toBe(id === 'higher_interest' ? 22 : 11);
+    expect(run.player.account.stats.fees).toBe(0);
+  });
+
+  it('長期持有在後續日入帳，東山再起仍為每局一次', () => {
+    const config = removeVolatility(readFinancialConfig());
+    const run = start(config);
+    const player = run.player;
+    Object.assign(player.account, { investmentValue: 10000, marginDebt: 3000, bankruptcyCount: 1 });
+    player.hand[0] = config.cards.find(card => card.id === 'hold')!;
+    const [node] = run.reachable(player);
+    config.nodes.kinds[node.kind].tags = ['speculative'];
+    expect(run.confirm({ lane: node.lane, card: 0 }, first)).toBe(true);
+    expect(player.openingStockIncome).toBe(105);
+    declineOffers(run);
+    const comeback = config.cards.find(card => card.id === 'comeback')!;
+    player.hand[0] = comeback;
+    expect(run.confirm({ lane: run.reachable(player)[0].lane, card: 0 }, first)).toBe(true);
+    declineOffers(run);
+    player.hand[0] = comeback;
+    expect(run.preview(run.reachable(player)[0].lane, 0)?.cardBlock).toBe('already_used');
+  });
+
+  it('情報交易只額外抽一張，並沿用開盤的手牌規則', () => {
+    const config = removeVolatility(readFinancialConfig());
+    const run = start(config);
+    const [node] = run.reachable(run.player);
+    delete config.nodes.kinds[node.kind].draft;
+    run.player.hand[0] = config.cards.find(card => card.id === 'intel_trade')!;
+    expect(run.confirm({ lane: node.lane, card: 0 }, first)).toBe(true);
+    expect(run.player.hand).toHaveLength(4);
+    expect(run.player.used).toBe(1);
+    expect(run.intelligenceFor(run.player)).toHaveLength(1);
   });
 });

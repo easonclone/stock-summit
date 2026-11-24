@@ -271,14 +271,14 @@ try {
     results.push({ width, height, mobile, fullRun: width === 320 || !mobile });
     console.error(width + ' px 已驗證');
   }
-  await openMarket(1440, 900, false, 3, true);
+  await openMarket(1440, 900, false, 6, true);
   await click(on('card') + '[data-card-id="dividend"]');
   await action('prepare');
   assert.match(await js('document.querySelector("[data-card-status]").textContent'), /可以提前布局/);
   await action('lane');
   await trustedClick(on('trade'), false, false);
   await clearDialogs();
-  assert.match(await js('document.querySelector(".pending-cards").textContent'), /還有 3 個交易日，可觸發 1 次/);
+  assert.match(await js('document.querySelector(".pending-cards").textContent'), /還有 3 個交易日。可觸發 1 次/);
   await action('card');
   const selected = () => js(`document.querySelector('[data-act="card"][aria-pressed="true"]').dataset.cardId`);
   const before = await selected();
@@ -289,7 +289,7 @@ try {
   await layout(1440, 900, true);
 
   if (!desktopOnly) {
-    await openMarket(390, 844, true, 8, true);
+    await openMarket(390, 844, true, 15, true);
     const firstLane = await js(`document.querySelector('${on('lane')}[data-kind="steady"]')?.dataset.value ?? document.querySelector('${on('lane')}').dataset.value`);
     await click(on('lane') + '[data-value="' + firstLane + '"]');
     await action('trade');

@@ -25,14 +25,21 @@ const effect = z.discriminatedUnion('type', [
   z.object({ type: z.literal('deposit'), fraction: rate }),
   z.object({ type: z.literal('dividend'), rate }),
   z.object({ type: z.literal('hedge'), protection: rate }),
-  z.object({ type: z.literal('intel') }),
+  z.object({ type: z.literal('intel'), count: z.number().int().min(1).max(2).optional(), bonusDraw: z.literal(true).optional() }),
   z.object({ type: z.literal('maintenance'), ltv: rate }),
   z.object({ type: z.literal('bailout'), amount: money.positive(), fee: money, cashThreshold: rate }),
   z.object({ type: z.literal('repay'), fraction: rate, feeRate: rate }),
   z.object({ type: z.literal('cash_yield'), rate, threshold: rate }),
   z.object({ type: z.literal('combo'), nodeTag: id, mode: z.enum(['price', 'dividend']), amount: rate,
     base: rate.optional(), prepareDays: day.optional(), afterLoss: z.boolean().optional() }),
-  z.object({ type: z.literal('fee_coupon'), days: day })
+  z.object({ type: z.literal('fee_coupon'), days: day }),
+  z.object({ type: z.literal('timed'), kind: z.enum(['deposit','stock','rally','short','safe_shield']), days: day,
+    amount: rate, cap: money.optional() }),
+  z.object({ type: z.literal('route_card'), mode: z.enum(['cushion','desperate']), amount: rate, equity: rate.optional() }),
+  z.object({ type: z.literal('cash_grant'), amount: money.positive(), recovered: z.literal(true).optional() }),
+  z.object({ type: z.literal('redeem') }),
+  z.object({ type: z.literal('card_draft') }),
+  z.object({ type: z.literal('attack'), mode: z.enum(['price','credit','interest']), amount: rate })
 ]);
 const display = z.object({ name: label, icon, color });
 const references = z.array(id).refine(items => new Set(items).size === items.length, '效果引用不得重複');
@@ -50,7 +57,7 @@ const schema = z.object({
     maxHedges: z.number().int().min(1).max(6), recoveryGap: rate
   }),
   gameplay: z.object({ turns: day, eventEvery: day, initialHand: day, inventorySize: day.max(9) }),
-  cardRules: z.object({ baseEffects: z.boolean(), preparations: z.boolean(), exchangeLimit: z.number().int().min(0).max(3), freeStarter: z.boolean() }),
+  cardRules: z.object({ baseEffects: z.boolean(), preparations: z.boolean(), exchangeLimit: z.number().int().min(0).max(3), freeStarter: z.boolean(), expanded: z.boolean(), rarity: z.object({common:positive,rare:positive,legendary:positive}) }),
   nodes: z.object({ lanes: z.literal(4), maxLinks: z.literal(2), attempts: day, kinds: nodes }),
   npc: z.object({
     easy: z.number().nonnegative(), normal: z.number().nonnegative(), hard: z.number().nonnegative(),
@@ -62,7 +69,9 @@ const schema = z.object({
   market: z.record(z.enum(['neutral', 'positive', 'negative']), z.object({ name: label, icon })),
   effects: z.record(id, effect),
   cards: z.array(display.extend({ id, description: label, condition: label, duration: label, weight: positive,
-    opponent: z.literal('nearest_ahead').optional(),
+    opponent: z.enum(['nearest_ahead','stock_ahead','borrow_ahead']).optional(),
+    rarity: z.enum(['common','rare','legendary']), expandedOnly: z.literal(true).optional(),
+    pairing: z.object({ tags:z.array(id).min(1), amount:rate }).optional(),
     freedom: z.enum(['free', 'pair', 'special']), preparationOnly: z.literal(true).optional(),
     effectIds: references.refine(list => list.length > 0, '卡片至少需要一項效果') })).min(3),
   events: z.array(z.object({
@@ -120,7 +129,7 @@ export function readFinancialConfig(raw: unknown = financialInput): FinancialCon
     }), `${event.id} 的追繳門檻須高於還款目標`);
   }
   for (const card of config.cards) {
-    const supported = card.opponent ? ['maintenance'] : ['combo', 'hedge', 'sell', 'intel', 'bailout', 'repay', 'cash_yield', 'fee_coupon'];
+    const supported = card.opponent ? ['maintenance', 'attack'] : ['combo', 'hedge', 'sell', 'intel', 'bailout', 'repay', 'cash_yield', 'fee_coupon', 'timed', 'route_card', 'cash_grant', 'redeem', 'card_draft'];
     assert(card.effectIds.every(key => supported.includes(config.effects[key].type)), `${card.id} 含不支援的手牌效果`);
     assert(card.effectIds.every(key => {
       const item = config.effects[key];

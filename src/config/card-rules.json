@@ -1,1 +1,12 @@
-{"baseEffects":true,"preparations":true,"exchangeLimit":3,"freeStarter":true}
+{
+  "baseEffects": true,
+  "preparations": true,
+  "exchangeLimit": 3,
+  "freeStarter": true,
+  "expanded": true,
+  "rarity": {
+    "common": 65,
+    "rare": 30,
+    "legendary": 5
+  }
+}

@@ -23,6 +23,12 @@ export interface DecisionView {
   rank: number;
   gap: number;
   opponents: readonly { id: string; name: string }[];
+  attackTargets: Readonly<Record<NonNullable<TradingCard['opponent']>, readonly { id: string; name: string }[]>>;
+  followingEventDay: number | null;
+}
+
+export function targetsFor(view: DecisionView, card: TradingCard | null) {
+  return card?.opponent ? view.attackTargets[card.opponent] : [];
 }
 
 export function forecastTrade(view: DecisionView, node: RouteNode, card: TradingCard | null, showCardImpact = false, prepare = false) {
@@ -32,7 +38,7 @@ export function forecastTrade(view: DecisionView, node: RouteNode, card: Trading
   const draw = (marketDraw: number, market: TradingEvent | null, localDraw = marketDraw, selectedCard = card) => {
     const state = copyTradingState(view.state);
     const context: EffectContext = { config, day, eventDay: view.nextEventDay,
-      recentLoss: view.recentLoss, marketDraw: localDraw, eligibleAid: view.eligibleAid, opponentCount: view.opponents.length };
+      recentLoss: view.recentLoss, marketDraw: localDraw, eligibleAid: view.eligibleAid, opponentCount: targetsFor(view, selectedCard).length, followingEventDay: view.followingEventDay, marketToday: view.eventToday };
     const action = applyTrade(state, kind, selectedCard, context, selectedCard === card && prepare);
     if (market) applyMarket(state, market, { ...context, marketDraw }, action.ledger);
     const risk = settleTrade(state, action.ledger, config, day === config.gameplay.turns);
@@ -56,7 +62,7 @@ export function forecastTrade(view: DecisionView, node: RouteNode, card: Trading
   const extraProtection = showCardImpact && card && base.action.cardUsed && bearish.action.ledger.protected
     ? Math.max(0, bearish.action.ledger.protected - draw(0, downside, 0, null).action.ledger.protected) : 0;
   return {
-    kind, available: base.action.funded, enabledCard: base.action.cardUsed, draft: base.action.draft,
+    kind, available: base.action.funded, enabledCard: base.action.cardUsed, draft: base.action.draft || ledger.cardDraft,
     low: Math.min(bearish.delta, base.delta, bullish.delta),
     high: Math.max(bearish.delta, base.delta, bullish.delta),
     expected: (base.delta + average.delta + (bullish.delta + bearish.delta) * 0.5) / 3,
@@ -70,7 +76,7 @@ export function forecastTrade(view: DecisionView, node: RouteNode, card: Trading
     exposureRisk: bearish.risk.call !== null, marginRequired: bearish.risk.call?.required ?? 0,
     synergyGain: ledger.synergyGain, synergies: ledger.synergies, cardImpact: base.action.cardImpact, cardBlock: base.action.cardBlock, extraProtection,
     preparation: base.action.preparation, baseGain: ledger.baseGain, activeComboGain: ledger.activeComboGain, feeSaved: ledger.feeSaved,
-    opponents: card?.opponent ? view.opponents.map(opponent => opponent.name) : []
+    opponents: targetsFor(view, card).map(opponent => opponent.name), bonusDraw: ledger.bonusDraw, intelCount: [base.state.intelDay, ...base.state.extraIntel].filter(day => day !== null).length
   };
 }
 
@@ -84,7 +90,7 @@ export function cardPreparationAvailable(config: FinancialConfig, card: TradingC
 export function inspectCard(view: DecisionView, node: RouteNode, card: TradingCard, prepare = false) {
   return applyTrade(copyTradingState(view.state), view.config.nodes.kinds[node.kind], card, {
     config: view.config, day: view.day, eventDay: view.nextEventDay, recentLoss: view.recentLoss,
-    marketDraw: 0.5, eligibleAid: view.eligibleAid, opponentCount: view.opponents.length
+    marketDraw: 0.5, eligibleAid: view.eligibleAid, opponentCount: targetsFor(view, card).length, followingEventDay: view.followingEventDay, marketToday: view.eventToday
   }, prepare);
 }
 

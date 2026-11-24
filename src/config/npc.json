@@ -1,32 +1,17 @@
 {
-  "reactionMs": {
-    "easy": [
-      500,
-      1100
-    ],
-    "normal": [
-      170,
-      550
-    ],
-    "hard": [
-      55,
-      220
-    ]
+  "choiceNoise": {
+    "easy": 2.6,
+    "normal": 1.1,
+    "hard": 0.1
   },
-  "jumpChance": {
-    "easy": 0.04,
-    "normal": 0.15,
-    "hard": 0.32
-  },
-  "cardThinkMs": [
-    540,
-    1500
-  ],
-  "cashDetour": 76,
-  "patrolJumpChance": {
-    "easy": 0.35,
-    "normal": 0.75,
-    "hard": 0.95
-  },
-  "patrolJumpDistance": 32
+  "lookahead": 0.5,
+  "cardValue": 1.6,
+  "intelValue": 0.5,
+  "shieldValue": 1,
+  "exposurePenalty": 0.9,
+  "cardUseChance": {
+    "easy": 0.45,
+    "normal": 0.8,
+    "hard": 1
+  }
 }

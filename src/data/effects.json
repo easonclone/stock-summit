@@ -1,18 +1,78 @@
 {
-  "down_1":{"type":"displacement","layers":-1},
-  "down_2":{"type":"displacement","layers":-2},
-  "down_3":{"type":"displacement","layers":-3},
-  "down_4":{"type":"displacement","layers":-4},
-  "up_1":{"type":"displacement","layers":1},
-  "up_2":{"type":"displacement","layers":2},
-  "up_3":{"type":"displacement","layers":3},
-  "boost":{"type":"speed_modifier","multiplier":1.2,"durationMs":8000},
-  "freeze":{"type":"freeze","durationMs":3000},
-  "shield":{"type":"shield","charges":1},
-  "reveal":{"type":"reveal_next_event"},
-  "limit":{"type":"limit_loss","layers":1},
-  "clear":{"type":"clear_negative"},
-  "collision_pause":{"type":"freeze","durationMs":1000},
-  "rebound":{"type":"displacement","layers":1},
-  "liquidity_crisis":{"type":"cash_loss_or_freeze","amount":100,"durationMs":2000}
+  "down_1": {
+    "type": "displacement",
+    "layers": -1
+  },
+  "down_2": {
+    "type": "displacement",
+    "layers": -2
+  },
+  "down_3": {
+    "type": "displacement",
+    "layers": -3
+  },
+  "down_4": {
+    "type": "displacement",
+    "layers": -4
+  },
+  "up_1": {
+    "type": "displacement",
+    "layers": 1
+  },
+  "up_2": {
+    "type": "displacement",
+    "layers": 2
+  },
+  "up_3": {
+    "type": "displacement",
+    "layers": 3
+  },
+  "boost": {
+    "type": "momentum",
+    "layers": 1,
+    "turns": 2
+  },
+  "freeze": {
+    "type": "freeze",
+    "turns": 1
+  },
+  "shield": {
+    "type": "shield",
+    "charges": 1
+  },
+  "reveal": {
+    "type": "reveal_next_event"
+  },
+  "limit": {
+    "type": "limit_loss",
+    "layers": 1
+  },
+  "clear": {
+    "type": "clear_negative"
+  },
+  "rebound": {
+    "type": "displacement",
+    "layers": 1
+  },
+  "liquidity_crisis": {
+    "type": "cash_loss_or_freeze",
+    "amount": 100,
+    "turns": 1
+  },
+  "cash_100": {
+    "type": "cash_gain",
+    "amount": 100
+  },
+  "exposure": {
+    "type": "exposure",
+    "multiplier": 2
+  },
+  "up_4": {
+    "type": "displacement",
+    "layers": 4
+  },
+  "cash_150": {
+    "type": "cash_gain",
+    "amount": 150
+  }
 }

@@ -1,15 +1,15 @@
 [
-  {"id":"ceo","title":"黃仁勳宣布離職","description":"全體下滑 2 層","fictional":true,"weight":5,"target":"all","effectIds":["down_2"],"icon":"bear"},
+  {"id":"ceo","title":"科技巨頭執行長閃辭","description":"全體下滑 2 層","fictional":true,"weight":5,"target":"all","effectIds":["down_2"],"icon":"bear"},
   {"id":"rate","title":"聯準會降息","description":"全體上升 1 層","fictional":true,"weight":8,"target":"all","effectIds":["up_1"],"icon":"bank"},
   {"id":"ai","title":"AI 需求爆發","description":"隨機兩人上升 2 層","fictional":true,"weight":7,"target":"random_two","effectIds":["up_2"],"icon":"chart"},
   {"id":"outflow","title":"外資賣超","description":"隨機一人下滑 3 層","fictional":true,"weight":6,"target":"random_one","effectIds":["down_3"],"icon":"down"},
   {"id":"whale","title":"主力進場","description":"隨機一人上升 3 層","fictional":true,"weight":6,"target":"random_one","effectIds":["up_3"],"icon":"bull"},
-  {"id":"halt","title":"股票處置","description":"隨機一人凍結 3 秒","fictional":true,"weight":5,"target":"random_one","effectIds":["freeze"],"icon":"halt"},
+  {"id":"halt","title":"股票處置","description":"隨機一人停牌 1 回合","fictional":true,"weight":5,"target":"random_one","effectIds":["freeze"],"icon":"halt"},
   {"id":"panic","title":"恐慌拋售","description":"全體下滑 1 層","fictional":true,"weight":7,"target":"all","effectIds":["down_1"],"icon":"down"},
   {"id":"squeeze","title":"軋空","description":"末名上升 3 層","fictional":true,"weight":6,"target":"last_place","effectIds":["up_3"],"icon":"up"},
   {"id":"profit","title":"獲利了結","description":"首名下滑 1 層","fictional":true,"weight":6,"target":"first_place","effectIds":["down_1"],"icon":"down"},
-  {"id":"closed","title":"休市","description":"全體凍結 3 秒","fictional":true,"weight":4,"target":"all","effectIds":["freeze"],"icon":"halt"},
-  {"id":"earnings","title":"財報超預期","description":"隨機一人加速 8 秒","fictional":true,"weight":7,"target":"random_one","effectIds":["boost"],"icon":"bills"},
+  {"id":"closed","title":"休市","description":"全體停牌 1 回合","fictional":true,"weight":4,"target":"all","effectIds":["freeze"],"icon":"halt"},
+  {"id":"earnings","title":"財報超預期","description":"隨機一人接下來 2 回合每次多爬 1 層","fictional":true,"weight":7,"target":"random_one","effectIds":["boost"],"icon":"bills"},
   {"id":"swan","title":"黑天鵝","description":"全體下滑 4 層","fictional":true,"weight":1,"target":"all","effectIds":["down_4"],"icon":"bear"},
-  {"id":"liquidity","title":"市場流動性危機","description":"全體扣除 100 元；鈔票不足者停頓 2 秒","fictional":true,"weight":5,"target":"all","effectIds":["liquidity_crisis"],"icon":"bills"}
+  {"id":"liquidity","title":"市場流動性危機","description":"全體扣除 100 元；鈔票不足者停牌 1 回合","fictional":true,"weight":5,"target":"all","effectIds":["liquidity_crisis"],"icon":"bills"}
 ]

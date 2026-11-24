@@ -1,16 +1,13 @@
 import Phaser from 'phaser';
 import type { Platform } from '../config/settings';
-import { clamp, type MovementInput } from '../core/movement';
+import { clamp } from '../core/movement';
 import type { GameSound } from '../ui/audio';
-import type { CardFx, Impact, Race, Racer } from '../core/race';
-import type { Patrol } from '../core/terrain';
+import type { CardFx, Impact, Racer, Run } from '../core/run';
 import { mixColor, pixelRacer } from '../ui/pixels';
 
-const frame = 1000 / 60;
 
 interface CourseOptions {
-  race: Race;
-  input: () => MovementInput;
+  race: Run;
   onUpdate: () => void;
   shake: () => boolean;
   playSound: (style: GameSound) => void;
@@ -21,14 +18,11 @@ class Course extends Phaser.Scene {
   private ink!: Phaser.GameObjects.Graphics;
   private labels = new Map<Racer, Phaser.GameObjects.Text>();
   private cameraTop = 0;
-  private accumulated = 0;
   private paintAt = 0;
   private lastNews = -1;
   private shakeEnds = 0;
   private shakeStrength = 0;
-  private lastCardCue: Race['cardCue'] = null;
-  private lastFallingHit: number | null = null;
-  private fieldLabels = new Map<string, Phaser.GameObjects.Text>();
+  private lastCardCue: Run['cardCue'] = null;
   private effectLabels = new Map<Racer, Phaser.GameObjects.Text>();
   private palette = new Map<string, number>();
   private gradients = new Map<string, string[]>();
@@ -56,24 +50,15 @@ class Course extends Phaser.Scene {
         backgroundColor: '#131c2b', padding: { x: 4, y: 2 }
       }).setOrigin(.5, 1).setDepth(2).setVisible(false));
     }
-    for (const item of race.cashPickups.bundles) {
-      this.addFieldLabel(`cash:${item.id}`, '#d4f2ab', '#142529');
-    }
     this.renderCourse(0);
   }
 
   update(time: number, delta: number) {
     const { race } = this.options;
-    this.accumulated += Math.min(delta, 100);
-    while (this.accumulated >= frame) {
-      race.step(frame, this.options.input());
-      this.accumulated -= frame;
-    }
-    if (!race.paused) {
-      const goal = this.desiredCamera();
-      this.cameraTop += (goal - this.cameraTop) * Math.min(1, delta / 110);
-      this.renderCourse(time);
-    }
+    race.tick(Math.min(delta, 100));
+    const goal = this.desiredCamera();
+    this.cameraTop += (goal - this.cameraTop) * Math.min(1, delta / 160);
+    this.renderCourse(time);
     if (time >= this.paintAt || race.result) {
       this.options.onUpdate();
       this.paintAt = time + 80;
@@ -112,16 +97,10 @@ class Course extends Phaser.Scene {
       this.options.playSound(race.cardCue.style);
       if (race.cardCue.weight) this.shake(time, Math.min(8, 3 + race.cardCue.weight * 2), 320);
     }
-    if (race.fallingHitAt !== this.lastFallingHit) {
-      this.lastFallingHit = race.fallingHitAt;
-      this.options.playSound('impact');
-      this.shake(time, 5, 220);
-    }
     const offset = Math.round(this.cameraTop) + (time < this.shakeEnds
       ? Math.round(Math.sin(time * .085) * this.shakeStrength * Math.min(1, (this.shakeEnds - time) / 180)) : 0);
     const visible = (y: number, extension = 70) => y - offset >= -extension && y - offset <= height + extension;
 
-    for (const label of this.fieldLabels.values()) label.setVisible(false);
     for (const ladder of race.track.map.ladders) {
       const lower = race.track.platforms.get(ladder.from)!;
       const upper = race.track.platforms.get(ladder.to)!;
@@ -133,21 +112,6 @@ class Course extends Phaser.Scene {
     }
     for (const ledge of race.track.ledges) {
       if (visible(ledge.y)) this.floatingBlock(ledge, ledge.y - offset);
-    }
-    for (const item of race.cashPickups.bundles) {
-      if (!visible(item.y) || item.claimed.has(race.player.character.id)) continue;
-      this.banknotes(item.x, item.y - offset, race.time);
-      this.fieldLabel(`cash:${item.id}`, `+${item.amount}`, item.x, item.y - offset - 23);
-    }
-    for (const item of race.terrain.patrols) {
-      if (visible(item.y)) this.patrol(item, item.y - offset, race.time);
-    }
-    for (const trader of race.fallingTraders.active) this.fallingTrader(trader, offset);
-    const recovery = race.canClaimRecovery(race.player);
-    for (const item of race.pickups) {
-      if (item.respawnAt === null && visible(item.y)) {
-        this.pickup(item.x, item.y - offset, race.time, item.kind === 'recovery', recovery);
-      }
     }
 
     for (const racer of [...race.racers].sort((a, b) => Number(a.isPlayer) - Number(b.isPlayer))) {
@@ -164,18 +128,17 @@ class Course extends Phaser.Scene {
     }
   }
 
+  /** Racers share platforms, so each one stands in its own slot around the landing point. */
   private visualPosition(racer: Racer) {
     const { race } = this.options;
+    const slot = (race.racers.indexOf(racer) - (race.racers.length - 1) / 2) * 26;
     const impact = race.impacts.get(racer);
-    if (!impact) return { x: racer.body.x, y: racer.body.y, age: 0 };
+    const x = racer.body.x + slot;
+    if (!impact) return { x, y: racer.body.y, age: 0 };
     const age = (race.time - impact.at) / race.config.gameplay.effectAnimationMs;
-    if (age >= 1) return { x: racer.body.x, y: racer.body.y, age };
+    if (age >= 1) return { x, y: racer.body.y, age };
     const mix = impact.layers ? 1 - (1 - age) ** 3 : 1;
-    const recoil = impact.obstacle ? Math.sin(age * Math.PI * 4) * (1 - age) * 4 : 0;
-    return {
-      x: impact.from.x + (racer.body.x - impact.from.x) * mix + recoil,
-      y: impact.from.y + (racer.body.y - impact.from.y) * mix, impact, age
-    };
+    return { x: impact.from.x + slot + (racer.body.x - impact.from.x) * mix, y: impact.from.y + (racer.body.y - impact.from.y) * mix, impact, age };
   }
 
   private shake(time: number, strength: number, duration: number) {
@@ -189,7 +152,7 @@ class Course extends Phaser.Scene {
       rise: this.options.marketColors().up, fall: this.options.marketColors().down, shield: '#96e6ff',
       speed: '#ffcf67', intel: '#c7a9ff', guard: '#adbfff', clear: '#bcf8bb', freeze: '#78caff', flat: '#cbd5d9'
     };
-    const color = impact.obstacle ? '#ffe088' : palette[impact.style];
+    const color = palette[impact.style];
     const alpha = 1 - age;
     const travel = age * 25;
     for (let index = 0; index < 8; index++) {
@@ -216,97 +179,11 @@ class Course extends Phaser.Scene {
       .setColor(color).setAlpha(Math.min(1, alpha * 2)).setVisible(true);
   }
 
-  private addFieldLabel(id: string, color: string, backgroundColor: string) {
-    const label = this.add.text(0, 0, '', {
-      fontFamily: 'monospace, "PingFang TC", sans-serif', fontSize: '12px', fontStyle: 'bold',
-      color, backgroundColor, padding: { x: 4, y: 2 }
-    }).setOrigin(.5, 1).setVisible(false);
-    this.fieldLabels.set(id, label);
-  }
-
-  private fieldLabel(id: string, text: string, x: number, y: number) {
-    this.fieldLabels.get(id)!.setText(text).setPosition(x, y).setVisible(true);
-  }
-
   private floatingBlock(block: Platform, y: number) {
     this.rect('#102337', block.x, y, block.width, block.height);
     this.rect('#8acdd4', block.x + 1, y, block.width - 2, 3);
     this.rect('#476b87', block.x + 2, y + 4, block.width - 4, 5);
     for (let x = block.x + 7; x + 6 < block.x + block.width; x += 11) this.rect('#69aec0', x, y + 6, 5, 3);
-  }
-
-  private banknotes(x: number, y: number, time: number) {
-    const top = y - 15 - (Math.floor(time / 225) % 2) * 2;
-    this.rect('#192b27', x - 13, top + 1, 25, 14);
-    this.rect('#538054', x - 12, top + 5, 23, 9);
-    this.rect('#9dcc79', x - 12, top + 2, 23, 5);
-    this.rect('#dff2a7', x - 11, top + 1, 21, 2);
-    this.rect('#e7d987', x - 2, top + 1, 4, 13);
-    this.rect('#b5e58d', x - 10, top + 9, 7, 1);
-    this.rect('#b5e58d', x + 3, top + 11, 7, 1);
-  }
-
-  private fallingTrader(active: Race['fallingTraders']['active'][number], offset: number) {
-    const { race } = this.options;
-    const { config } = race.fallingTraders;
-    const { x, ground, startsAt } = active;
-    const half = config.width / 2;
-    const landingY = ground - offset;
-    const warning = race.time < startsAt;
-    if (warning || active.y < ground) {
-      this.rect('#141322', x - half, landingY - 3, config.width, 6);
-      this.rect('#ed8db7', x - half, landingY - 4, config.width, 2);
-      this.rect('#fcb5d2', x - half, landingY - 9, 3, 6);
-      this.rect('#fcb5d2', x + half - 3, landingY - 9, 3, 6);
-    }
-    if (warning) {
-      const end = Math.min(landingY, race.config.theme.height);
-      for (let y = Math.max(0, active.top - offset); y < end - 9; y += 18) {
-        this.rect('#f2a6cc', x - half, y, 1, 6, .5);
-        this.rect('#f2a6cc', x + half - 1, y, 1, 6, .5);
-      }
-      return;
-    }
-    if (active.y >= ground) {
-      const elapsed = (race.time - active.endsAt) / config.landingMs;
-      for (const side of [-1, 1]) {
-        this.rect('#ffc9d8', x + side * (half + elapsed * 18), landingY - 5 - elapsed * 12, 4, 3, 1 - elapsed);
-        this.rect('#ed8db7', x + side * (half * .4 + elapsed * 14), landingY - 10 - elapsed * 14, 3, 4, 1 - elapsed);
-      }
-      return;
-    }
-
-    const y = active.y - offset;
-    const unitX = config.width / 12;
-    const unitY = config.height / 15;
-    const draw = (color: string, left: number, top: number, width: number, height: number) =>
-      this.rect(color, x - half + left * unitX, y + (top - 15) * unitY, width * unitX, height * unitY);
-    this.rect('#f5a7ca', x - 11, y - config.height - 12, 2, 10, .62);
-    this.rect('#f5a7ca', x + 9, y - config.height - 9, 2, 9, .62);
-    draw('#101724', 3, 0, 6, 2);
-    draw('#edb08d', 3, 2, 6, 5);
-    draw('#453040', 4, 4, 4, 1);
-    draw('#373852', 0, 5, 12, 7);
-    draw('#f4e5d8', 4, 6, 4, 4);
-    draw('#e080ab', 5, 7, 2, 4);
-    draw('#202135', 2, 12, 3, 3);
-    draw('#202135', 7, 12, 3, 3);
-    draw('#c3986d', 9, 9, 3, 4);
-  }
-
-  private patrol(patrol: Patrol, y: number, time: number) {
-    const { x, facing } = patrol;
-    const step = Math.floor(time / 160) % 2 * 2;
-    this.rect('#111723', x - 10, y - 1, 20, 2, .55);
-    this.rect('#aa8059', x - 7, y - 16, 14, 12);
-    this.rect('#5d483f', x - 7, y - 12, 13, 7);
-    this.rect('#e1b087', x - 5, y - 20, 10, 7);
-    this.rect('#2b2633', x - 6, y - 22, 12, 3);
-    this.rect('#3c3032', x + facing * 2, y - 17, 2, 2);
-    this.rect('#374659', x - 6, y - 6, 4, 5 - step);
-    this.rect('#374659', x + 2, y - 6, 4, 3 + step);
-    this.rect('#edcf87', x + facing * 8 - 4, y - 12, 9, 7);
-    this.rect('#8a614f', x + facing * 8 - 2, y - 10, 5, 2);
   }
 
   private backdrop(width: number, height: number, sky: string, accent: string) {
@@ -398,34 +275,17 @@ class Course extends Phaser.Scene {
     this.rect(rail, x + 7, upperY + 3, 3, height - 3);
   }
 
-  private pickup(x: number, y: number, clock: number, recovery: boolean, eligible: boolean) {
-    const lift = Math.floor(clock / 240) % 2 * 2;
-    const left = x - 11;
-    const top = y - 27 - lift;
-    this.rect('#4d3238', left - 2, top, 26, 26);
-    const outline = recovery ? (eligible ? '#99e5bb' : '#78948e') : '#e9ad56';
-    this.rect(outline, left, top + 2, 22, 22);
-    this.rect(outline, left + 2, top + 3, 18, 2);
-    this.rect(recovery ? '#35564e' : '#8c573c', left + 4, top + 6, 14, 15);
-    if (recovery) {
-      this.rect(outline, left + 7, top + 12, 8, 3);
-      this.rect(outline, left + 10, top + 9, 2, 9);
-      return;
-    }
-    const pixels = [[7, 8, 8, 2], [13, 10, 2, 4], [9, 13, 5, 2], [9, 17, 2, 2]];
-    for (const [dx, dy, w, h] of pixels) this.rect('#ffdb76', left + dx, top + dy, w, h);
-    this.rect('#fff1ad', left - 5, top - 2, 2, 2);
-  }
-
   private racer(racer: Racer, x: number, y: number, time: number, label: Phaser.GameObjects.Text) {
-    const step = racer.body.motion === 'walk' || racer.body.motion === 'climb'
-      ? (Math.floor(time / 115) % 2 ? -1 : 1) : 0;
+    const { race } = this.options;
+    const impact = race.impacts.get(racer);
+    const moving = impact && impact.layers !== 0 && race.time - impact.at < race.config.gameplay.effectAnimationMs;
+    const step = moving ? (Math.floor(time / 115) % 2 ? -1 : 1) : 0;
     if (racer.status.shield > 0) {
       this.rect('#7bccec', x - 13, y - 29, 26, 27, .26);
       this.rect('#b9e7f1', x - 14, y - 31, 3, 4);
       this.rect('#b9e7f1', x + 11, y - 7, 3, 5);
     }
-    const frozen = racer.status.freezeUntil > this.options.race.time;
+    const frozen = this.options.race.isFrozen(racer);
     pixelRacer((color, lx, ly, w, h) => this.rect(color, lx, ly, w, h),
       racer.character, Math.round(x / 2) * 2 - 12, Math.round(y / 2) * 2 - 30, 2,
       frozen ? 0 : step, racer.body.facing < 0);

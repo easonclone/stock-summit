@@ -3,9 +3,9 @@
   {"id":"rocket","name":"火箭","description":"立即上升 2 層。","weight":6,"trigger":"manual","target":"self","effectIds":["up_2"],"icon":"rocket","color":"#f6ca67","pool":"public"},
   {"id":"short","name":"做空","description":"使最近的前方對手下滑 1 層。","weight":6,"trigger":"manual","target":"nearest_ahead","effectIds":["down_1"],"icon":"short","color":"#ff8d87","pool":"public"},
   {"id":"insight","name":"市場情報","description":"預告下一次市場事件。","weight":6,"trigger":"manual","target":"self","effectIds":["reveal"],"icon":"eye","color":"#b6a0f3","pool":"public"},
-  {"id":"momentum","name":"動能","description":"提高移動速度，持續 8 秒。","weight":8,"trigger":"manual","target":"self","effectIds":["boost"],"icon":"bolt","color":"#ffc480","pool":"both"},
-  {"id":"trap","name":"跌停陷阱","description":"拾取時立即下滑 1 層。","weight":4,"trigger":"on_pickup","target":"self","effectIds":["down_1"],"icon":"trap","color":"#74d8ae","pool":"public"},
+  {"id":"momentum","name":"動能","description":"接下來 2 回合，每次前進多爬 1 層。","weight":8,"trigger":"manual","target":"self","effectIds":["boost"],"icon":"bolt","color":"#ffc480","pool":"both"},
+  {"id":"trap","name":"跌停陷阱","description":"抽到時立即下滑 1 層。","weight":4,"trigger":"on_pickup","target":"self","effectIds":["down_1"],"icon":"trap","color":"#74d8ae","pool":"public"},
   {"id":"stop","name":"停損","description":"下一次下滑最多 1 層。","weight":7,"trigger":"manual","target":"self","effectIds":["limit"],"icon":"anchor","color":"#9fc1d6","pool":"both"},
-  {"id":"cash","name":"現金","description":"解除目前的負面狀態。","weight":5,"trigger":"manual","target":"self","effectIds":["clear"],"icon":"cash","color":"#f1db83","pool":"both"},
+  {"id":"cash","name":"現金","description":"解除停牌狀態。","weight":5,"trigger":"manual","target":"self","effectIds":["clear"],"icon":"cash","color":"#f1db83","pool":"both"},
   {"id":"rebound","name":"抄底補給","description":"立即反彈 1 層，並抵銷下一次負面市場事件。","weight":5,"trigger":"manual","target":"self","effectIds":["rebound","shield"],"icon":"bills","color":"#94e4c2","pool":"recovery"}
 ]

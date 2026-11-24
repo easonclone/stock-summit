@@ -1,9 +1,7 @@
 import './style.css';
 import { inputConfig, readConfig, type Config, type Difficulty } from './config/settings';
-import { generateMap } from './core/map-generator';
-import { Race, type RaceOptions } from './core/race';
+import { Run, type RunOptions } from './core/run';
 import { CardAudio } from './ui/audio';
-import { Controls } from './ui/controls';
 import { element, Hud, raceMarkup, setText } from './ui/hud';
 import { cardIcon, drawIcon, portrait, titleArt } from './ui/pixels';
 
@@ -13,16 +11,14 @@ type Screen = 'home' | 'select' | 'guide' | 'codex' | 'settings' | 'race' | 'res
 
 class App {
   private screen: Screen = 'home';
-  private race?: Race;
+  private race?: Run;
   private destroyCourse?: () => void;
   private hud?: Hud;
-  private readonly controls = new Controls();
   private readonly audio = new CardAudio();
   private readonly content: HTMLElement;
   private readonly indicator: HTMLElement;
   private playerId: string;
   private difficulty: Difficulty = 'normal';
-  private map: 'mountain' | 'training' = 'mountain';
   private colorStyle = 'taiwan';
   private shake = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   private readonly requestedSeed: number | null;
@@ -47,39 +43,56 @@ class App {
     this.content = element(root, '#screen');
     this.indicator = element(root, '#screen-status');
     element(root, '.brand').addEventListener('click', () => {
-      if (this.screen === 'race') {
-        if (!this.race?.paused) this.togglePause();
-      } else {
-        this.home();
-      }
+      if (this.screen !== 'race' || window.confirm('離開本局並返回首頁？')) this.home();
     });
     window.addEventListener('keydown', this.keyDown);
-    window.addEventListener('keyup', event => this.controls.release(event.code));
-    window.addEventListener('blur', () => this.controls.clear());
-    window.addEventListener('visibilitychange', () => {
-      if (document.hidden && this.screen === 'race' && !this.race?.paused) this.togglePause();
-    });
     this.home(false);
   }
 
   private readonly keyDown = (event: KeyboardEvent) => {
-    if (this.screen !== 'race' || !this.race || event.altKey || event.ctrlKey || event.metaKey) return;
-    if (event.code === 'Escape') {
+    const race = this.race;
+    if (this.screen !== 'race' || !race || race.result || event.altKey || event.ctrlKey || event.metaKey) return;
+    const card = /^(?:Digit|Numpad)([1-9])$/.exec(event.code);
+    if (card && !event.repeat) {
       event.preventDefault();
-      if (!event.repeat) this.togglePause();
+      race.usePlayerCard(Number(card[1]) - 1);
       return;
     }
-    if (this.race.paused) return;
-    if (this.controls.hold(event.code)) {
+    const step = { ArrowLeft: -1, KeyA: -1, ArrowRight: 1, KeyD: 1 }[event.code];
+    if (step) {
       event.preventDefault();
+      this.cycle(step);
       return;
     }
-    const key = /^(?:Digit|Numpad)([1-9])$/.exec(event.code);
-    if (key && !event.repeat) {
+    if ((event.code === 'Enter' || event.code === 'Space') && !event.repeat && race.selected !== null) {
+      // A focused button already activates on Enter/Space; confirming here as well would double-handle it.
+      if (event.target instanceof Element && event.target.closest('button, select, input')) return;
       event.preventDefault();
-      this.race.usePlayerCard(Number(key[1]) - 1);
+      this.confirm();
     }
   };
+
+  /** Moves the pending pick to the previous or next reachable lane. */
+  private cycle(step: number) {
+    const race = this.race!;
+    const lanes = race.reachable(race.player);
+    if (!lanes.length) return;
+    const index = race.selected === null ? (step > 0 ? -1 : lanes.length) : lanes.indexOf(race.selected);
+    race.select(lanes[(index + step + lanes.length) % lanes.length]);
+    this.hud?.render();
+  }
+
+  private confirm() {
+    const race = this.race;
+    if (!race || !race.resolve()) return;
+    if (race.result) {
+      // Leave the closing news on screen briefly, then show the report.
+      window.setTimeout(() => {
+        if (this.race === race && this.screen === 'race') this.finish(race);
+      }, this.config.gameplay.newsMs);
+    }
+    this.hud?.render();
+  }
 
   private colors() {
     const { up, down } = this.config.theme;
@@ -96,7 +109,6 @@ class App {
     this.destroyCourse?.();
     this.destroyCourse = undefined;
     this.hud = undefined;
-    this.controls.clear();
     this.screen = screen;
     this.content.className = `screen-${screen}`;
     this.content.innerHTML = html;
@@ -115,7 +127,7 @@ class App {
           <p class="eyebrow"><i class="square"></i> 財富攻頂賽</p>
           <h1>股市<br><em>攻頂戰</em></h1>
           <p class="hero-en" aria-hidden="true">STOCK SUMMIT</p>
-          <p class="intro">四人同場競速，踏上鈔票與金磚鋪成的山路，在市場翻盤前搶先登頂。</p>
+          <p class="intro">四人同步規劃路線，每個交易日一起選下一步。15 天後收盤，層數加上鈔票加成最高者勝出。</p>
           <button id="begin" class="button primary" type="button">開始遊戲</button>
           <nav class="menu-links" aria-label="遊戲選單">
             <button type="button" id="guide" class="button subtle">玩法說明</button>
@@ -128,7 +140,7 @@ class App {
           <div class="scene-tag"><i class="square"></i><span>黃金財富之巔</span></div>
         </div>
       </div>
-      <div class="keys"><span><kbd>←</kbd><kbd>→</kbd> 移動</span><span><kbd>↑</kbd><kbd>↓</kbd> 攀梯</span><span><kbd>Space</kbd> 跳躍</span><span><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> 用卡</span></div>`);
+      <div class="keys"><span><kbd>←</kbd><kbd>→</kbd> 選擇節點</span><span><kbd>Enter</kbd> 確認進場</span><span><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> 用卡</span></div>`);
     titleArt(element(this.content, '.hero canvas'), this.config.characters);
     this.bind('#begin', () => this.select());
     this.bind('#guide', () => this.guide());
@@ -179,11 +191,11 @@ class App {
         <div class="pane-top"><button class="button subtle small" id="back" type="button">返回首頁</button></div>
         <h1>玩法說明</h1>
         <dl>
-          <dt>搶先登頂</dt><dd>沿梯子或懸空跳台登頂。碰到巡邏散戶會停頓 1 秒。看到粉色警戒線時，請離開落點陰影。</dd>
-          <dt>掌握移動</dt><dd>用方向鍵或 WASD 移動及攀梯，空白鍵跳躍。走出平台邊緣會落到下方，仍可繼續攀登。</dd>
-          <dt>使用卡片</dt><dd>金色問號箱提供一般卡片。排名後段且落後領先者達門檻時，可取得綠色落後補給。卡欄有空位就可連續拾取新卡箱，即時陷阱會在碰到時生效。按數字 1、2、3 或點卡片使用。</dd>
-          <dt>收集鈔票</dt><dd>碰到綠色鈔票就會累計，收盤時自動換成額外層數。</dd>
-          <dt>留意市場</dt><dd>多頭時移動較快、巡邏散戶走得較慢。空頭時角色移速降低，巡邏散戶走得較快。流動性危機會扣除鈔票，金額不足時會短暫停頓。首位登頂後進入收盤倒數，所有人仍可攀爬、用卡與收集鈔票。收盤分數等於實際層數加上鈔票加成。</dd>
+          <dt>規劃路線</dt><dd>路線圖由下往上共 15 列，每列代表一個交易日。每天只能走進與目前節點相連的下一列節點，四位選手同時選擇、同時結算，沒有時間壓力。</dd>
+          <dt>節點類型</dt><dd>穩健持有穩定上升；槓桿加碼爬得多，但下一次市場利空會放大跌幅；獲利了結不爬升而是收取鈔票；問號卡箱與研究報告提供卡片或下一次市場預告；抄底補給只有落後者能領到補給卡。</dd>
+          <dt>市場事件</dt><dd>每 3 個交易日結算後會發生一次虛構市場事件，可能讓全體或特定名次上升、下滑或停牌。停牌期間進入的節點沒有效果。</dd>
+          <dt>使用卡片</dt><dd>卡欄最多 3 張。在確認進場前按數字 1、2、3 或點卡片使用，部分卡片會鎖定前方最近的對手。</dd>
+          <dt>收盤計分</dt><dd>第 15 個交易日結束後收盤。分數等於實際層數加上鈔票加成（每 100 元加 1.2 層，最多 3 層）。</dd>
         </dl>
       </div>`);
     this.bind('#back', () => this.home());
@@ -227,18 +239,15 @@ class App {
         <div class="pane-top"><button class="button subtle small" id="back" type="button">返回首頁</button></div>
         <h1>設定</h1>
         <div class="settings-list">
-          <label>賽道 <select id="course-setting"><option value="mountain">財富山 · 40 層</option><option value="training">練習場 · 10 層</option></select></label>
           <label>電腦難度 <select id="difficulty"><option value="easy">簡單</option><option value="normal">普通</option><option value="hard">困難</option></select></label>
           <label>漲跌配色 <select id="color"><option value="taiwan">台股 · 紅漲綠跌</option><option value="international">國際 · 綠漲紅跌</option></select></label>
           <label>事件與用卡震動 <input id="shake" type="checkbox"></label>
-          <label>卡片與碰撞音效 <input id="card-sound" type="checkbox"></label>
+          <label>卡片音效 <input id="card-sound" type="checkbox"></label>
         </div>
       </div>`);
-    const course = element<HTMLSelectElement>(this.content, '#course-setting');
     const difficulty = element<HTMLSelectElement>(this.content, '#difficulty');
     const color = element<HTMLSelectElement>(this.content, '#color');
     const shake = element<HTMLInputElement>(this.content, '#shake');
-    course.value = this.map;
     difficulty.value = this.difficulty;
     color.value = this.colorStyle;
     const sound = element<HTMLInputElement>(this.content, '#card-sound');
@@ -248,7 +257,6 @@ class App {
       if (sound.checked) this.audio.unlock();
     });
     shake.checked = this.shake;
-    course.addEventListener('change', () => { this.map = course.value === 'training' ? 'training' : 'mountain'; });
     difficulty.addEventListener('change', () => { this.difficulty = difficulty.value as Difficulty; });
     color.addEventListener('change', () => { this.colorStyle = color.value; this.updateColors(); });
     shake.addEventListener('change', () => { this.shake = shake.checked; });
@@ -256,42 +264,34 @@ class App {
     element(this.content, '#back').focus();
   }
 
-  private async start(replay?: RaceOptions, freshSeed = false) {
+  private async start(replay?: RunOptions, freshSeed = false) {
     this.audio.unlock();
     const requested = freshSeed ? null : this.requestedSeed;
-    const seed = requested ?? crypto.getRandomValues(new Uint32Array(1))[0];
-    const template = this.config.maps[this.map];
     const options = replay ?? {
       playerId: this.playerId,
-      seed,
-      difficulty: this.difficulty,
-      map: this.map === 'mountain' ? generateMap(template, this.config, seed) : template
+      seed: requested ?? crypto.getRandomValues(new Uint32Array(1))[0],
+      difficulty: this.difficulty
     };
     this.switchTo('race', '交易進行中', raceMarkup);
-    const race = new Race(this.config, options);
+    const race = new Run(this.config, options);
     this.race = race;
-    this.hud = new Hud(this.content, race, slot => race.usePlayerCard(slot));
+    this.hud = new Hud(this.content, race, {
+      useCard: slot => { race.usePlayerCard(slot); this.hud?.render(); },
+      select: lane => { race.select(lane); this.hud?.render(); },
+      confirm: () => this.confirm()
+    });
     this.hud.render();
-    this.bind('#pause', () => this.togglePause());
-    this.bind('#resume', () => this.togglePause());
-    this.bind('#leave', () => this.home());
     const course = element(this.content, '#course');
-    const frame = element(this.content, '#course-frame');
-    frame.tabIndex = -1;
-    frame.setAttribute('aria-label', '山路遊戲畫面');
     course.style.aspectRatio = `${this.config.theme.width} / ${this.config.theme.height}`;
-    frame.focus();
-    this.touchControls();
+    element(this.content, '#node-map').focus({ preventScroll: true });
     try {
       const { mountCourse } = await import('./scenes/course');
       if (this.race !== race || this.screen !== 'race') return;
       this.destroyCourse = mountCourse(course, {
         race,
-        input: () => this.controls.read(),
         onUpdate: () => {
           if (this.race !== race || this.screen !== 'race') return;
-          if (race.result) this.finish(race);
-          else this.hud?.render();
+          this.hud?.render();
         },
         shake: () => this.shake,
         playSound: style => this.audio.play(style),
@@ -305,37 +305,7 @@ class App {
     }
   }
 
-  private touchControls() {
-    for (const button of this.content.querySelectorAll<HTMLButtonElement>('button[data-key]')) {
-      const code = button.dataset.key!;
-      button.addEventListener('pointerdown', event => {
-        if (this.race?.paused) return;
-        event.preventDefault();
-        button.setPointerCapture(event.pointerId);
-        this.controls.hold(code);
-      });
-      button.addEventListener('lostpointercapture', () => this.controls.release(code));
-      button.addEventListener('pointerup', () => this.controls.release(code));
-      button.addEventListener('pointercancel', () => this.controls.release(code));
-      button.addEventListener('click', event => {
-        if (event.detail || this.race?.paused) return;
-        this.controls.hold(code);
-        this.controls.release(code);
-      });
-    }
-  }
-
-  private togglePause() {
-    const race = this.race;
-    if (this.screen !== 'race' || !race || race.result) return;
-    this.controls.clear();
-    race.togglePause();
-    setText(this.indicator, race.paused ? '交易暫停' : '交易進行中');
-    this.hud?.render();
-    element(this.content, race.paused ? '#resume' : '#course-frame').focus();
-  }
-
-  private finish(race: Race) {
+  private finish(race: Run) {
     this.switchTo('result', '市場已收盤', reportMarkup);
     renderReport(this.content, race);
     this.bind('#replay', () => void this.start(race.options));

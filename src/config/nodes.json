@@ -1,0 +1,88 @@
+{
+  "lanes": 4,
+  "maxLinks": 2,
+  "attempts": 24,
+  "kinds": {
+    "steady": {
+      "name": "穩健持有",
+      "detail": "上升 2 層",
+      "icon": "up",
+      "effectIds": [
+        "up_2"
+      ],
+      "weight": 5,
+      "fromRow": 0,
+      "color": "#8fd19e"
+    },
+    "leverage": {
+      "name": "槓桿加碼",
+      "detail": "上升 4 層；下一次利空下滑加倍",
+      "icon": "rocket",
+      "effectIds": [
+        "up_4",
+        "exposure"
+      ],
+      "weight": 3,
+      "fromRow": 1,
+      "color": "#ff9a7a"
+    },
+    "cash": {
+      "name": "獲利了結",
+      "detail": "不前進，入帳 150 元",
+      "icon": "cash",
+      "effectIds": [
+        "cash_150"
+      ],
+      "weight": 3,
+      "fromRow": 0,
+      "color": "#e6d77c"
+    },
+    "card": {
+      "name": "問號卡箱",
+      "detail": "上升 1 層並抽一張卡",
+      "icon": "chart",
+      "effectIds": [
+        "up_1"
+      ],
+      "draw": "public",
+      "weight": 3,
+      "fromRow": 0,
+      "color": "#f0b35a"
+    },
+    "intel": {
+      "name": "研究報告",
+      "detail": "上升 1 層並預告下一次事件",
+      "icon": "eye",
+      "effectIds": [
+        "up_1",
+        "reveal"
+      ],
+      "weight": 2,
+      "fromRow": 1,
+      "color": "#b6a0f3"
+    },
+    "aid": {
+      "name": "抄底補給",
+      "detail": "上升 1 層；落後者另抽補給卡",
+      "icon": "bank",
+      "effectIds": [
+        "up_1"
+      ],
+      "draw": "recovery",
+      "weight": 1,
+      "fromRow": 3,
+      "color": "#7fd8c0"
+    },
+    "wait": {
+      "name": "場外觀望",
+      "detail": "上升 1 層",
+      "icon": "halt",
+      "effectIds": [
+        "up_1"
+      ],
+      "weight": 2,
+      "fromRow": 0,
+      "color": "#9aa8b6"
+    }
+  }
+}

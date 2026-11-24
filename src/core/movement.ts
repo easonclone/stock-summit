@@ -1,12 +1,4 @@
-import type { Config, GameMap, Platform } from '../config/settings';
-
-export interface MovementInput {
-  horizontal: -1 | 0 | 1;
-  vertical: -1 | 0 | 1;
-  jump: boolean;
-}
-
-export const idle: MovementInput = { horizontal: 0, vertical: 0, jump: false };
+import type { GameMap, Platform } from '../config/settings';
 
 export interface Body {
   x: number;
@@ -20,10 +12,6 @@ export interface Body {
 
 export function clamp(value: number, minimum: number, maximum: number) {
   return Math.max(minimum, Math.min(maximum, value));
-}
-
-export function direction(delta: number, deadZone = 0): -1 | 0 | 1 {
-  return delta < -deadZone ? -1 : delta > deadZone ? 1 : 0;
 }
 
 export class Track {
@@ -83,79 +71,5 @@ export class Track {
     body.ladderId = null;
     body.motion = 'idle';
     return next - current;
-  }
-}
-
-export class Movement {
-  private readonly ladders: ReadonlyMap<string, GameMap['ladders'][number]>;
-
-  constructor(private readonly track: Track, private readonly physics: Config['physics']) {
-    this.ladders = new Map(track.map.ladders.map(ladder => [ladder.id, ladder]));
-  }
-
-  step(body: Body, input: MovementInput, seconds: number, multiplier: number) {
-    if (input.horizontal) body.facing = input.horizontal;
-    const physics = this.physics;
-    const halfWidth = physics.hitbox.width / 2;
-    const canStand = (item: Platform) => body.x + halfWidth > item.x && body.x - halfWidth < item.x + item.width;
-    let ladder = body.ladderId ? this.ladders.get(body.ladderId) : undefined;
-    if (input.jump && ladder) {
-      body.ladderId = null;
-      body.velocityY = -physics.jumpVelocity;
-      ladder = undefined;
-    }
-    if (!ladder && input.vertical && !input.jump) {
-      ladder = this.track.map.ladders.find(item => {
-        const from = this.track.platforms.get(item.from)!;
-        const to = this.track.platforms.get(item.to)!;
-        const endpoint = input.vertical < 0 ? from.id : to.id;
-        return Math.abs(item.x - body.x) <= physics.ladderGrab &&
-          (body.platformId === endpoint || (!body.platformId && body.y > to.y + 2 && body.y < from.y - 2));
-      });
-    }
-
-    if (ladder) {
-      const from = this.track.platforms.get(ladder.from)!;
-      const to = this.track.platforms.get(ladder.to)!;
-      body.ladderId = ladder.id;
-      body.platformId = null;
-      body.x = ladder.x;
-      body.velocityY = 0;
-      body.y = clamp(body.y + input.vertical * physics.climbSpeed * multiplier * seconds, to.y, from.y);
-      body.motion = 'climb';
-      const endpoint = body.y === to.y && input.vertical < 0 ? to : body.y === from.y && input.vertical > 0 ? from : null;
-      if (endpoint) {
-        body.platformId = endpoint.id;
-        body.ladderId = null;
-        body.motion = 'idle';
-      }
-      return;
-    }
-
-    body.x = clamp(body.x + input.horizontal * physics.moveSpeed * multiplier * seconds, halfWidth, this.track.map.width - halfWidth);
-    const struckPlatform = body.platformId ? this.track.platforms.get(body.platformId) : undefined;
-    if (input.jump && struckPlatform) {
-      body.velocityY = -physics.jumpVelocity;
-      body.platformId = null;
-    } else if (struckPlatform && canStand(struckPlatform)) {
-      body.motion = input.horizontal ? 'walk' : 'idle';
-      return;
-    } else {
-      body.platformId = null;
-    }
-
-    const previousY = body.y;
-    body.velocityY += physics.gravity * seconds;
-    body.y = Math.max(physics.hitbox.height, body.y + body.velocityY * seconds);
-    body.motion = 'air';
-    if (body.velocityY < 0) return;
-
-    const landing = this.track.surfaces.findLast(item => item.y >= previousY && item.y <= body.y && canStand(item));
-    if (landing) {
-      body.y = landing.y;
-      body.velocityY = 0;
-      body.platformId = landing.id;
-      body.motion = 'idle';
-    }
   }
 }

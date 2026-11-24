@@ -1,4 +1,1 @@
-{
-  "layersPerHundred": 1.2,
-  "pickupRange": 18
-}
+{ "layersPerHundred": 1.2, "bonusCap": 3 }

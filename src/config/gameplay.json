@@ -1,13 +1,10 @@
 {
-  "eventIntervalMs": 15000,
-  "durationMs": 360000,
-  "cardRespawnMs": 20000,
+  "turns": 15,
+  "eventEvery": 3,
   "inventorySize": 3,
-  "countdownMs": 3000,
-  "newsMs": 2800,
-  "recoveryGapLayers": 2,
+  "recoveryGapLayers": 3,
   "recoveryRanks": 2,
+  "newsMs": 2800,
   "cardNewsMs": 2850,
-  "effectAnimationMs": 520,
-  "summitCloseMs": 10000
+  "effectAnimationMs": 620
 }

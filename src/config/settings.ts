@@ -1,19 +1,16 @@
 import { z } from 'zod';
 import gameplayJson from './gameplay.json';
 import cashJson from './cash.json';
-import fallingTraderJson from './falling-traders.json';
 import physicsJson from './physics.json';
 import npcJson from './npc.json';
-import terrainJson from './terrain.json';
+import nodesJson from './nodes.json';
 import themeJson from './ui-theme.json';
 import charactersJson from '../data/characters.json';
 import eventsJson from '../data/events.json';
 import effectsJson from '../data/effects.json';
 import cardsJson from '../data/cards.json';
 import marketJson from '../data/market-states.json';
-import obstaclesJson from '../data/obstacles.json';
 import mountainJson from '../data/maps/mountain-01.json';
-import trainingJson from '../data/maps/training.json';
 
 const id = z.string().regex(/^[a-z][a-z\d_-]*$/);
 const positive = z.number().positive();
@@ -25,36 +22,27 @@ const label = z.string().min(1);
 const point = z.object({ x: nonNegative, y: nonNegative });
 const pixelIcon = z.enum(['shield', 'rocket', 'short', 'eye', 'bolt', 'trap', 'anchor', 'cash',
   'chart', 'bull', 'bear', 'bank', 'up', 'down', 'bills', 'halt']);
-const marketState = z.object({ name: label, icon: pixelIcon, travelSpeed: positive, patrolSpeed: positive });
-const obstacle = z.object({
-  name: label, kind: z.literal('patrol'), speed: positive, width: positive, height: positive,
-  effectIds: z.array(id).min(1), message: label
-});
-const interval = z.tuple([nonNegative, positive]).refine(([min, max]) => min <= max);
-const intGap = z.tuple([positiveInt, positiveInt]).refine(([min, max]) => min <= max);
-const probability = z.number().min(0).max(1);
+const marketState = z.object({ name: label, icon: pixelIcon });
 const edge = z.object({ to: id, type: z.enum(['walk', 'climb', 'jump', 'drop']), x: nonNegative });
 const platform = z.object({
   id, layer: integer.nonnegative(), x: nonNegative, y: positive, width: positive,
   height: positive, safeLanding: point, edges: z.array(edge)
 });
-const bundle = z.object({ id, platformId: id, x: nonNegative, amount: positiveInt });
 const ledge = z.object({ id, from: id, to: id, x: nonNegative, width: positive, rise: positive });
 const mapSchema = z.object({
   id, width: positive, height: positive, spawnPoints: z.array(point).length(4), finishPlatformId: id,
   platforms: z.array(platform).min(2),
   ledges: z.array(ledge).default([]),
   ladders: z.array(z.object({ id, from: id, to: id, x: nonNegative })),
-  cardSpawns: z.array(z.object({ id, platformId: id, x: nonNegative, kind: z.enum(['public', 'recovery']).default('public') })),
-  obstacles: z.array(z.object({ id, platformId: id, type: id, fromX: nonNegative, toX: positive })).default([]),
-  cash: z.object({ bundles: z.array(bundle), bonusCap: nonNegative }).default({ bundles: [], bonusCap: 0 }),
   zones: z.array(z.object({ name: label, startLayer: integer.nonnegative(), sky: color, accent: color })).min(1)
 });
 const effect = z.discriminatedUnion('type', [
   z.object({ type: z.literal('displacement'), layers: integer.refine(value => value !== 0) }),
-  z.object({ type: z.literal('speed_modifier'), multiplier: positive, durationMs: positiveInt }),
-  z.object({ type: z.literal('freeze'), durationMs: positiveInt }),
-  z.object({ type: z.literal('cash_loss_or_freeze'), amount: positiveInt, durationMs: positiveInt }),
+  z.object({ type: z.literal('momentum'), layers: positiveInt, turns: positiveInt }),
+  z.object({ type: z.literal('freeze'), turns: positiveInt }),
+  z.object({ type: z.literal('cash_loss_or_freeze'), amount: positiveInt, turns: positiveInt }),
+  z.object({ type: z.literal('cash_gain'), amount: positiveInt }),
+  z.object({ type: z.literal('exposure'), multiplier: z.number().min(1) }),
   z.object({ type: z.literal('shield'), charges: positiveInt }),
   z.object({ type: z.literal('reveal_next_event') }),
   z.object({ type: z.literal('limit_loss'), layers: positiveInt }),
@@ -70,38 +58,30 @@ const card = z.object({
   icon: pixelIcon, color, pool: z.enum(['public', 'recovery', 'both']).default('public')
 });
 const difficulty = z.enum(['easy', 'normal', 'hard']);
+const nodeKind = z.object({
+  name: label, detail: label, icon: pixelIcon, color, effectIds: z.array(id).min(1),
+  draw: z.enum(['public', 'recovery']).optional(), weight: positive, fromRow: integer.nonnegative()
+});
 const configSchema = z.object({
   gameplay: z.object({
-    eventIntervalMs: positiveInt, durationMs: positiveInt, cardRespawnMs: positiveInt,
-    inventorySize: positiveInt, countdownMs: positiveInt, newsMs: positiveInt,
-    summitCloseMs: positiveInt, recoveryGapLayers: positiveInt, recoveryRanks: positiveInt.max(3),
-    cardNewsMs: positiveInt, effectAnimationMs: positiveInt
+    turns: positiveInt, eventEvery: positiveInt, inventorySize: positiveInt.max(9),
+    recoveryGapLayers: positiveInt, recoveryRanks: positiveInt.max(3),
+    newsMs: positiveInt, cardNewsMs: positiveInt, effectAnimationMs: positiveInt
   }),
-  cash: z.object({ layersPerHundred: positive, pickupRange: positive }),
-  fallingTraders: z.object({
-    name: label, message: label, intervalMs: interval, warningMs: positiveInt, speed: positive, spawnHeight: positive,
-    landingMs: positiveInt, width: positive, height: positive, spread: nonNegative, doubleChance: nonNegative.max(1), laneSpacing: positive,
-    effectIds: z.array(id).min(1)
-  }),
+  cash: z.object({ layersPerHundred: positive, bonusCap: nonNegative }),
   physics: z.object({
     moveSpeed: positive, climbSpeed: positive, jumpVelocity: positive, gravity: positive,
     hitbox: z.object({ width: positive, height: positive }), ladderGrab: positive
   }),
   npc: z.object({
-    reactionMs: z.record(difficulty, interval),
-    jumpChance: z.record(difficulty, z.number().min(0).max(1)),
-    cardThinkMs: interval,
-    cashDetour: nonNegative,
-    patrolJumpChance: z.record(difficulty, z.number().min(0).max(1)),
-    patrolJumpDistance: positive
+    choiceNoise: z.record(difficulty, nonNegative),
+    lookahead: nonNegative, cardValue: nonNegative, intelValue: nonNegative, shieldValue: nonNegative,
+    exposurePenalty: nonNegative,
+    cardUseChance: z.record(difficulty, z.number().min(0).max(1))
   }),
-  terrain: z.object({
-    platformWidth: interval, edgeMargin: nonNegative, minOverlap: positive, ladderClearance: nonNegative,
-    ladderSpacing: positive, jumpChance: probability, jumpOffset: interval, ledgeChance: probability,
-    ledgeWidth: interval, ledgeRise: interval, ledgeLadderGap: nonNegative, patrolChance: probability,
-    patrolSpan: interval, patrolClearance: nonNegative, publicCardGap: intGap, recoveryCardGap: intGap,
-    airCardChance: probability, cashGap: intGap, cashAmounts: z.array(positiveInt).min(1),
-    itemSpacing: nonNegative, attempts: positiveInt
+  nodes: z.object({
+    lanes: integer.min(2).max(6), maxLinks: integer.min(1).max(3), attempts: positiveInt,
+    kinds: z.record(id, nodeKind)
   }),
   theme: z.object({ width: positiveInt, height: positiveInt, panel: color, gold: color, night: color, up: color, down: color }),
   characters: z.array(z.strictObject({
@@ -111,8 +91,7 @@ const configSchema = z.object({
   events: z.array(event).min(1),
   cards: z.array(card).min(1),
   market: z.object({ neutral: marketState, positive: marketState, negative: marketState }),
-  obstacles: z.record(id, obstacle),
-  maps: z.object({ mountain: mapSchema, training: mapSchema })
+  map: mapSchema
 });
 
 export type Config = z.infer<typeof configSchema>;
@@ -122,14 +101,15 @@ export type PixelIcon = z.infer<typeof pixelIcon>;
 export type Effect = z.infer<typeof effect>;
 export type Card = z.infer<typeof card>;
 export type MarketEvent = z.infer<typeof event>;
+export type NodeKind = z.infer<typeof nodeKind>;
 export type Character = Config['characters'][number];
 export type Difficulty = z.infer<typeof difficulty>;
 export type Tone = keyof Config['market'];
 
 export const inputConfig = {
-  gameplay: gameplayJson, cash: cashJson, fallingTraders: fallingTraderJson, physics: physicsJson, npc: npcJson, terrain: terrainJson, theme: themeJson, characters: charactersJson,
-  events: eventsJson, effects: effectsJson, cards: cardsJson, market: marketJson, obstacles: obstaclesJson,
-  maps: { mountain: mountainJson, training: trainingJson }
+  gameplay: gameplayJson, cash: cashJson, physics: physicsJson, npc: npcJson, nodes: nodesJson, theme: themeJson,
+  characters: charactersJson, events: eventsJson, effects: effectsJson, cards: cardsJson, market: marketJson,
+  map: mountainJson
 };
 
 function assert(value: unknown, reason: string): asserts value {
@@ -144,7 +124,8 @@ function inside(x: number, item: Platform, margin = 0) {
   return x >= item.x + margin && x <= item.x + item.width - margin;
 }
 
-export function validateMap(map: GameMap, { physics, obstacles }: Pick<Config, 'physics' | 'obstacles'>) {
+/** Checks that the mountain drawn behind the race is consistent: layers, ladders, floating blocks and a path to the top. */
+export function validateMap(map: GameMap, { physics }: Pick<Config, 'physics'>) {
   const detail = (reason: string) => `地圖 ${map.id}，${reason}`;
   const halfWidth = physics.hitbox.width / 2;
   const platforms = new Map(map.platforms.map(item => [item.id, item]));
@@ -152,7 +133,6 @@ export function validateMap(map: GameMap, { physics, obstacles }: Pick<Config, '
   unique(map.ladders, detail('梯子'));
   unique([...map.platforms, ...map.ledges], detail('平台'));
   const jumpHeight = physics.jumpVelocity ** 2 / (2 * physics.gravity);
-  const landings = new Map(platforms);
   for (const surface of map.ledges) {
     const from = platforms.get(surface.from);
     const to = platforms.get(surface.to);
@@ -161,24 +141,6 @@ export function validateMap(map: GameMap, { physics, obstacles }: Pick<Config, '
       surface.x + surface.width <= map.width && surface.rise < jumpHeight && from.y - surface.rise > to.y &&
       from.y - surface.rise - to.y < jumpHeight && inside(x, from, halfWidth) && inside(x, to, halfWidth),
       detail(`懸空方塊 ${surface.id} 無法以兩段跳連通`));
-    landings.set(surface.id, { ...surface, y: from.y - surface.rise, height: 12, layer: from.layer,
-      safeLanding: { x, y: from.y - surface.rise }, edges: [] });
-  }
-  unique(map.cardSpawns, detail('卡箱'));
-
-  unique(map.obstacles, detail('障礙物'));
-  unique(map.cash.bundles, detail('鈔票'));
-  for (const note of map.cash.bundles) {
-    const platform = platforms.get(note.platformId);
-    assert(platform && inside(note.x, platform, halfWidth), detail(`鈔票 ${note.id} 缺少可到達的平台`));
-  }
-  for (const item of map.obstacles) {
-    const type = obstacles[item.type];
-    const platform = platforms.get(item.platformId);
-    const margin = (type?.width ?? 0) / 2;
-    assert(type && platform && item.fromX < item.toX &&
-      inside(item.fromX, platform, margin) && inside(item.toX, platform, margin),
-      detail(`障礙物 ${item.id} 的路徑或類型無效`));
   }
 
   const floor = map.platforms[0];
@@ -220,10 +182,6 @@ export function validateMap(map: GameMap, { physics, obstacles }: Pick<Config, '
   for (const spawn of map.spawnPoints) {
     assert(spawn.y === floor.y && inside(spawn.x, floor, halfWidth), detail('出發點無效'));
   }
-  for (const spawn of map.cardSpawns) {
-    const item = landings.get(spawn.platformId);
-    assert(item && inside(spawn.x, item, halfWidth), detail(`卡箱 ${spawn.id} 缺少有效平台`));
-  }
 
   const canFinish = new Set([finish.id]);
   for (const item of [...map.platforms].reverse()) {
@@ -245,33 +203,25 @@ export function readConfig(raw: unknown): Config {
   unique(config.events, '事件');
   unique(config.cards, '卡片');
 
-  for (const item of [...config.events, ...config.cards]) {
+  const references = [
+    ...config.events.map(item => ({ owner: item.id, effectIds: item.effectIds })),
+    ...config.cards.map(item => ({ owner: item.id, effectIds: item.effectIds })),
+    ...Object.entries(config.nodes.kinds).map(([owner, item]) => ({ owner: `節點 ${owner}`, effectIds: item.effectIds }))
+  ];
+  for (const item of references) {
     for (const reference of item.effectIds) {
-      assert(Object.hasOwn(config.effects, reference), `${item.id} 引用了不存在的效果 ${reference}`);
+      assert(Object.hasOwn(config.effects, reference), `${item.owner} 引用了不存在的效果 ${reference}`);
     }
   }
   for (const item of config.cards) {
     assert(item.trigger !== 'on_pickup' || item.target === 'self', `${item.id} 即時卡片的目標必須為自己`);
   }
-  for (const [key, obstacle] of Object.entries(config.obstacles)) {
-    for (const effect of obstacle.effectIds) {
-      assert(Object.hasOwn(config.effects, effect) && config.effects[effect].type !== 'displacement',
-        `障礙物 ${key} 的效果引用無效 ${effect}`);
-    }
-  }
-  assert(config.fallingTraders.laneSpacing > config.fallingTraders.width + config.physics.hitbox.width,
-    '墜落障礙的落點間距須留出閃避空間');
-  for (const effect of config.fallingTraders.effectIds) {
-    assert(Object.hasOwn(config.effects, effect) && config.effects[effect].type === 'freeze',
-      `墜落障礙的效果引用無效 ${effect}`);
-  }
   assert(config.cards.some(card => card.pool !== 'recovery'), '缺少一般卡箱可抽取的卡片');
   assert(config.cards.some(card => card.pool !== 'public'), '缺少落後補給可抽取的卡片');
   assert(config.cards.every(card => card.pool === 'public' || card.trigger === 'manual'), '落後補給僅可包含主動卡');
-  assert(config.gameplay.inventorySize <= 9, '卡片欄最多支援九個數字快捷鍵');
-  for (const map of Object.values(config.maps)) {
-    assert(map.width === config.theme.width && map.height >= config.theme.height, `地圖 ${map.id} 尺寸與遊戲視窗不一致`);
-    validateMap(map, config);
-  }
+  assert(Object.values(config.nodes.kinds).some(kind => kind.fromRow === 0), '第一回合沒有可出現的節點類型');
+  assert(Object.keys(config.nodes.kinds).length >= 2, '節點類型至少需要兩種');
+  assert(config.map.width === config.theme.width && config.map.height >= config.theme.height, `地圖 ${config.map.id} 尺寸與遊戲視窗不一致`);
+  validateMap(config.map, config);
   return config;
 }

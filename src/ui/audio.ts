@@ -1,4 +1,4 @@
-import type { CardFx } from '../core/race';
+import type { CardFx } from '../core/run';
 
 export type GameSound = CardFx | 'impact';
 

@@ -1,20 +1,14 @@
 {
   "neutral": {
     "name": "盤整",
-    "icon": "chart",
-    "travelSpeed": 1,
-    "patrolSpeed": 1
+    "icon": "chart"
   },
   "positive": {
     "name": "多頭",
-    "icon": "bull",
-    "travelSpeed": 1.12,
-    "patrolSpeed": 0.8
+    "icon": "bull"
   },
   "negative": {
     "name": "空頭",
-    "icon": "bear",
-    "travelSpeed": 0.92,
-    "patrolSpeed": 1.24
+    "icon": "bear"
   }
 }

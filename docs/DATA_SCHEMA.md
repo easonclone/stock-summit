@@ -1,15 +1,21 @@
-# 資料契約（實作時以 Zod 或等效 schema 驗證）
-characters: [{id,name,description,color,spriteKey,portrait}]，不含能力值；physics 共用 moveSpeed、climbSpeed、jumpVelocity、gravity、hitbox。
-events: [{id,title,description,fictional:true,weight,target,effectIds}]；target = all/random_one/random_two/first_place/last_place。
-effects: ID -> discriminated union。例如 {"down_2":{"type":"displacement","layers":-2},"up_1":{"type":"displacement","layers":1},"boost":{"type":"speed_modifier","multiplier":1.2,"durationMs":8000},"freeze":{"type":"freeze","durationMs":3000},"shield":{"type":"shield","charges":1}}。另支援 reveal_next_event、limit_loss、clear_negative。
-cards: [{id,name,description,weight,trigger,target,effectIds}]；trigger=manual/on_pickup；target=self/nearest_ahead。無有效目標不得消耗卡片。
-map: {id,width,height,spawnPoints,finishPlatformId,platforms:[{id,layer,x,y,width,height,safeLanding:{x,y},edges:[{to,type}]}],ladders,cardSpawns,zones}。edge type=walk/climb/jump/drop。座標 y 向下，layer 向上；位移依 layer 並 clamp，選可用安全落點。
-效果順序：解析目標、檢查護盾/停損、位移或狀態更新、通知 UI。護盾按負面市場事件每次消耗一 charge，不按單個子效果。速度效果同類刷新期限，不無限乘疊；不同效果衝突時凍結優先。所有持續時間採遊戲時鐘。驗證唯一 ID、正權重、引用存在、平台落點及路徑可達性。
+# 資料契約（啟動時以 zod 驗證）
+characters: [{id,name,description,color,spriteKey,portrait}]，不含能力值。
 
-補充契約：cardSpawns.kind 為 public/recovery，obstacles 設置 platformId、type、fromX、toX。障礙類型集中於 obstacles.json，巡邏障礙透過 effectIds 指定碰撞效果。市場狀態定義 travelSpeed、patrolSpeed；事件和卡片以 icon 指定像素圖示。卡片 pool 為 public/recovery/both。
+events: [{id,title,description,fictional:true,weight,target,effectIds,icon}]；target = all/random_one/random_two/first_place/last_place。
 
-地圖 cash 提供 bundles 和 bonusCap。每疊鈔票以 platformId、x 定位，並以 amount 指定面額。cash.json 定義拾取範圍與每 100 元換算的層數。ledges 指定 from、to、x、width 與 rise，驗證兩段跳幾何並可供 cardSpawns 引用。
+effects: ID → discriminated union：
+- `displacement {layers}`：依平台層級位移並 clamp。
+- `momentum {layers,turns}`：接下來 turns 回合，節點每次爬升多 layers 層。
+- `freeze {turns}`：停牌，期間進入的節點無效。
+- `cash_loss_or_freeze {amount,turns}`：手持達 amount 扣款，否則停牌。
+- `cash_gain {amount}`、`exposure {multiplier}`（下一次市場下滑倍率）、`shield {charges}`、`reveal_next_event`、`limit_loss {layers}`、`clear_negative`。
 
-`terrain.json` 定義主賽道生成參數：平台寬度、最小重疊、梯口淨空、上下梯間距、跳台與懸空方塊機率及尺寸、巡邏機率與長度、卡箱／補給／鈔票間隔、物件間距與重試次數。npc.json 的 `patrolJumpChance`（依難度）與 `patrolJumpDistance` 控制 NPC 越過巡邏散戶。
+cards: [{id,name,description,weight,trigger,target,pool,effectIds,icon,color}]；trigger = manual/on_pickup；target = self/nearest_ahead；pool = public/recovery/both。無有效目標不得消耗卡片；即時卡目標必須為自己；補給池只含主動卡。
 
-`cash_loss_or_freeze` 效果採 `amount` 和 `durationMs`，金額達門檻時扣款，否則套用凍結。`falling-traders.json` 定義隨機間隔、預警時間、速度、碰撞尺寸及 `effectIds`，命中沿用共用效果引擎。
+nodes.json: {lanes,maxLinks,attempts,kinds:{[id]:{name,detail,icon,color,effectIds,draw?,weight,fromRow}}}；draw = public（一般卡）/recovery（符合落後條件才發補給卡）；fromRow 為最早出現的列（0 起算）。
+
+gameplay.json: turns、eventEvery、inventorySize、recoveryGapLayers、recoveryRanks，以及 newsMs、cardNewsMs、effectAnimationMs（只影響呈現）。cash.json: layersPerHundred、bonusCap。npc.json: choiceNoise、cardUseChance（依難度）、lookahead、cardValue、intelValue、shieldValue、exposurePenalty。market-states.json: 盤勢名稱與圖示。
+
+map: {id,width,height,spawnPoints,finishPlatformId,platforms,ladders,ledges,zones}，只用於山路畫面與層數換算；驗證梯子、跳台與平台落點。
+
+效果順序：市場利空先檢查避險（每次事件消耗一次），再套用槓桿倍率，最後停損上限，然後位移或狀態更新。驗證唯一 ID、正權重、引用存在、至少一種第 1 回合可出現的節點。

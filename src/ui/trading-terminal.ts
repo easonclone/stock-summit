@@ -59,7 +59,7 @@ function marketMarkup(run: TradingRun, animate: boolean) {
     <div class="market-info"><span><b>${run.config.market[tone].name}</b> 盤勢</span><span>${next === null ? '市場事件已結束' : `下次事件・第 ${next} 日`}</span></div>
     ${current ? `<div class="market-story">
       <p class="market-subtitle">${escapeHtml(current.event.subtitle)}</p>
-      ${report ? `<p data-market-impact>${effect}${impact}${maintenance && outcome?.marketApplied && outcome.investor.account.marginDebt ? ' 借錢買股今天更容易被追繳。' : ''}</p>` : ''}
+      ${report ? `<p data-market-impact>${effect}${impact}${maintenance && outcome?.marketApplied ? ' 這天有融資的人更容易被要求補錢。' : ''}</p>` : ''}
       <details><summary>看這則新聞的規則</summary><p>${escapeHtml(current.event.description)}
       ${maintenance ? `這天的追繳門檻收緊至 ${percent(Math.min(maintenance.ltv, run.config.financial.callLtv))}。` : ''}</p></details>
     </div>` : ''}
@@ -141,9 +141,9 @@ function handMarkup(run: TradingRun, lane: number | null, slot: number | null, e
   const selectedCard = slot === null ? null : run.player.hand[slot];
   const cards = run.player.hand.map((card, index) => {
     const synergy = lane !== null && Boolean(run.preview(lane, index)?.synergies);
-    return `<button type="button" class="hand-card ${synergy ? 'synergy' : ''}" style="--ink:${card.color}" data-act="card" data-value="${index}" aria-pressed="${slot === index}">
+    return `<button type="button" class="hand-card ${synergy ? 'synergy' : ''}" style="--ink:${card.color}" data-act="card" data-value="${index}" data-card-id="${card.id}" aria-pressed="${slot === index}">
       <span class="card-art">${iconMarkup(card.icon, card.color)}<small>${index + 1}</small></span>
-      <strong>${escapeHtml(card.name)}</strong><span>${synergy ? '◆ 可以接連招' : escapeHtml(card.duration)}</span></button>`;
+      <strong>${escapeHtml(card.name)}</strong><span>${synergy ? '◆ 可以接連招' : card.duration.length <= 6 ? escapeHtml(card.duration) : ''}</span></button>`;
   }).join('');
   return `<section class="hand-section" aria-label="今日手牌"><div class="section-head"><h2>今日手牌</h2><span>今天最多打 1 張 · ${run.player.hand.length}／${run.config.gameplay.inventorySize}</span></div>
     <div class="hand-grid">${cards}</div>
@@ -216,11 +216,13 @@ function actionsMarkup(run: TradingRun, lane: number | null, slot: number | null
   }).join('');
   const card = slot === null ? null : run.player.hand[slot];
   const blocked = preview && !preview.available;
+  const estimateText = preview ? [preview.high > 0 ? `<span class="gain">可能賺到 ${money(preview.high)}</span>` : '',
+    preview.low < 0 ? `<span class="loss">可能賠 ${money(-preview.low)}</span>` : ''].filter(Boolean).join(' · ') || '情境試算為 $0' : '';
   return `<section class="actions-section" aria-label="今天要怎麼投？">
     <div class="section-head"><h2>今天要怎麼投？</h2><button type="button" class="text-button" data-act="map">路線圖 <span aria-hidden="true">↗</span></button></div>
     <div class="action-grid" style="--routes:${routes.length}">${tiles}</div>
     ${preview ? `<div class="preview panel" aria-live="polite"><div class="preview-title"><strong>${escapeHtml(preview.kind.name)}・交易預覽</strong>
-      <span class="${direction(preview.expected)}">${arrow(preview.expected)} ${signedMoney(preview.low)} 至 ${signedMoney(preview.high)}</span></div>
+      <span class="possible-results">${estimateText}</span></div>
       <p>${escapeHtml(preview.kind.detail)}</p>
       <p class="trade-costs">${[
         preview.invested + preview.deposited ? `自己出 ${money(preview.invested + preview.deposited)}` : '',

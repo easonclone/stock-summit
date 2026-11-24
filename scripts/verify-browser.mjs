@@ -133,13 +133,15 @@ async function clearDialogs(replaceOne = false) {
   for (let n = 0; n < 6; n++) {
     const dialog = await js('document.querySelector("dialog[open]")?.className ?? ""');
     if (!dialog) return;
+    if (dialog.includes('dialog-recovery') && transitions.recovery === 0) await screenshot('recovery-320');
+    const details = 'dialog[open] .crisis-details summary';
+    if (await has(details)) await click(details);
     const body = await js('document.querySelector("dialog").innerText');
     const sold = body.match(/部位處分金額\s+\$([\d,]+)/);
     if (sold && Number(sold[1].replaceAll(',', '')) > 0) transitions.liquidation++;
     if (dialog.includes('dialog-recovery')) {
       assert.match(body, /宣告破產/);
       assert.match(body, /收盤應付重整費/);
-      if (transitions.recovery === 0) await screenshot('recovery-320');
       transitions.recovery++;
       await action('recover');
     } else if (dialog.includes('dialog-crisis')) {
@@ -267,17 +269,31 @@ try {
     results.push({ width, height, mobile, fullRun: width === 320 || !mobile });
     console.error(width + ' px 已驗證');
   }
-  await openMarket(320, 640, true, 469, true);
-  const earlyRecovery = transitions.recovery;
+  await openMarket(390, 844, true, 8, true);
+  const firstLane = await js(`document.querySelector('${on('lane')}[data-kind="steady"]')?.dataset.value ?? document.querySelector('${on('lane')}').dataset.value`);
+  await click(on('lane') + '[data-value="' + firstLane + '"]');
+  await action('trade');
+  await clearDialogs();
+  await click(on('lane') + '[data-kind="margin"]');
+  await click(on('card') + '[data-card-id="margin"]');
+  assert.match(await js('document.querySelector("[data-card-status]").textContent'), /現在可以使用/);
+  assert.match(await js('document.querySelector("[data-card-impact]").textContent'), /估計多賺 \$[0-9,]+/);
+  await js('document.querySelector("[data-card-status]").scrollIntoView({block:"center"})');
+  await screenshot('leverage-card-390');
+  await layout(390, 844, true);
+
+  // 此種子固定重整於第 6 日，於第 11 日再出局。
+  const crisisLanes = [1, 0, 0, 0, 0, 1, 2, 1, 1, 2, 1];
+  await openMarket(320, 640, true, 7893, true);
   for (let day = 1; day <= 15 && !(await has('main.settlement')); day++) {
-    const preferences = transitions.recovery > earlyRecovery ? ['steady', 'mystery', 'dividend'] : ['margin', 'steady', 'mystery'];
-    if (await has(on('lane'))) {
-      const available = await js(`Array.from(document.querySelectorAll('${on('lane')}')).map(el=>({name:el.dataset.kind,lane:el.dataset.value}))`);
-      const action = preferences.map(name=>available.find(node=>node.name===name)).find(Boolean) ?? available[0];
-      await click(on('lane')+'[data-value="'+action.lane+'"]');
-    }
+    if (await has(on('lane'))) await click(on('lane') + '[data-value="' + crisisLanes[day - 1] + '"]');
     await action('trade');
     await clearDialogs();
+    if (day === 3) {
+      assert(await has('[data-market-impact]'));
+      await js('scrollTo(0,0)');
+      await screenshot('market-impact-320');
+    }
     if (await has('.spectator')) await layout(320, 640, true);
   }
   assert(await has('main.settlement'), '觀戰能到收盤');

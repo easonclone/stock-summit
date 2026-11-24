@@ -378,3 +378,6 @@ summary { cursor: pointer; min-height: 39px; display: list-item; padding: 8px 0;
 .market-story { grid-column: 1 / -1; border-top: 1px dashed var(--outline); padding-top: 5px; font-size: .75rem; overflow-wrap: anywhere; }
 .market-subtitle { color: var(--muted); }
 .market-story summary { min-height: 36px; font-size: .72rem; }
+
+.card-detail p[data-card-status].gold, .card-detail p[data-card-impact] { color: var(--gold); }
+.card-detail p[data-card-status].ice { color: var(--ice); }

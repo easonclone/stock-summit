@@ -16,9 +16,9 @@ export function crisisMarkup(run: TradingRun, report: DayReport, outcome: DayOut
   return `<div class="crisis-flag">第 ${report.day} 日 · ${title}</div>
     <p><strong>${reaction}</strong></p>
     <p>${sources.map(escapeHtml).join('／')}結算後，這天的總身家變動是 ${signedMoney((applied?.before ?? outcome.close) - outcome.start)}。</p>
-    ${call?.liquidated ? `<p>券商賣了 ${money(call.sold)} 的股票，其中 ${money(call.paid)} 拿去還借款。平倉多花了 ${money(call.fee)}。${call.debtLeft ? `還欠 ${money(call.debtLeft)}。` : ''}</p>` : ''}
+    ${call?.liquidated ? `<p>券商賣了 ${money(call.sold)} 的股票，這次共還了 ${money(call.paid)} 的借款。平倉多花了 ${money(call.fee)}。${call.debtLeft ? `還欠 ${money(call.debtLeft)}。` : ''}</p>` : ''}
     ${pending ? `<p>系統會先用剩下的資產還債。接受重整後可拿 ${money(rules.recoveryCash)} 繼續玩，新欠款為 ${money(rules.recoveryDebt)}，另有 ${money(rules.recoveryClosingFee)} 收盤時要付。${rules.recoveryLockDays} 天內不能再借錢加碼。</p>` : ''}
-    <details open class="crisis-details"><summary>看這筆交易的帳目</summary>
+    <details class="crisis-details"><summary>看這筆交易的帳目</summary>
     ${call ? `<p>融資比率 ${Number.isFinite(call.ratio) ? percent(call.ratio) : '無可擔保部位'}，追繳門檻 ${percent(call.threshold)}。</p>
       <dl class="crisis-ledger">
         <div><dt>平倉前淨資產</dt><dd>${money(call.before)}</dd></div>

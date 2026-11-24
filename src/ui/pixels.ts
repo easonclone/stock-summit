@@ -2,7 +2,7 @@ import type { FinancialConfig, InvestorCharacter } from '../config/financial-set
 
 type PixelIcon = FinancialConfig['cards'][number]['icon'];
 
-type Pixel = (color: string, x: number, y: number, width: number, height: number) => void;
+export type Pixel = (color: string, x: number, y: number, width: number, height: number) => void;
 
 export function mixColor(first: string, second: string, weight: number) {
   const a = Number.parseInt(first.slice(1), 16);
@@ -11,9 +11,10 @@ export function mixColor(first: string, second: string, weight: number) {
   return '#' + channels.map(channel => channel.toString(16).padStart(2, '0')).join('');
 }
 
-function drawInvestor(pixel: Pixel, character: InvestorCharacter, x: number, y: number, scale: number) {
+/** Shared 12×15 investor body. `step` and `flipped` come from the climbing version's walking racer. */
+export function drawInvestor(pixel: Pixel, character: InvestorCharacter, x: number, y: number, scale: number, step = 0, flipped = false) {
   const draw = (color: string, left: number, top: number, width: number, height: number) =>
-    pixel(color, x + left * scale, y + top * scale, width * scale, height * scale);
+    pixel(color, x + (flipped ? 12 - left - width : left) * scale, y + top * scale, width * scale, height * scale);
   const dark = '#101521';
   const skin = '#f3c29b';
   const shade = '#bd826e';
@@ -52,12 +53,12 @@ function drawInvestor(pixel: Pixel, character: InvestorCharacter, x: number, y: 
   draw(jacket, shoulder + 1, 7, 10 - shoulder * 2, 4);
   draw(mixColor(jacket, '#ffffff', 0.45), 4, 7, 4, 1);
   draw(mixColor(jacket, dark, 0.44), 3, 10, 6, 1);
-  draw(skin, shoulder, 9, 1, 2);
-  draw(skin, 11 - shoulder, 9, 1, 2);
-  draw(pants, 3, 11, 2, 3);
-  draw(pants, 7, 11, 2, 3);
-  draw(dark, 3, 14, 3, 1);
-  draw(dark, 7, 14, 3, 1);
+  draw(skin, shoulder, 9 + (step === 1 ? 1 : 0), 1, 2);
+  draw(skin, 11 - shoulder, 9 + (step === -1 ? 1 : 0), 1, 2);
+  draw(pants, 3, 11, 2, 3 + (step === 1 ? -1 : 0));
+  draw(pants, 7, 11, 2, 3 + (step === -1 ? -1 : 0));
+  draw(dark, 3 - (step === -1 ? 1 : 0), step === 1 ? 13 : 14, 3, 1);
+  draw(dark, 7, step === -1 ? 13 : 14, 3, 1);
 }
 
 export function portrait(canvas: HTMLCanvasElement, character: InvestorCharacter) {

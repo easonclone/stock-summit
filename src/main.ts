@@ -10,6 +10,9 @@ import { routeMapMarkup } from './ui/route-map';
 import { settlementMarkup, shareText } from './ui/settlement';
 import { cardRulesMarkup, chartDialogMarkup, financeDetailMarkup, newsMarkup, offerMarkup, openingMarkup, tradingMarkup, type TerminalSelection } from './ui/trading-terminal';
 import { Coach, type TipId } from './ui/coach';
+import { readTheaterConfig, type TheaterConfig } from './config/theater-settings';
+import { MarketTheater } from './ui/theater';
+import { buildTheater, type Step, type TheaterMode } from './ui/theater-script';
 
 type DialogKind = 'map' | 'crisis' | 'recovery' | 'offer' | 'settings' | 'share' | 'chart' | 'finance' | 'news' | 'card-rules';
 const freshSeed = () => crypto.getRandomValues(new Uint32Array(1))[0];
@@ -36,14 +39,22 @@ class TerminalApp {
   private disposeEffect: (() => void) | undefined;
   private lastCrisis: { report: DayReport; outcome: DayOutcome } | null = null;
   private readonly coach = new Coach();
+  private readonly theater: TheaterConfig;
+  private theaterMode: TheaterMode = 'full';
+  private theaterDay = 0;
+  private stage: MarketTheater | null = null;
   private rulesSlot = 0;
-  private showTimer: number | undefined;
 
   constructor(private readonly root: HTMLElement, private readonly config: FinancialConfig) {
     const fromUrl = new URLSearchParams(location.search).get('seed') ?? '';
     this.seed = /^\d{1,10}$/.test(fromUrl) && Number(fromUrl) <= 0xffffffff ? Number(fromUrl) : freshSeed();
     this.selectedCharacter = config.characters[0].id;
     this.reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    this.theater = readTheaterConfig(config);
+    try {
+      const saved = localStorage.getItem('stock-summit-theater');
+      if (saved === 'full' || saved === 'quick' || saved === 'off') this.theaterMode = saved;
+    } catch { /* storage unavailable: keep the full show */ }
     root.innerHTML = '<div id="screen"></div><dialog id="terminal-dialog" aria-labelledby="dialog-heading"></dialog><div id="announce" class="sr-only" aria-live="polite"></div>';
     this.screen = root.querySelector('#screen')!;
     this.dialog = root.querySelector('dialog')!;
@@ -114,6 +125,10 @@ class TerminalApp {
     if (target.dataset.input === 'motion') this.reduced = target.checked;
     if (target.dataset.input === 'colors') this.international = target.checked;
     if (target.dataset.input === 'audio') this.audio.enabled = target.checked;
+    if (target.dataset.input === 'theater' && ['full', 'quick', 'off'].includes(target.value)) {
+      this.theaterMode = target.value as TheaterMode;
+      try { localStorage.setItem('stock-summit-theater', this.theaterMode); } catch { /* ignore */ }
+    }
     if (target.dataset.input === 'tips') { this.coach.setEnabled(target.checked); if (this.run && !this.dialog.open) this.render(); }
     this.setPreferences();
   }
@@ -148,7 +163,6 @@ class TerminalApp {
       case 'card-rules': this.dialogTrigger = button; this.rulesSlot = value; this.openDialog('card-rules'); break;
       case 'tip-ok': this.coach.dismiss(button.dataset.value as TipId); this.render('[data-act="trade"]'); break;
       case 'coach-off': this.coach.setEnabled(false); this.render('[data-act="trade"]'); break;
-      case 'show-skip': this.endShow(); break;
       case 'crisis': this.dialogTrigger = button; this.openDialog('crisis'); break;
       case 'close-dialog': this.closeDialog(); break;
       case 'personal': this.personal = true; this.closeDialog(false); this.render('[data-act="spectate"]'); window.scrollTo(0, 0); break;
@@ -189,6 +203,8 @@ class TerminalApp {
     this.run = new TradingRun(this.config, { playerId: this.selectedCharacter, seed, difficulty: this.difficulty });
     this.personal = false;
     this.lastCrisis = null;
+    this.theaterDay = 0;
+    this.stage?.close();
     this.clearSelection();
     const url = new URL(location.href);
     url.searchParams.set('seed', String(seed));
@@ -251,16 +267,21 @@ class TerminalApp {
     this.closeDialog(false);
     this.selection.animate = !this.reduced;
     this.render(run.closed ? '[data-act="replay"]' : '[data-act="lane"], [data-act="trade"]');
-    if (report && outcome) this.playSound(report, outcome);
-    if (!this.reduced && report?.market && !run.closed) void this.playMarketEffect(report);
     if (report && outcome && (outcome.risk.call || outcome.risk.insolvent)) this.lastCrisis = { report, outcome };
+    // The theater waits for a finished day: a pending recovery is decided first, then the show plays once.
+    const settled = report && !run.pendingRecovery && this.theaterDay !== report.day ? report : null;
+    const steps = settled ? buildTheater(run, settled, this.theater, this.theaterMode) : [];
+    if (report && outcome && !steps.length) this.playSound(report, outcome);
+    if (!steps.length && !this.reduced && report?.market && !run.closed) void this.playMarketEffect(report);
     const next = () => {
       if (run.pendingRecovery && this.lastCrisis) this.openDialog('recovery');
       else if (outcome && !outcome.recovery && (outcome.risk.call || outcome.risk.insolvent)) this.openDialog('crisis');
       else this.showOffer();
     };
-    if (!this.reduced && report?.market?.severity === 'extreme' && !run.closed) this.extremeShow(report, next);
-    else next();
+    if (settled && steps.length) {
+      this.theaterDay = settled.day;
+      void this.playTheater(steps, settled).then(next);
+    } else next();
     this.announce(run.closed ? '本局正式收盤。' : `第 ${run.day} 個交易日。${outcome ? `你昨天 ${signedMoney(outcome.close - outcome.start)}。` : ''}`);
     if (run.closed) window.scrollTo(0, 0);
   }
@@ -279,31 +300,27 @@ class TerminalApp {
     this.audio.play(sound);
   }
 
-  /** Full-screen news flash for extreme events only; built from the real report and dismissable at once. */
-  private extremeShow(report: DayReport, then: () => void) {
-    const tone = marketTone(report.market!, this.config);
-    const lines = report.outcomes.map(item => `<li style="--ink:${item.investor.character.color}"><span>${escapeHtml(item.investor.character.name)}</span>
-      <b class="${item.marketPnl > 0 ? 'gain' : item.marketPnl < 0 ? 'loss' : 'flat'}">${item.marketPnl ? signedMoney(item.marketPnl) : '不受影響'}</b>${item.ledger.protected ? `<small>◆ 擋 ${money(item.ledger.protected)}</small>` : ''}</li>`).join('');
-    const show = document.createElement('div');
-    show.className = `news-show ${tone}`;
-    show.setAttribute('role', 'alert');
-    show.innerHTML = `<div class="show-card"><p class="show-kicker">重大快訊 · 第 ${report.day} 日</p><h2>${escapeHtml(report.market!.title)}</h2>
-      <p>${escapeHtml(report.market!.subtitle)}</p><ul>${lines}</ul><button type="button" class="gold-button" data-act="show-skip">繼續</button></div>`;
-    this.root.append(show);
-    this.showThen = then;
-    show.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true });
-    this.showTimer = window.setTimeout(() => this.endShow(), 2600);
-  }
-
-  private showThen: (() => void) | null = null;
-
-  private endShow() {
-    window.clearTimeout(this.showTimer);
-    this.root.querySelector('.news-show')?.remove();
-    const then = this.showThen;
-    this.showThen = null;
-    then?.();
-    if (!this.dialog.open) this.screen.querySelector<HTMLElement>('[data-act="trade"]')?.focus({ preventScroll: true });
+  private async playTheater(steps: Step[], report: DayReport) {
+    const style = getComputedStyle(this.root);
+    const colors = { up: style.getPropertyValue('--gain').trim() || '#ff8982', down: style.getPropertyValue('--loss').trim() || '#78dab2' };
+    this.stage = new MarketTheater(steps, {
+      root: this.root, config: this.config, theater: this.theater, audio: this.audio, mode: this.theaterMode, reduced: this.reduced, colors,
+      seed: this.run!.options.seed,
+      effect: async (host, tone, intense) => {
+        try {
+          const { mountMarketEffect } = await import('./ui/market-effects');
+          const color = tone === 'negative' ? colors.down : colors.up;
+          return mountMarketEffect(host, this.run!.options.seed ^ report.day, Number.parseInt(color.slice(1), 16), intense,
+            Math.max(160, host.clientWidth), Math.max(90, host.clientHeight), tone !== 'negative');
+        } catch (error) {
+          console.warn('市場像素特效無法播放', error);
+          return undefined;
+        }
+      }
+    });
+    await this.stage.done;
+    this.stage = null;
+    if (!this.dialog.open) this.screen.querySelector<HTMLElement>(this.run?.closed ? '[data-act="replay"]' : '[data-act="trade"]')?.focus({ preventScroll: true });
   }
 
   private async playMarketEffect(report: DayReport) {
@@ -366,7 +383,9 @@ class TerminalApp {
         content = `<div class="settings-options"><label><input type="checkbox" data-input="colors" ${this.international ? 'checked' : ''}> 切換綠漲紅跌</label>
           <label><input type="checkbox" data-input="motion" ${this.reduced ? 'checked' : ''}> 減少動態，直接看結算</label>
           <label><input type="checkbox" data-input="audio" ${this.audio.enabled ? 'checked' : ''}> 播放交易音效</label>
-          <label><input type="checkbox" data-input="tips" ${this.coach.enabled ? 'checked' : ''}> 顯示新手提示</label></div>`;
+          <label><input type="checkbox" data-input="tips" ${this.coach.enabled ? 'checked' : ''}> 顯示新手提示</label>
+          <label class="select-label">市場新聞演出<select data-input="theater">${([['full', '完整 RPG 演出'], ['quick', '快速演出'], ['off', '略過演出']] as const)
+            .map(([value, label]) => `<option value="${value}" ${this.theaterMode === value ? 'selected' : ''}>${label}</option>`).join('')}</select></label></div>`;
         break;
       case 'chart':
         heading = '總身家走勢';
@@ -434,7 +453,7 @@ class TerminalApp {
   }
 
   private readonly keyDown = (event: KeyboardEvent) => {
-    if (this.showThen && (event.code === 'Escape' || event.code === 'Enter' || event.code === 'Space')) { event.preventDefault(); this.endShow(); return; }
+    if (this.stage) return;
     if (!this.run || this.run.closed || this.dialog.open || this.personal || this.locked || event.altKey || event.ctrlKey || event.metaKey ||
       (event.target as Element).closest('input, select, textarea')) return;
     const target = (event.target as Element).closest<HTMLButtonElement>('[data-act="trade"]');

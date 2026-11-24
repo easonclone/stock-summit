@@ -21,3 +21,10 @@
 卡片新增 `freedom`，搭配效果可設定 `base` 與 `prepareDays`；`fee_coupon.days` 設定融資券期限。玩法開關及換牌上限設定於 `src/config/card-rules.json`。
 
 完整牌池加入 `rarity`、`expandedOnly` 及選用的 `pairing`。`timed` 記錄持續或一次性布局，`route_card` 調整自有股票風險，`attack` 透過開盤目標套用。設定 `cardRules.rarity` 控制 65／30／5 的稀有度權重。
+
+## 市場事件劇場（只負責呈現）
+
+- `src/data/event-theater.json`：`scenes` 為 12 種可重用像素場景（AI 科技中心、半導體工廠、交易所、中央銀行、記者會、港口、能源市場、金庫、散戶聊天室、券商辦公室、黑天鵝、市場狂歡）；`speakers` 為五位新聞角色；`events` 以新聞 id 對應 `sceneId`、`speakerId`、`animationId`、`soundId` 與 1–3 句 `dialogue`；`closing` 為收盤演出。嚴重度、標題、漲跌方向一律讀取 `market-events.json` 與效果引擎，不重複維護數值。
+- `src/data/character-lines.json`：17 種情境（剛開槓桿遇利多／利空、空手遇大漲、剛賣光就漲、空手避跌、定存避險、護盾、連招、被攻擊、追繳、超車、名次大跌、破產、重整、奪冠、新聞獲利、新聞虧損），每種至少 3 句共用台詞，另可為四位角色各加一句個人口吻。台詞只能用 `{amount}`、`{rank}`，數值由實際結算填入。
+- `src/config/theater-settings.ts` 於啟動時驗證：60 則新聞皆有演出、場景與主播存在、台詞數量與佔位符合法、角色 id 存在。
+- 結算紀錄 `DayOutcome.exposure` 記下新聞前的股票、定存與欠款，只供呈現判斷誰受影響，不參與計算。

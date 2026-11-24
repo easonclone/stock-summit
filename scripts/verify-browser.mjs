@@ -80,6 +80,13 @@ async function click(selector) {
   assert.equal(await js('(()=>{const el=document.querySelector(' + JSON.stringify(selector) + ');if(!el||el.disabled)return false;el.click();return true})()'), true, selector);
 }
 const action = act => click(on(act));
+async function key(name) {
+  const codes = { Enter: ['Enter', 13], Escape: ['Escape', 27] };
+  const [code, vk] = codes[name];
+  await send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: name, code, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk });
+  await send('Input.dispatchKeyEvent', { type: 'keyUp', key: name, code, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk });
+  await delay(60);
+}
 const resize = (width, height, mobile) => send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile,
   screenWidth: width, screenHeight: height, screenOrientation: { angle: width > height ? 90 : 0, type: width > height ? 'landscapePrimary' : 'portraitPrimary' } });
 async function trustedClick(selector, touch, scroll = true) {
@@ -134,11 +141,11 @@ async function openMarket(width, height, mobile, seed, reduced) {
 const transitions = { draw: 0, draft: 0, liquidation: 0, recovery: 0, skip: 0, effect: 0, personal: 0, show: 0 };
 async function clearDialogs(replaceOne = false) {
   for (let n = 0; n < 6; n++) {
-    if (await has('.news-show')) {
-      assert.match(await js('document.querySelector(".news-show").innerText'), /重大快訊/);
+    if (await has('.theater')) {
+      assert.match(await js('document.querySelector(".scene-banner").innerText'), /第 \d+ 日/);
       transitions.show++;
-      await click('.news-show [data-act="show-skip"]');
-      assert(!(await has('.news-show')), '重大新聞演出可略過');
+      await click('.theater [data-th="skip"]');
+      assert(!(await has('.theater')), '事件劇場可略過');
     }
     const dialog = await js('document.querySelector("dialog[open]")?.className ?? ""');
     if (!dialog) return;
@@ -321,10 +328,41 @@ try {
       await action('lane');
       await action('trade');
       for (let i = 0; i < 40 && await has(on('skip')); i++) await delay(25);
-      if (day === 6) { assert(await has('.news-show'), '極端新聞全螢幕演出'); await screenshot('news-show-390'); }
+      if (day === 3) {
+        // 一般／重大新聞：Enter 先補完逐字，再進下一句；Esc 直接結束且結果不變。
+        assert(await has('.theater'), '新聞日播放事件劇場');
+        const worth = await js('document.querySelector(".hero-main strong").textContent');
+        for (let i = 0; i < 40 && await js('document.querySelector(".theater")?.dataset.step') !== 'line'; i++) await delay(50);
+        await key('Enter');
+        assert.equal(await js('document.querySelector(".rpg-box").classList.contains("typing")'), false, 'Enter 補完當前句');
+        await screenshot('theater-line-390');
+        await key('Escape');
+        assert(!(await has('.theater')), 'Esc 略過演出');
+        assert.equal(await js('document.querySelector(".hero-main strong").textContent'), worth, '略過不影響結果');
+      }
+      if (day === 6) {
+        assert(await has('.theater.sev-extreme'), '黑天鵝事件劇場');
+        for (let i = 0; i < 250 && await js(`document.querySelector(".theater")?.dataset.step`) !== "results"; i++) {
+          if (await has('.theater-fx canvas')) transitions.effect++;
+          await delay(100);
+        }
+        assert.equal(await js('document.querySelector(".theater")?.dataset.step'), 'results', '自動播放到實際結算，不需逐句點擊');
+        assert.equal(await js('document.querySelectorAll(".theater-results li").length'), 4);
+        await screenshot('theater-results-390');
+      }
       await clearDialogs();
     }
-    assert(transitions.show > 0, '極端新聞演出可略過');
+    assert(transitions.show > 0, '事件劇場可略過');
+    // 快速演出：同一天的演出步驟較少；略過演出：不出現劇場。
+    await action('settings');
+    await js('(() => { const s = document.querySelector("[data-input=theater]"); s.value = "off"; s.dispatchEvent(new Event("change", { bubbles: true })); })()');
+    await action('close-dialog');
+    await clearDialogs();
+    await action('lane');
+    await action('trade');
+    for (let i = 0; i < 40 && await has(on('skip')); i++) await delay(25);
+    assert(!(await has('.theater')), '略過演出模式不播放');
+    await js('localStorage.removeItem("stock-summit-theater")');
 
     // 此種子固定重整於第 6 日，於第 11 日再出局。
     const crisisLanes = [1, 0, 0, 0, 0, 1, 2, 1, 1, 2, 1];

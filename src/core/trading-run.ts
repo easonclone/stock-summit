@@ -1,6 +1,6 @@
 import type { FinancialConfig, InvestorCharacter, TradingCard, TradingDifficulty, TradingEvent } from '../config/financial-settings';
 import { canRecover, declareBankruptcy, recoverPortfolio, type RecoveryAudit } from './bankruptcy';
-import { canBorrow, chargeClosingCost, collectDeposits, netWorth, openPortfolio, recordWorth } from './economy';
+import { canBorrow, chargeClosingCost, collectDeposits, debtBalance, depositBalance, netWorth, openPortfolio, recordWorth } from './economy';
 import { generateNodeMap, type RouteNode } from './node-map';
 import { cardRetention, chooseTrade, type Planner } from './npc-strategy';
 import { seededRandom, weighted, type Random } from './random';
@@ -49,6 +49,8 @@ export interface DayOutcome {
   incomingCards: string[];
   marketApplied: boolean;
   preparationPlaced: boolean;
+  /** Holdings just before the news hit. Record only; lets the presentation explain who was exposed. */
+  exposure: { stock: number; deposits: number; debt: number };
 }
 
 export interface DayReport {
@@ -309,6 +311,7 @@ export class TradingRun {
     const report: DayReport = {
       day: this.day, market, outcomes: outcomes.map(({ investor, route, card, start, context, action, targetedRivals }) => {
         const worthBeforeMarket = netWorth(investor.account);
+        const exposure = { stock: investor.account.investmentValue, deposits: depositBalance(investor.account), debt: debtBalance(investor.account) };
         const incoming = interference.get(investor.character.id) ?? [];
         const marketApplied = market !== null && targets.has(investor);
         if (market && marketApplied) applyMarket(investor, market, { ...context, marketDraw: marketRandom }, action.ledger);
@@ -323,7 +326,7 @@ export class TradingRun {
         return {
           investor, node: route, card, start, close: netWorth(investor.account), ledger: action.ledger, marketPnl,
           openingInterest: investor.depositInterest, openingStockIncome: investor.openingStockIncome, risk, recovery: null, clearedCards: 0, clearedHedges: 0,
-          targetedRivals, incomingCards: incoming.map(item => item.name), marketApplied, preparationPlaced: action.preparation !== null
+          targetedRivals, incomingCards: incoming.map(item => item.name), marketApplied, preparationPlaced: action.preparation !== null, exposure
         };
       })
     };

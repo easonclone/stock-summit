@@ -1,0 +1,13 @@
+{
+  "retail": {
+    "name": "失意散戶",
+    "kind": "patrol",
+    "speed": 42,
+    "width": 17,
+    "height": 21,
+    "effectIds": [
+      "collision_pause"
+    ],
+    "message": "散戶討拍，借過一下！"
+  }
+}

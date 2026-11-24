@@ -1,0 +1,26 @@
+{
+  "reactionMs": {
+    "easy": [
+      500,
+      1100
+    ],
+    "normal": [
+      170,
+      550
+    ],
+    "hard": [
+      55,
+      220
+    ]
+  },
+  "jumpChance": {
+    "easy": 0.04,
+    "normal": 0.15,
+    "hard": 0.32
+  },
+  "cardThinkMs": [
+    540,
+    1500
+  ],
+  "cashDetour": 76
+}

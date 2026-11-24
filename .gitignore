@@ -1,1 +1,30 @@
+# OS / editor
 .DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+
+# Dependencies & build output
+node_modules/
+dist/
+dist-ssr/
+coverage/
+*.tsbuildinfo
+.vite/
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Logs & debug
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Local agent / tool settings
+.claude/settings.local.json

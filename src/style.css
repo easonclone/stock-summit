@@ -381,3 +381,7 @@ summary { cursor: pointer; min-height: 39px; display: list-item; padding: 8px 0;
 
 .card-detail p[data-card-status].gold, .card-detail p[data-card-impact] { color: var(--gold); }
 .card-detail p[data-card-status].ice { color: var(--ice); }
+
+.card-buttons { display:flex; flex-wrap:wrap; gap:6px; margin-block:6px; }
+.card-buttons button { font-size:.75rem; padding:5px 8px; }
+.pending-cards { font-size:.75rem; color:var(--gold); margin-bottom:7px; }

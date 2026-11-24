@@ -3,7 +3,7 @@ import { debtBalance, depositBalance, marginLtv, netWorth, outstandingWorth } fr
 import type { RouteNode } from './node-map';
 import { applyMarket, applyTrade, copyTradingState, marketTone, settleTrade, type EffectContext, type TradingState } from './trading-effects';
 
-export interface TradeChoice { lane: number; card: number | null }
+export interface TradeChoice { lane: number; card: number | null; prepare?: boolean }
 
 export interface DecisionView {
   config: FinancialConfig;
@@ -25,7 +25,7 @@ export interface DecisionView {
   opponents: readonly { id: string; name: string }[];
 }
 
-export function forecastTrade(view: DecisionView, node: RouteNode, card: TradingCard | null, showCardImpact = false) {
+export function forecastTrade(view: DecisionView, node: RouteNode, card: TradingCard | null, showCardImpact = false, prepare = false) {
   const { config, day } = view;
   const kind = config.nodes.kinds[node.kind];
   const initial = netWorth(view.state.account);
@@ -33,7 +33,7 @@ export function forecastTrade(view: DecisionView, node: RouteNode, card: Trading
     const state = copyTradingState(view.state);
     const context: EffectContext = { config, day, eventDay: view.nextEventDay,
       recentLoss: view.recentLoss, marketDraw: localDraw, eligibleAid: view.eligibleAid, opponentCount: view.opponents.length };
-    const action = applyTrade(state, kind, selectedCard, context);
+    const action = applyTrade(state, kind, selectedCard, context, selectedCard === card && prepare);
     if (market) applyMarket(state, market, { ...context, marketDraw }, action.ledger);
     const risk = settleTrade(state, action.ledger, config, day === config.gameplay.turns);
     return { state, action, risk, delta: netWorth(state.account) - initial };
@@ -69,8 +69,34 @@ export function forecastTrade(view: DecisionView, node: RouteNode, card: Trading
     afterWorth: outstandingWorth(account), ltv: marginLtv(account), warnings: average.risk.warnings,
     exposureRisk: bearish.risk.call !== null, marginRequired: bearish.risk.call?.required ?? 0,
     synergyGain: ledger.synergyGain, synergies: ledger.synergies, cardImpact: base.action.cardImpact, cardBlock: base.action.cardBlock, extraProtection,
+    preparation: base.action.preparation, baseGain: ledger.baseGain, activeComboGain: ledger.activeComboGain, feeSaved: ledger.feeSaved,
     opponents: card?.opponent ? view.opponents.map(opponent => opponent.name) : []
   };
+}
+
+export function cardPreparationAvailable(config: FinancialConfig, card: TradingCard) {
+  return config.cardRules.preparations && card.effectIds.some(id => {
+    const effect = config.effects[id];
+    return effect.type === 'combo' && effect.prepareDays !== undefined;
+  });
+}
+
+export function inspectCard(view: DecisionView, node: RouteNode, card: TradingCard, prepare = false) {
+  return applyTrade(copyTradingState(view.state), view.config.nodes.kinds[node.kind], card, {
+    config: view.config, day: view.day, eventDay: view.nextEventDay, recentLoss: view.recentLoss,
+    marketDraw: 0.5, eligibleAid: view.eligibleAid, opponentCount: view.opponents.length
+  }, prepare);
+}
+
+export function handAvailability(view: DecisionView) {
+  return view.hand.map(card => {
+    const results = view.routes.flatMap(node => [
+      inspectCard(view, node, card),
+      ...(cardPreparationAvailable(view.config, card) ? [inspectCard(view, node, card, true)] : [])
+    ]);
+    return { usable: results.some(result => result.cardUsed), routeBlocked: results.length > 0 &&
+      results.every(result => result.cardBlock === 'route') };
+  });
 }
 
 export function futureValue(node: RouteNode, next: readonly RouteNode[], kinds: Record<string, InvestmentKind>, tags: readonly string[]) {

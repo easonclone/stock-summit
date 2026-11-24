@@ -17,9 +17,9 @@
     "wait_move": {"type":"price","floor":-0.04,"ceiling":0.07},
     "mystery_move": {"type":"price","floor":-0.22,"ceiling":0.30},
     "rebound": {"type":"combo","nodeTag":"buy","mode":"price","amount":0.13,"afterLoss":true},
-    "trend": {"type":"combo","nodeTag":"steady","mode":"price","amount":0.047},
-    "margin_combo": {"type":"combo","nodeTag":"margin","mode":"price","amount":0.058},
-    "dividend_combo": {"type":"combo","nodeTag":"income","mode":"dividend","amount":0.9},
+    "trend": {"type":"combo","nodeTag":"steady","mode":"price","amount":0.047,"base":0.02},
+    "margin_combo": {"type":"combo","nodeTag":"margin","mode":"price","amount":0.058,"base":0.02},
+    "dividend_combo": {"type":"combo","nodeTag":"income","mode":"dividend","amount":0.9,"base":0.01,"prepareDays":3},
     "rally": {"type":"price","floor":0.15,"ceiling":0.15},
     "earnings": {"type":"price","floor":0.105,"ceiling":0.105},
     "rates": {"type":"price","floor":0.065,"ceiling":0.065},
@@ -28,6 +28,7 @@
     "liquidity": {"type":"price","floor":-0.19,"ceiling":-0.19},
     "tight_margin": {"type":"maintenance","ltv":0.75},
     "audit_margin": {"type":"maintenance","ltv":0.79},
+    "fee_coupon": {"type":"fee_coupon","days":3},
     "swan": {"type":"price","floor":-0.48,"ceiling":-0.48},
     "reversal": {"type":"price","floor":0.21,"ceiling":0.21},
     "rotation": {"type":"price","floor":-0.12,"ceiling":-0.12}
@@ -46,18 +47,19 @@
     "mystery": {"name":"賭一把","detail":"讓手上的股票多一次漲跌機會。","icon":"bolt","color":"#c9b3f4","effectIds":["mystery_move"],"tags":["speculative"],"fromRow":2,"weight":2}
   },
   "cards": [
-    {"id":"dividend","name":"股息加倍爽","description":"領股息時再多拿一筆。","condition":"持有股票，並選「領股息」","duration":"今天","icon":"cash","color":"#efd080","weight":5,"effectIds":["dividend_combo"]},
-    {"id":"trend","name":"順風車","description":"今天股票表現再加一點。","condition":"選「穩穩買」且有股票","duration":"今天","icon":"up","color":"#91d8b1","weight":7,"effectIds":["trend"]},
-    {"id":"margin","name":"槓桿開下去","description":"開槓桿時加一點報酬，借款成本和跌價風險照算。","condition":"選「開槓桿」且借款成功","duration":"今天","icon":"rocket","color":"#ff9e92","weight":7,"effectIds":["margin_combo"]},
-    {"id":"hedge","name":"防跌護身符","description":"下次碰上市場利空，幫你擋一部分損失。","condition":"避險還有空位","duration":"直到擋下一次市場利空","icon":"shield","color":"#9fcdee","weight":8,"effectIds":["hedge"]},
-    {"id":"exit","name":"先跑再說","description":"下單前先賣光手上股票，所得先拿去還錢。","condition":"手上有股票","duration":"立即","icon":"anchor","color":"#b8c8d6","weight":4,"effectIds":["sell"]},
-    {"id":"repay","name":"少借一點","description":"下單前先賣一部分股票，所得先拿去還錢。","condition":"手上有股票","duration":"立即","icon":"down","color":"#8fd1d9","weight":4,"effectIds":["reduce"]},
-    {"id":"intel","name":"小道消息","description":"先偷看下一則還來得及準備的市場新聞。","condition":"有還不知道的下一則消息","duration":"到新聞公布為止","icon":"eye","color":"#c9b3f4","weight":7,"effectIds":["reveal"]},
-    {"id":"rebound","name":"跌了就買","description":"盤勢偏空時買進，今天股票表現加一點。","condition":"上次市場新聞偏空，並選「穩穩買」或成功「開槓桿」","duration":"今天","icon":"bolt","color":"#f1bd8a","weight":5,"effectIds":["rebound"]},
-    {"id":"insure","name":"金鐘罩","description":"下次遇到市場利空，擋住大部分跌幅。","condition":"避險還有空位","duration":"直到擋下一次市場利空","icon":"shield","color":"#72bee7","weight":4,"effectIds":["insurance"]},
-    {"id":"bailout","name":"救命錢","description":"先拿到現金，本金加手續費都算欠款。","condition":"手上現金不多，且還符合借款條件","duration":"現金立即入帳，欠款留到還清","icon":"bank","color":"#f1bd8a","weight":3,"effectIds":["bailout"]},
-    {"id":"cash","name":"現金為王","description":"手上留夠現金，就能拿到額外收益。","condition":"總身家為正，且現金占比達標","duration":"今天","icon":"bills","color":"#efd080","weight":6,"effectIds":["cash_yield"]},
-    {"id":"restructure","name":"先還錢吧","description":"花點手續費，用現金還債，省下今天的融資利息。","condition":"有現金，且有欠款可還","duration":"立即還款，今天免息","icon":"bank","color":"#a7ddd2","weight":4,"effectIds":["restructure"]},
-    {"id":"audit","name":"查他水表","description":"讓排名最近、又有借錢的領先對手更容易被追繳。同名次一起算。","condition":"開盤時有排名領先且融資中的對手","duration":"今天","icon":"halt","color":"#ffb491","weight":2,"opponent":"nearest_ahead","effectIds":["audit_margin"]}
+    {"id":"dividend","name":"股息加倍爽","description":"持股就能領一筆，搭配領股息則改成多領股息。也可以先布局。","condition":"下單後持有股票，或選提前布局","duration":"今天","icon":"cash","color":"#efd080","weight":5,"effectIds":["dividend_combo"],"freedom":"pair"},
+    {"id":"trend","name":"順風車","description":"手上有股票就能多拿一點，搭配穩穩買更划算。","condition":"下單後持有股票","duration":"今天","icon":"up","color":"#91d8b1","weight":7,"effectIds":["trend"],"freedom":"pair"},
+    {"id":"margin","name":"槓桿開下去","description":"一般投資也能用，成功開槓桿時效果更強。股票仍可能下跌，借款也要還。","condition":"下單後持有股票","duration":"今天","icon":"rocket","color":"#ff9e92","weight":7,"effectIds":["margin_combo"],"freedom":"pair"},
+    {"id":"hedge","name":"防跌護身符","description":"下次碰上市場利空，幫你擋一部分損失。","condition":"避險還有空位","duration":"直到擋下一次市場利空","icon":"shield","color":"#9fcdee","weight":8,"effectIds":["hedge"],"freedom":"free"},
+    {"id":"exit","name":"先跑再說","description":"下單前先賣光手上股票，所得先拿去還錢。","condition":"手上有股票","duration":"立即","icon":"anchor","color":"#b8c8d6","weight":4,"effectIds":["sell"],"freedom":"free"},
+    {"id":"repay","name":"少借一點","description":"下單前先賣一部分股票，所得先拿去還錢。","condition":"手上有股票","duration":"立即","icon":"down","color":"#8fd1d9","weight":4,"effectIds":["reduce"],"freedom":"free"},
+    {"id":"intel","name":"小道消息","description":"先偷看下一則還來得及準備的市場新聞。","condition":"有還不知道的下一則消息","duration":"到新聞公布為止","icon":"eye","color":"#c9b3f4","weight":7,"effectIds":["reveal"],"freedom":"free"},
+    {"id":"rebound","name":"跌了就買","description":"盤勢偏空時買進，今天股票表現加一點。","condition":"上次市場新聞偏空，並選「穩穩買」或成功「開槓桿」","duration":"今天","icon":"bolt","color":"#f1bd8a","weight":5,"effectIds":["rebound"],"freedom":"special"},
+    {"id":"insure","name":"金鐘罩","description":"下次遇到市場利空，擋住大部分跌幅。","condition":"避險還有空位","duration":"直到擋下一次市場利空","icon":"shield","color":"#72bee7","weight":4,"effectIds":["insurance"],"freedom":"free"},
+    {"id":"bailout","name":"救命錢","description":"先拿到現金，本金加手續費都算欠款。","condition":"手上現金不多，且還符合借款條件","duration":"現金立即入帳，欠款留到還清","icon":"bank","color":"#f1bd8a","weight":3,"effectIds":["bailout"],"freedom":"free"},
+    {"id":"cash","name":"現金為王","description":"手上留夠現金，就能拿到額外收益。","condition":"總身家為正，且現金占比達標","duration":"今天","icon":"bills","color":"#efd080","weight":6,"effectIds":["cash_yield"],"freedom":"free"},
+    {"id":"restructure","name":"先還錢吧","description":"花點手續費，用現金還債，省下今天的融資利息。","condition":"有現金，且有欠款可還","duration":"立即還款，今天免息","icon":"bank","color":"#a7ddd2","weight":4,"effectIds":["restructure"],"freedom":"free"},
+    {"id":"audit","name":"查他水表","description":"讓排名最近、又有借錢的領先對手更容易被追繳。同名次一起算。","condition":"開盤時有排名領先且融資中的對手","duration":"今天","icon":"halt","color":"#ffb491","weight":2,"opponent":"nearest_ahead","effectIds":["audit_margin"],"freedom":"free"},
+    {"id":"margin_coupon","name":"融資優惠券","description":"先把券備好，下次成功開槓桿就省下開辦費。利息照算。","condition":"還有後續交易日，且沒有相同的券在等觸發","duration":"後續交易日內首次借款","icon":"bank","color":"#efd080","weight":4,"effectIds":["fee_coupon"],"freedom":"pair","preparationOnly":true}
   ]
 }

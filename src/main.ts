@@ -18,7 +18,7 @@ class TerminalApp {
   private readonly screen: HTMLElement;
   private readonly dialog: HTMLDialogElement;
   private readonly audio = new CardAudio();
-  private readonly selection: TerminalSelection = { lane: null, slot: null, financeOpen: false, cardOpen: false, animate: false };
+  private readonly selection: TerminalSelection = { lane: null, slot: null, prepare: false, financeOpen: false, cardOpen: false, animate: false };
   private selectedCharacter: string;
   private difficulty: TradingDifficulty = 'normal';
   private seed: number;
@@ -144,8 +144,19 @@ class TerminalApp {
       case 'card':
         this.rememberDetails();
         this.selection.slot = value === this.selection.slot ? null : value;
+        this.selection.prepare = false;
         this.selection.cardOpen = false;
         this.render(`[data-act="card"][data-value="${value}"]`);
+        break;
+      case 'prepare':
+        this.selection.prepare = !this.selection.prepare;
+        this.render('[data-act="prepare"]');
+        break;
+      case 'exchange':
+        if (this.selection.slot !== null && this.run?.exchangePlayerCard(this.selection.slot)) {
+          this.selection.prepare = false;
+          this.render('[data-card-status]');
+        }
         break;
       case 'trade': this.trade(); break;
       case 'skip': this.finishAnimation(); break;
@@ -185,6 +196,7 @@ class TerminalApp {
   private clearSelection() {
     this.selection.lane = null;
     this.selection.slot = null;
+    this.selection.prepare = false;
     this.selection.cardOpen = false;
   }
 
@@ -200,7 +212,7 @@ class TerminalApp {
     const run = this.run;
     if (!run || run.closed || this.dialog.open || this.locked) return;
     const lane = this.selection.lane;
-    const action = lane !== null ? { lane, card: this.selection.slot } : null;
+    const action = lane !== null ? { lane, card: this.selection.slot, prepare: this.selection.prepare } : null;
     if (!run.player.account.eliminated && !action) return;
     this.audio.unlock();
     if (!run.confirm(action)) return;

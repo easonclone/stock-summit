@@ -5,10 +5,18 @@ import {
 } from './economy';
 import { settleRisk } from './financial-risk';
 
+export interface PreparedCard {
+  id: string;
+  kind: 'dividend' | 'fee';
+  amount: number;
+  expires: number;
+}
+
 export interface TradingState {
   account: Portfolio;
   hedges: number[];
   intelDay: number | null;
+  prepared: PreparedCard[];
 }
 
 export interface EffectContext {
@@ -22,7 +30,7 @@ export interface EffectContext {
 }
 
 export type CardBlock = 'no_stock' | 'full_shield' | 'no_news' | 'known_news' | 'cash_high' |
-  'cannot_borrow' | 'no_debt' | 'low_cash' | 'no_opponent' | 'route' | 'need_downturn';
+  'cannot_borrow' | 'no_debt' | 'low_cash' | 'no_opponent' | 'route' | 'need_downturn' | 'already_prepared' | 'no_days';
 
 interface EffectLedger {
   invested: number;
@@ -39,12 +47,18 @@ interface EffectLedger {
   synergies: number;
   synergyGain: number;
   interestWaived: boolean;
+  preparedTriggers: number;
+  feeSaved: number;
+  cardGain: number;
+  baseGain: number;
+  stockCardGain: number;
+  activeComboGain: number;
   maintenance: number;
 }
 
 function effectLedger(config: FinancialConfig): EffectLedger {
   return { invested: 0, borrowed: 0, sold: 0, repaid: 0, deposited: 0, fees: 0, dividends: 0,
-    investmentPnl: 0, cashYield: 0, protected: 0, marketRate: null, synergies: 0, synergyGain: 0, interestWaived: false,
+    investmentPnl: 0, cashYield: 0, protected: 0, marketRate: null, synergies: 0, synergyGain: 0, interestWaived: false, preparedTriggers: 0, feeSaved: 0, cardGain: 0, baseGain: 0, stockCardGain: 0, activeComboGain: 0,
     maintenance: config.financial.callLtv };
 }
 
@@ -59,6 +73,13 @@ function applyEffect(state: TradingState, effect: FinanceEffect, context: Effect
   switch (effect.type) {
     case 'invest': {
       const order = investmentOrder(account, effect.fraction, effect.borrow, context.day, rules);
+      const coupon = order.borrowed > 0 ? state.prepared.find(item => item.kind === 'fee' && item.expires >= context.day) : undefined;
+      if (coupon) {
+        ledger.feeSaved += order.fee;
+        ledger.preparedTriggers++;
+        state.prepared = state.prepared.filter(item => item !== coupon);
+        order.fee = 0;
+      }
       invest(account, order);
       ledger.invested += order.stake;
       ledger.borrowed += order.borrowed;
@@ -147,20 +168,38 @@ function applyEffect(state: TradingState, effect: FinanceEffect, context: Effect
       ledger.cashYield += income;
       return income > 0 || 'low_cash';
     }
-    case 'combo': return 'route';
+    case 'combo':
+    case 'fee_coupon': return 'route';
   }
 }
 
-export function applyTrade(state: TradingState, kind: InvestmentKind, card: TradingCard | null, context: EffectContext) {
+export function applyTrade(state: TradingState, kind: InvestmentKind, card: TradingCard | null, context: EffectContext, prepare = false) {
   const { config } = context;
   const ledger = effectLedger(config);
   const effects = card && !card.opponent ? card.effectIds.map(id => config.effects[id]) : [];
   let cardUsed = Boolean(card?.opponent && context.opponentCount);
   let cardBlock: CardBlock = card?.opponent ? 'no_opponent' : 'route';
+  const coupon = effects.find(effect => effect.type === 'fee_coupon');
+  const futureDividend = effects.find(effect => effect.type === 'combo' && effect.prepareDays !== undefined);
+  const setUp = coupon && context.config.cardRules.preparations ? {
+    kind: 'fee' as const, days: coupon.days, amount: 0
+  } : prepare && context.config.cardRules.preparations && futureDividend?.type === 'combo' ? {
+    kind: 'dividend' as const, days: futureDividend.prepareDays!, amount: futureDividend.amount
+  } : null;
+  if (prepare && !setUp) return { ledger, cardUsed: false, funded: false, cardImpact: null, cardBlock, draft: false, preparation: null };
+  const preparation = setUp && card ? {
+    id: card.id, kind: setUp.kind, amount: setUp.amount,
+    expires: Math.min(context.day + setUp.days, config.gameplay.turns)
+  } : null;
+  if (preparation) {
+    if (state.prepared.some(item => item.id === preparation.id && item.expires >= context.day)) cardBlock = 'already_prepared';
+    else if (preparation.expires <= context.day) cardBlock = 'no_days';
+    else cardUsed = true;
+  }
   const openingCash = state.account.cash;
   const openingDebt = debtBalance(state.account);
   for (const effect of effects) {
-    if (effect.type === 'combo') continue;
+    if (effect.type === 'combo' || effect.type === 'fee_coupon') continue;
     const result = applyEffect(state, effect, context, ledger);
     if (result === true) cardUsed = true;
     else cardBlock = result;
@@ -170,9 +209,10 @@ export function applyTrade(state: TradingState, kind: InvestmentKind, card: Trad
     sold: ledger.sold, repaid: ledger.repaid, fees: ledger.fees
   } : null;
   const eligible = kind.draft !== 'catchup' || context.eligibleAid;
-  const combos = effects.filter(effect => effect.type === 'combo')
+  const combos = (setUp ? [] : effects).filter(effect => effect.type === 'combo')
     .filter(effect => kind.tags.includes(effect.nodeTag) && (!effect.afterLoss || context.recentLoss));
   if (effects.some(effect => effect.type === 'combo' && effect.afterLoss && !context.recentLoss)) cardBlock = 'need_downturn';
+  const boosted = new Set<FinanceEffect>();
   let funded = true;
   for (const id of eligible ? kind.effectIds : []) {
     const effect = config.effects[id];
@@ -183,13 +223,51 @@ export function applyTrade(state: TradingState, kind: InvestmentKind, card: Trad
     }
     if (!funded) continue;
     if (!state.account.investmentValue && combos.some(combo => combo.mode === effect.type)) cardBlock = 'no_stock';
+    const pendingDividend = effect.type === 'dividend' && Math.round(state.account.investmentValue * effect.rate) > 0
+      ? state.prepared.find(item => item.kind === 'dividend' && item.expires >= context.day) : undefined;
     const matching = state.account.investmentValue ? combos.filter(combo => combo.mode === effect.type) : [];
-    const bonus = matching.reduce((sum, combo) => sum + combo.amount, 0);
+    const activeBonus = matching.reduce((sum, combo) => sum + combo.amount, 0);
+    const bonus = Math.max(activeBonus, pendingDividend?.amount ?? 0);
+    const before = ledger.synergyGain;
     applyEffect(state, effect, context, ledger, bonus);
-    ledger.synergies += matching.length;
-    cardUsed ||= matching.length > 0;
+    if (pendingDividend && pendingDividend.amount >= activeBonus) {
+      state.prepared = state.prepared.filter(item => item !== pendingDividend);
+      ledger.preparedTriggers++;
+      for (const combo of matching) boosted.add(combo);
+      if (matching.length) cardBlock = 'already_prepared';
+    } else {
+      ledger.synergies += matching.length;
+      ledger.activeComboGain += ledger.synergyGain - before;
+      cardUsed ||= matching.length > 0;
+      for (const combo of matching) boosted.add(combo);
+    }
+    ledger.cardGain += ledger.synergyGain - before;
+    if (effect.type === 'price') ledger.stockCardGain += ledger.synergyGain - before;
   }
-  return { ledger, cardUsed, funded, cardImpact, cardBlock: card && !cardUsed ? cardBlock : null, draft: eligible && Boolean(kind.draft) };
+  if (config.cardRules.baseEffects && !setUp) {
+    for (const effect of effects) {
+      if (effect.type !== 'combo' || !effect.base || boosted.has(effect)) continue;
+      if (!state.account.investmentValue) { cardBlock = 'no_stock'; continue; }
+      const gain = Math.round(state.account.investmentValue * effect.base);
+      if (!gain) { cardBlock = 'no_stock'; continue; }
+      if (effect.mode === 'price') {
+        ledger.investmentPnl += revalue(state.account, effect.base);
+        ledger.stockCardGain += gain;
+      }
+      else {
+        state.account.cash += gain;
+        state.account.stats.dividends += gain;
+        ledger.dividends += gain;
+      }
+      ledger.cardGain += gain;
+      ledger.baseGain += gain;
+      cardUsed = true;
+    }
+  }
+  if (preparation && cardUsed) state.prepared.push(preparation);
+  ledger.cardGain += ledger.cashYield + ledger.feeSaved;
+  return { ledger, cardUsed, funded, cardImpact, cardBlock: card && !cardUsed ? cardBlock : null,
+    draft: eligible && Boolean(kind.draft), preparation: cardUsed ? preparation : null };
 }
 
 export function applyMarket(state: TradingState, event: Pick<TradingEvent, 'effectIds'>, context: EffectContext, ledger: EffectLedger) {
@@ -205,5 +283,5 @@ export function settleTrade(state: TradingState, ledger: EffectLedger, config: F
 }
 
 export function copyTradingState(state: TradingState): TradingState {
-  return { account: copyPortfolio(state.account), hedges: [...state.hedges], intelDay: state.intelDay };
+  return { account: copyPortfolio(state.account), hedges: [...state.hedges], intelDay: state.intelDay, prepared: [...state.prepared] };
 }

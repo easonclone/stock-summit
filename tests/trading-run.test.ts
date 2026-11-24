@@ -267,3 +267,94 @@ describe('破產調度與公平收盤', () => {
     expect(netWorth(leveraged.player.account)).toBeLessThan(10000);
   });
 });
+
+
+describe('卡牌自由度', () => {
+  it('基本效果與搭配加成互斥，借款失敗仍可使用有股票的基本效果', () => {
+    const config = removeVolatility(readFinancialConfig());
+    const run = start(config);
+    run.player.account.investmentValue = 10000;
+    run.player.hand[0] = config.cards.find(card => card.id === 'trend')!;
+    const [node] = run.reachable(run.player);
+    const kind = config.nodes.kinds[node.kind];
+    kind.tags = ['wait'];
+    expect(run.preview(node.lane, 0)).toMatchObject({ enabledCard: true, baseGain: 200, activeComboGain: 0 });
+    config.effects.flat = { type: 'price', floor: 0, ceiling: 0 };
+    kind.tags = ['steady'];
+    kind.effectIds = ['flat'];
+    expect(run.preview(node.lane, 0)).toMatchObject({ enabledCard: true, baseGain: 0, activeComboGain: 470 });
+    run.player.hand[0] = config.cards.find(card => card.id === 'margin')!;
+    kind.tags = ['margin'];
+    kind.effectIds = ['margin_buy', 'flat'];
+    run.player.account.leverageRestrictedUntil = 1;
+    expect(run.preview(node.lane, 0)).toMatchObject({ enabledCard: true, available: false, baseGain: 200 });
+  });
+
+  it('股息布局限時觸發一次，同名牌不重複加成', () => {
+    const config = removeVolatility(readFinancialConfig());
+    const run = start(config);
+    const dividend = config.cards.find(card => card.id === 'dividend')!;
+    run.player.account.investmentValue = 10000;
+    run.player.hand[0] = dividend;
+    const lane = run.reachable(run.player)[0].lane;
+    expect(run.confirm({ lane, card: 0, prepare: true }, first)).toBe(true);
+    expect(run.reports[0].outcomes[0].ledger.dividends).toBe(0);
+    expect(run.player.prepared).toEqual([{ id: dividend.id, kind: 'dividend', expires: 4, amount: 0.9 }]);
+    declineOffers(run);
+    run.player.hand[0] = dividend;
+    const [target] = run.reachable(run.player);
+    const kind = config.nodes.kinds[target.kind];
+    expect(run.preview(target.lane, 0, false, true)?.cardBlock).toBe('already_prepared');
+    kind.tags = ['income'];
+    kind.effectIds = ['dividend'];
+    expect(run.preview(target.lane, 0)?.enabledCard).toBe(false);
+    expect(run.confirm({ lane: target.lane, card: null }, first)).toBe(true);
+    expect(run.reports[1].outcomes[0].ledger).toMatchObject({ dividends: 1026, preparedTriggers: 1 });
+    expect(run.player.prepared).toEqual([]);
+  });
+
+  it('優惠券只在成功借款時免一次開辦費，逾期或重整便清除', () => {
+    const config = removeVolatility(readFinancialConfig());
+    const run = start(config);
+    const use = () => {
+      run.player.hand[0] = config.cards.find(card => card.id === 'margin_coupon')!;
+      expect(run.confirm({ lane: run.reachable(run.player)[0].lane, card: 0 }, first)).toBe(true);
+    };
+    use();
+    declineOffers(run);
+    const [node] = run.reachable(run.player);
+    const kind = config.nodes.kinds[node.kind];
+    kind.effectIds = ['margin_buy'];
+    expect(run.preview(node.lane, null)?.feeSaved).toBeGreaterThan(0);
+    playDay(run);
+    expect(run.reports[1].outcomes[0].ledger.preparedTriggers).toBe(1);
+    expect(run.player.prepared).toEqual([]);
+
+    const expiring = start(removeVolatility(readFinancialConfig()));
+    expiring.player.hand[0] = expiring.config.cards.find(card => card.id === 'margin_coupon')!;
+    expect(expiring.confirm({ lane: expiring.reachable(expiring.player)[0].lane, card: 0 }, first)).toBe(true);
+    for (let i = 0; i < 3; i++) playDay(expiring);
+    expect(expiring.player.prepared).toEqual([]);
+
+    run.player.prepared = [{ id: 'margin_coupon', kind: 'fee', amount: 0, expires: run.day + 2 }];
+    insolvent(run);
+    playDay(run);
+    expect(run.player.recoveries).toBe(1);
+    expect(run.player.prepared).toEqual([]);
+  });
+
+  it('起手保證自由牌、換牌種子可重現且一局最多三次', () => {
+    const runs = [start(), start()];
+    for (const run of runs) {
+      expect(run.investors.every(investor => investor.hand.slice(0, 2).some(card => card.freedom === 'free'))).toBe(true);
+      for (let index = 0; index < 3; index++) {
+        const before = run.player.hand[0].id;
+        expect(run.exchangePlayerCard(0)).toBe(true);
+        expect(run.player.hand[0].id).not.toBe(before);
+      }
+      expect(run.exchangePlayerCard(0)).toBe(false);
+      expect(run.player.hand).toHaveLength(3);
+    }
+    expect(runs[0].player.hand).toEqual(runs[1].player.hand);
+  });
+});

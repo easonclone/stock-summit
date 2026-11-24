@@ -2,7 +2,7 @@ import type { FinancialConfig, TradingCard, TradingDifficulty } from '../config/
 import { debtBalance, netWorth } from './economy';
 import type { RouteNode } from './node-map';
 import type { Random } from './random';
-import { forecastTrade, futureValue, type DecisionView, type TradeChoice } from './trade-preview';
+import { cardPreparationAvailable, forecastTrade, futureValue, type DecisionView, type TradeChoice } from './trade-preview';
 
 export const strategies = ['random', 'steady', 'cash', 'leverage', 'combo', 'hedge', 'mixed', 'bankrupt'] as const;
 export type Strategy = typeof strategies[number];
@@ -40,14 +40,18 @@ export function chooseTrade(view: DecisionView, random: Random, strategy: Strate
     const plain = forecastTrade(view, node, null);
     const cards = view.hand.flatMap((card, slot) => {
       const forecast = forecastTrade(view, node, card);
-      return forecast.available && forecast.enabledCard ? [{ node, slot, forecast, card }] : [];
+      const preparation = cardPreparationAvailable(view.config, card) ? forecastTrade(view, node, card, false, true) : null;
+      return [
+        ...(forecast.available && forecast.enabledCard ? [{ node, slot, forecast, card, prepare: false }] : []),
+        ...(preparation?.available && preparation.enabledCard ? [{ node, slot, forecast: preparation, card, prepare: true }] : [])
+      ];
     });
-    return [...(plain.available ? [{ node, slot: null, forecast: plain, card: null }] : []), ...cards];
+    return [...(plain.available ? [{ node, slot: null, forecast: plain, card: null, prepare: false }] : []), ...cards];
   });
   if (!options.length) return { lane: view.routes[0].lane, card: null };
   if (strategy === 'random') {
     const option = options[Math.floor(random() * options.length)];
-    return { lane: option.node.lane, card: option.slot };
+    return { lane: option.node.lane, card: option.slot, prepare: option.prepare };
   }
   const { config, state, day } = view;
   const { npc } = config;
@@ -86,6 +90,13 @@ export function chooseTrade(view: DecisionView, random: Random, strategy: Strate
     const competition = forecast.opponents.length * npc.warningPenalty * (0.4 + behind);
     const reserve = card && remaining > 0 ? (npc.cardReserve + cardRetention(card, config, view) * 0.13) *
       (view.hand.length < 3 ? 1.5 : 0.6) : 0;
+    const prep = forecast.preparation;
+    const nextKinds = node.next.map(lane => config.nodes.kinds[view.nextRow[lane].kind]);
+    const preparedValue = prep?.kind === 'dividend' ? forecast.investment *
+      Math.max(0, ...nextKinds.flatMap(kind => kind.effectIds.map(id => config.effects[id])
+        .filter(effect => effect.type === 'dividend').map(effect => effect.rate))) * prep.amount * 0.65 :
+      prep?.kind === 'fee' && (strategy === 'leverage' || strategy === 'bankrupt' || strategy === 'mixed')
+        ? forecast.cash * config.financial.originationFee * (nextKinds.some(kind => kind.tags.includes('margin')) ? 1 : 0.25) : 0;
     const synergy = forecast.synergies && strategy === 'combo' ? 450 : 0;
     const draft = forecast.draft && remaining > 0 ? npc.draftValue * (strategy === 'combo' ? 1.6 : 1) : 0;
     const future = remaining > 0 ? npc.lookahead * (difficulty === 'easy' ? 0.5 : 1) * 260 *
@@ -93,8 +104,8 @@ export function chooseTrade(view: DecisionView, random: Random, strategy: Strate
     const expected = forecast.expected + (strategy === 'cash' && remaining > 0 ? forecast.deposited * 0.022 : 0);
     const pressure = view.rank === 1 ? Math.max(0, -forecast.low) * 0.04 : 0;
     const score = expected - possibleLoss - insolvency - liquidity - ltvPressure - debt - warnings - reserve - pressure +
-      hedge + intel + draft + synergy + future + competition + classWeight(node) + random() * npc[difficulty];
+      hedge + intel + draft + synergy + future + preparedValue + competition + classWeight(node) + random() * npc[difficulty];
     if (score > best) { best = score; selected = option; }
   }
-  return { lane: selected.node.lane, card: selected.slot };
+  return { lane: selected.node.lane, card: selected.slot, prepare: selected.prepare };
 }

@@ -2,6 +2,7 @@ import type { FinancialConfig, TradingCard } from '../config/financial-settings'
 import { canBorrow, debtBalance, depositBalance, leverageExposure, netWorth, returnRate, warningReasons } from '../core/economy';
 import type { TradingRun, DayOutcome } from '../core/trading-run';
 import type { RouteNode } from '../core/node-map';
+import { cardPreparationAvailable } from '../core/trade-preview';
 import type { CardBlock } from '../core/trading-effects';
 import { marketTone } from '../core/trading-effects';
 import { arrow, direction, escapeHtml, money, percent, signedMoney, signedPercent } from './format';
@@ -137,7 +138,7 @@ export function offerMarkup(run: TradingRun, offered: number | null, replace: nu
     <div class="dialog-actions"><button type="button" data-act="decline">棄置新卡</button><button type="button" class="gold-button" data-act="take" ${offered === null || (full && replace === null) ? 'disabled' : ''}>加入手牌</button></div>`;
 }
 
-function handMarkup(run: TradingRun, lane: number | null, slot: number | null, expanded: boolean) {
+function handMarkup(run: TradingRun, lane: number | null, slot: number | null, expanded: boolean, prepare: boolean) {
   const selectedCard = slot === null ? null : run.player.hand[slot];
   const cards = run.player.hand.map((card, index) => {
     const synergy = lane !== null && Boolean(run.preview(lane, index)?.synergies);
@@ -146,8 +147,9 @@ function handMarkup(run: TradingRun, lane: number | null, slot: number | null, e
       <strong>${escapeHtml(card.name)}</strong><span>${synergy ? '◆ 可以接連招' : card.duration.length <= 6 ? escapeHtml(card.duration) : ''}</span></button>`;
   }).join('');
   return `<section class="hand-section" aria-label="今日手牌"><div class="section-head"><h2>今日手牌</h2><span>今天最多打 1 張 · ${run.player.hand.length}／${run.config.gameplay.inventorySize}</span></div>
+    ${run.player.prepared.length ? `<p class="pending-cards">${run.player.prepared.map(item => `${item.kind === 'fee' ? '融資優惠券' : '股息布局'}：還有 ${item.expires - run.day + 1} 個交易日，可觸發 1 次。`).join(' ')}</p>` : ''}
     <div class="hand-grid">${cards}</div>
-    ${selectedCard ? cardDescription(run, selectedCard, lane, slot!, expanded) : '<p class="hand-hint">點卡看效果，也可直接挑一條路。</p>'}
+    ${selectedCard ? cardDescription(run, selectedCard, lane, slot!, expanded, prepare) : '<p class="hand-hint">點卡看效果，也可直接挑一條路。</p>'}
   </section>`;
 }
 
@@ -157,25 +159,28 @@ const cardBlockCopy: Record<CardBlock, string> = {
   cash_high: '手上現金還夠，暫時用不到救命錢。', cannot_borrow: '目前借不到這筆錢。',
   no_debt: '目前沒有欠款。', low_cash: '手上現金不足。',
   no_opponent: '前方沒有符合條件的對手。', route: '這張牌要搭配指定路線。',
-  need_downturn: '要等市場出現利空，才能打這張牌。'
+  need_downturn: '要等市場出現利空，才能打這張牌。',
+  already_prepared: '同一張牌的布局已在等觸發。', no_days: '本局已沒有後續交易日。'
 };
 
-function cardDescription(run: TradingRun, card: TradingCard, lane: number | null, slot: number, expanded: boolean) {
+function cardDescription(run: TradingRun, card: TradingCard, lane: number | null, slot: number, expanded: boolean, prepare: boolean) {
   const routes = run.reachable(run.player);
-  const previews = routes.map(node => ({ node, preview: run.preview(node.lane, slot, node.lane === lane)! }));
+  const previews = routes.map(node => ({ node, preview: run.preview(node.lane, slot, node.lane === lane, prepare)! }));
   const selected = previews.find(item => item.node.lane === lane)?.preview;
-  const alternatives = previews.filter(item => item.preview.enabledCard && item.preview.available);
+  const alternatives = previews.filter(item => item.preview.enabledCard);
   const combos = card.effectIds.map(id => run.config.effects[id]).filter(effect => effect.type === 'combo');
   const pairings = Object.values(run.config.nodes.kinds).filter(kind => combos.some(combo => kind.tags.includes(combo.nodeTag)));
   const names = (items: string[]) => items.map(name => `「${escapeHtml(name)}」`).join('或');
   const checked = selected ?? previews.find(item => item.preview.cardBlock !== 'route')?.preview ?? previews[0]?.preview;
-  const usable = selected ? selected.enabledCard && selected.available : !combos.length && alternatives.length > 0;
-  const status = usable ? '現在可以使用。' : alternatives.length
+  const canPrepare = cardPreparationAvailable(run.config, card);
+  const usable = selected ? selected.enabledCard : alternatives.length > 0 &&
+    (prepare || !combos.length || combos.some(combo => combo.base));
+  const status = usable ? (checked?.preparation ? '可以提前布局。' : '現在可以使用。') : alternatives.length
     ? `搭配${names(alternatives.map(item => item.preview.kind.name))}即可使用。`
     : cardBlockCopy[checked?.cardBlock ?? (checked?.available === false ? 'cannot_borrow' : 'route')];
-  const impact = selected?.enabledCard && selected.available ? selected.cardImpact : null;
+  const impact = selected?.enabledCard ? selected.cardImpact : null;
   const results = impact && selected ? [
-    selected.synergyGain > 0 ? `估計多賺 ${money(selected.synergyGain)}` : '',
+    selected.activeComboGain + selected.baseGain > 0 ? `估計多賺 ${money(selected.activeComboGain + selected.baseGain)}` : '',
     selected.extraProtection > 0 ? `市場利空情境下，可能少賠 ${money(selected.extraProtection)}` : '',
     impact.sold ? `先賣掉 ${money(impact.sold)} 的股票` : '',
     impact.repaid ? `先還 ${money(impact.repaid)}` : '',
@@ -183,6 +188,15 @@ function cardDescription(run: TradingRun, card: TradingCard, lane: number | null
     impact.debt > 0 ? `欠款增加 ${money(impact.debt)}` : '',
     impact.fees ? `手續費 ${money(impact.fees)}` : ''
   ].filter(Boolean) : [];
+  const prep = checked?.preparation;
+  const rulesCopy = combos.filter(combo => combo.base).map(combo => {
+    const base = percent(combo.base!);
+    const boost = percent(combo.amount);
+    const routes = names(pairings.filter(kind => kind.tags.includes(combo.nodeTag)).map(kind => kind.name));
+    return combo.mode === 'price'
+      ? `基本效果是股票市值增加 ${base}。搭配${routes}時，改為把股票漲跌幅往上加 ${boost.replace('%', '')} 個百分點。`
+      : `基本效果是把股票市值的 ${base} 變成現金。搭配${routes}時，改為多領 ${boost} 股息。`;
+  });
   const values = card.effectIds.flatMap(id => {
     const effect = run.config.effects[id];
     if (effect.type === 'bailout') return [`現金得低於起手本金的 ${percent(effect.cashThreshold)}。拿到 ${money(effect.amount)}，救命貸款增加 ${money(effect.amount + effect.fee)}，含手續費 ${money(effect.fee)}。`];
@@ -196,19 +210,25 @@ function cardDescription(run: TradingRun, card: TradingCard, lane: number | null
   });
   return `<div class="card-detail" aria-live="polite">
     <p><strong>${escapeHtml(card.name)}</strong>　${escapeHtml(card.description)}</p>
-    <p class="${usable ? 'gold' : 'ice'}" data-card-status>${status}</p>
+    ${rulesCopy.length ? `<p>${rulesCopy.join(' ')}</p>` : ''}
+    <p class="${usable ? 'gold' : 'ice'}" data-card-status tabindex="-1">${status}</p>
     ${results.length ? `<p class="synergy-note" data-card-impact>${results.join(' · ')}</p>` : ''}
+    ${prep ? `<p>後續 ${prep.expires - run.day} 個交易日內，首次${prep.kind === 'dividend' ? '領股息' : '成功借款'}時生效一次。</p>` : ''}
+    ${canPrepare || run.player.exchangeLeft > 0 ? `<div class="card-buttons">
+      ${canPrepare ? `<button type="button" data-act="prepare" aria-pressed="${prepare}">${prepare ? '改為今天使用' : '改為提前布局'}</button>` : ''}
+      ${run.player.exchangeLeft > 0 ? `<button type="button" data-act="exchange">免費換這張・剩 ${run.player.exchangeLeft} 次</button>` : ''}
+    </div>` : ''}
     <p>${pairings.length && !alternatives.length ? `適合搭配${names(pairings.map(kind => kind.name))}。 ` : ''}效果時間：${escapeHtml(card.duration)}。</p>
     <details data-detail="card" ${expanded ? 'open' : ''}><summary>看卡片細節</summary>
     <p>${escapeHtml(card.condition)}。${values.join(' ')}</p></details>
   </div>`;
 }
 
-function actionsMarkup(run: TradingRun, lane: number | null, slot: number | null) {
+function actionsMarkup(run: TradingRun, lane: number | null, slot: number | null, prepare: boolean) {
   const routes = run.reachable(run.player);
-  const preview = lane === null ? null : run.preview(lane, slot);
+  const preview = lane === null ? null : run.preview(lane, slot, false, prepare);
   const tiles = routes.map((node: RouteNode) => {
-    const estimate = run.preview(node.lane, slot)!;
+    const estimate = run.preview(node.lane, slot, false, prepare)!;
     const kind = estimate.kind;
     return `<button type="button" class="action-tile" style="--ink:${kind.color}" data-act="lane" data-value="${node.lane}" data-kind="${node.kind}" aria-pressed="${node.lane === lane}">
       ${iconMarkup(kind.icon, kind.color)}<strong>${escapeHtml(kind.name)}</strong><small>${!estimate.available ? '今天借不到' :
@@ -239,6 +259,7 @@ function actionsMarkup(run: TradingRun, lane: number | null, slot: number | null
       ${card && !preview.enabledCard ? `<p class="preview-warning">▲ ${cardBlockCopy[preview.cardBlock ?? 'route']}</p>` : ''}
       ${preview.opponents.length ? `<p class="preview-warning">▲ 追繳門檻收緊對象　${preview.opponents.map(escapeHtml).join('、')}</p>` : ''}
       ${blocked ? `<p class="preview-warning">▲ ${canBorrow(run.player.account, run.day, run.config.financial) ? '可用擔保資金不足' : '目前限制新增槓桿'}。這筆開不了槓桿，選了也會先觀望。</p>` : ''}
+      ${preview.feeSaved > 0 ? `<p class="synergy-note">融資優惠券預計省下 ${money(preview.feeSaved)}。</p>` : ''}
       ${preview.exposureRisk ? `<p class="preview-warning">▲ 如果跌得較深，券商可能要求你補 ${money(preview.marginRequired)}。</p>` : ''}
       <small>這是依已知消息估的區間，收盤結果可能不同。</small>
     </div>` : '<p class="empty-preview">先選一條路，就能看可能賺賠多少、會不會欠錢。</p>'}
@@ -259,7 +280,8 @@ function latestMarkup(run: TradingRun) {
       player.card ? escapeHtml(player.card.name) : '',
       player.targetedRivals.length ? `影響 ${player.targetedRivals.map(escapeHtml).join('、')}` : '',
       player.incomingCards.length ? `受到${player.incomingCards.map(escapeHtml).join('、')}` : '',
-      player.ledger.synergies ? `協同 ${signedMoney(player.ledger.synergyGain)}` : '',
+      player.ledger.synergies ? `連招 ${signedMoney(player.ledger.activeComboGain)}` : '',
+      player.ledger.preparedTriggers ? '布局已觸發' : '',
       player.ledger.protected ? `抵銷損失 ${money(player.ledger.protected)}` : '',
       player.marketPnl ? `市場 ${signedMoney(player.marketPnl)}` : '',
       player.ledger.fees ? `費用 ${money(player.ledger.fees)}` : ''
@@ -269,13 +291,13 @@ function latestMarkup(run: TradingRun) {
 }
 
 export interface TerminalSelection {
-  lane: number | null; slot: number | null; financeOpen: boolean; cardOpen: boolean; animate: boolean
+  lane: number | null; slot: number | null; prepare: boolean; financeOpen: boolean; cardOpen: boolean; animate: boolean
 }
 
 export function tradingMarkup(run: TradingRun, ui: TerminalSelection) {
-  const { lane, slot, financeOpen, cardOpen, animate } = ui;
+  const { lane, slot, prepare, financeOpen, cardOpen, animate } = ui;
   const eliminated = run.player.account.eliminated;
-  const preview = lane === null ? null : run.preview(lane, slot);
+  const preview = lane === null ? null : run.preview(lane, slot, false, prepare);
   return `<main class="trading" id="market" aria-label="交易終端">
     ${marketMarkup(run, animate)}
     ${seatsMarkup(run, lane !== null, animate)}
@@ -283,7 +305,7 @@ export function tradingMarkup(run: TradingRun, ui: TerminalSelection) {
       <div class="analysis-column">${performanceChart(run)}${financialMarkup(run, financeOpen)}${latestMarkup(run)}</div>
       <div class="decision-column">
         ${eliminated ? '<section class="panel spectator"><h2>本席已出局</h2><p>其他投資人會繼續結算。</p><button type="button" data-act="personal">查看個人結算</button><button type="button" data-act="map">查看路線圖</button></section>' :
-      `${handMarkup(run, lane, slot, cardOpen)}${actionsMarkup(run, lane, slot)}`}
+      `${handMarkup(run, lane, slot, cardOpen, prepare)}${actionsMarkup(run, lane, slot, prepare)}`}
       </div>
     </div></main>
     <div class="trade-dock"><div class="dock-inner"><div class="dock-caption"><span>${eliminated ? '觀戰模式' : `第 ${run.day} 日 · 交易準備`}</span>

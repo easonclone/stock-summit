@@ -179,7 +179,9 @@ try {
   await send('Page.enable');
   await send('Runtime.enable');
   const results = [];
-  for (const [width, height] of [[320, 640], [360, 780], [390, 844], [430, 932], [1440, 900]]) {
+  const desktopOnly = process.argv.includes('--desktop-only');
+  const viewports = desktopOnly ? [[1440, 900]] : [[320, 640], [360, 780], [390, 844], [430, 932], [1440, 900]];
+  for (const [width, height] of viewports) {
     const mobile = width < 500;
     await openMarket(width, height, mobile, width === 320 ? 2 : 23, mobile);
     await action('card');
@@ -269,37 +271,56 @@ try {
     results.push({ width, height, mobile, fullRun: width === 320 || !mobile });
     console.error(width + ' px 已驗證');
   }
-  await openMarket(390, 844, true, 8, true);
-  const firstLane = await js(`document.querySelector('${on('lane')}[data-kind="steady"]')?.dataset.value ?? document.querySelector('${on('lane')}').dataset.value`);
-  await click(on('lane') + '[data-value="' + firstLane + '"]');
-  await action('trade');
+  await openMarket(1440, 900, false, 3, true);
+  await click(on('card') + '[data-card-id="dividend"]');
+  await action('prepare');
+  assert.match(await js('document.querySelector("[data-card-status]").textContent'), /可以提前布局/);
+  await action('lane');
+  await trustedClick(on('trade'), false, false);
   await clearDialogs();
-  await click(on('lane') + '[data-kind="margin"]');
-  await click(on('card') + '[data-card-id="margin"]');
-  assert.match(await js('document.querySelector("[data-card-status]").textContent'), /現在可以使用/);
-  assert.match(await js('document.querySelector("[data-card-impact]").textContent'), /估計多賺 \$[0-9,]+/);
-  await js('document.querySelector("[data-card-status]").scrollIntoView({block:"center"})');
-  await screenshot('leverage-card-390');
-  await layout(390, 844, true);
+  assert.match(await js('document.querySelector(".pending-cards").textContent'), /還有 3 個交易日，可觸發 1 次/);
+  await action('card');
+  const selected = () => js(`document.querySelector('[data-act="card"][aria-pressed="true"]').dataset.cardId`);
+  const before = await selected();
+  await action('exchange');
+  assert.notEqual(before, await selected());
+  assert.match(await js(`document.querySelector('[data-act="exchange"]').textContent`), /剩 2 次/);
+  await screenshot('card-preparation-desktop');
+  await layout(1440, 900, true);
 
-  // 此種子固定重整於第 6 日，於第 11 日再出局。
-  const crisisLanes = [1, 0, 0, 0, 0, 1, 2, 1, 1, 2, 1];
-  await openMarket(320, 640, true, 7893, true);
-  for (let day = 1; day <= 15 && !(await has('main.settlement')); day++) {
-    if (await has(on('lane'))) await click(on('lane') + '[data-value="' + crisisLanes[day - 1] + '"]');
+  if (!desktopOnly) {
+    await openMarket(390, 844, true, 8, true);
+    const firstLane = await js(`document.querySelector('${on('lane')}[data-kind="steady"]')?.dataset.value ?? document.querySelector('${on('lane')}').dataset.value`);
+    await click(on('lane') + '[data-value="' + firstLane + '"]');
     await action('trade');
     await clearDialogs();
-    if (day === 3) {
-      assert(await has('[data-market-impact]'));
-      await js('scrollTo(0,0)');
-      await screenshot('market-impact-320');
+    await click(on('lane') + '[data-kind="margin"]');
+    await click(on('card') + '[data-card-id="margin"]');
+    assert.match(await js('document.querySelector("[data-card-status]").textContent'), /現在可以使用/);
+    assert.match(await js('document.querySelector("[data-card-impact]").textContent'), /估計多賺 \$[0-9,]+/);
+    await js('document.querySelector("[data-card-status]").scrollIntoView({block:"center"})');
+    await screenshot('leverage-card-390');
+    await layout(390, 844, true);
+
+    // 此種子固定重整於第 6 日，於第 11 日再出局。
+    const crisisLanes = [1, 0, 0, 0, 0, 1, 2, 1, 1, 2, 1];
+    await openMarket(320, 640, true, 7893, true);
+    for (let day = 1; day <= 15 && !(await has('main.settlement')); day++) {
+      if (await has(on('lane'))) await click(on('lane') + '[data-value="' + crisisLanes[day - 1] + '"]');
+      await action('trade');
+      await clearDialogs();
+      if (day === 3) {
+        assert(await has('[data-market-impact]'));
+        await js('scrollTo(0,0)');
+        await screenshot('market-impact-320');
+      }
+      if (await has('.spectator')) await layout(320, 640, true);
     }
-    if (await has('.spectator')) await layout(320, 640, true);
+    assert(await has('main.settlement'), '觀戰能到收盤');
+    assert(transitions.personal > 0, '手機出局、個人結算與返回觀戰');
+    assert(transitions.recovery > 0, '手機破產重整路徑');
+    assert(transitions.liquidation > 0, '強制平倉明細');
   }
-  assert(await has('main.settlement'), '觀戰能到收盤');
-  assert(transitions.personal > 0, '手機出局、個人結算與返回觀戰');
-  assert(transitions.recovery > 0, '手機破產重整路徑');
-  assert(transitions.liquidation > 0, '強制平倉明細');
   assert(transitions.draw > 0, '滿手抽卡替換');
   assert(transitions.skip > 0, '略過動畫');
   assert(transitions.effect > 0, 'Phaser 市場特效');

@@ -370,3 +370,7 @@ summary { cursor: pointer; min-height: 39px; display: list-item; padding: 8px 0;
   .report-detail { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .report-row { grid-template-columns: 29px 36px minmax(0, 1fr) auto; }
 }
+
+.card-detail > p:first-child { margin-top: 7px; }
+.crisis-details[open] { display: grid; gap: 6px; }
+.preview .trade-costs { color: var(--text); }

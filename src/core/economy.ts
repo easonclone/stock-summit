@@ -53,7 +53,7 @@ export function recordWorth(account: Portfolio, value = netWorth(account)) {
 export function warningReasons(account: Portfolio, rules: FinancialRules) {
   const reasons: string[] = [];
   if (netWorth(account) <= account.initialCapital * rules.warningEquity) reasons.push('總身家低於安全門檻');
-  if (marginLtv(account) >= rules.warningLtv) reasons.push('小心爆倉，借款快碰到追繳門檻了');
+  if (account.marginDebt > 0 && marginLtv(account) >= rules.warningLtv) reasons.push('借款快追上股票市值了，再跌下去可能得補錢');
   if (account.marginDebt > 0 && account.cash < account.initialCapital * rules.warningCash) reasons.push('手上現金不多，遇到追繳可能不夠還');
   return reasons;
 }

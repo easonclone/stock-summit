@@ -24,15 +24,15 @@ export interface DecisionView {
   opponents: readonly { id: string; name: string }[];
 }
 
-export function forecastTrade(view: DecisionView, node: RouteNode, card: TradingCard | null) {
+export function forecastTrade(view: DecisionView, node: RouteNode, card: TradingCard | null, showCardImpact = false) {
   const { config, day } = view;
   const kind = config.nodes.kinds[node.kind];
   const initial = netWorth(view.state.account);
-  const draw = (marketDraw: number, market: TradingEvent | null, localDraw = marketDraw) => {
+  const draw = (marketDraw: number, market: TradingEvent | null, localDraw = marketDraw, selectedCard = card) => {
     const state = copyTradingState(view.state);
     const context: EffectContext = { config, day, eventDay: view.nextEventDay,
       recentLoss: view.recentLoss, marketDraw: localDraw, eligibleAid: view.eligibleAid, opponentCount: view.opponents.length };
-    const action = applyTrade(state, kind, card, context);
+    const action = applyTrade(state, kind, selectedCard, context);
     if (market) applyMarket(state, market, { ...context, marketDraw }, action.ledger);
     const risk = settleTrade(state, action.ledger, config, day === config.gameplay.turns);
     return { state, action, risk, delta: netWorth(state.account) - initial };
@@ -52,6 +52,8 @@ export function forecastTrade(view: DecisionView, node: RouteNode, card: Trading
   const { account } = average.state;
   const { ledger } = base.action;
   const currentDebt = debtBalance(view.state.account);
+  const extraProtection = showCardImpact && card && base.action.cardUsed && bearish.action.ledger.protected
+    ? Math.max(0, bearish.action.ledger.protected - draw(0, downside, 0, null).action.ledger.protected) : 0;
   return {
     kind, available: base.action.funded, enabledCard: base.action.cardUsed, draft: base.action.draft,
     low: Math.min(bearish.delta, base.delta, bullish.delta),
@@ -65,7 +67,7 @@ export function forecastTrade(view: DecisionView, node: RouteNode, card: Trading
     gainedHedge: base.state.hedges.some((hedge, index) => hedge > (view.state.hedges[index] ?? 0)),
     afterWorth: outstandingWorth(account), ltv: marginLtv(account), warnings: average.risk.warnings,
     exposureRisk: bearish.risk.call !== null, marginRequired: bearish.risk.call?.required ?? 0,
-    synergyGain: ledger.synergyGain, synergies: ledger.synergies,
+    synergyGain: ledger.synergyGain, synergies: ledger.synergies, cardImpact: base.action.cardImpact, cardBlock: base.action.cardBlock, extraProtection,
     opponents: card?.opponent ? view.opponents.map(opponent => opponent.name) : []
   };
 }

@@ -144,11 +144,11 @@ export class TradingRun {
     };
   }
 
-  preview(lane: number, slot: number | null) {
+  preview(lane: number, slot: number | null, showCardImpact = false) {
     const view = this.decisionView(this.player);
     const route = view.routes.find(node => node.lane === lane);
     if (!route || (slot !== null && !view.hand[slot])) return null;
-    return forecastTrade(view, route, slot === null ? null : view.hand[slot]);
+    return forecastTrade(view, route, slot === null ? null : view.hand[slot], showCardImpact);
   }
 
   chooseOffer(cardIndex: number | null, replace: number | null = null) {

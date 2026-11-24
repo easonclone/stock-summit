@@ -18,7 +18,7 @@ class TerminalApp {
   private readonly screen: HTMLElement;
   private readonly dialog: HTMLDialogElement;
   private readonly audio = new CardAudio();
-  private readonly selection: TerminalSelection = { lane: null, slot: null, financeOpen: false, cardOpen: true, animate: false };
+  private readonly selection: TerminalSelection = { lane: null, slot: null, financeOpen: false, cardOpen: false, animate: false };
   private selectedCharacter: string;
   private difficulty: TradingDifficulty = 'normal';
   private seed: number;
@@ -144,7 +144,7 @@ class TerminalApp {
       case 'card':
         this.rememberDetails();
         this.selection.slot = value === this.selection.slot ? null : value;
-        this.selection.cardOpen = true;
+        this.selection.cardOpen = false;
         this.render(`[data-act="card"][data-value="${value}"]`);
         break;
       case 'trade': this.trade(); break;
@@ -185,7 +185,7 @@ class TerminalApp {
   private clearSelection() {
     this.selection.lane = null;
     this.selection.slot = null;
-    this.selection.cardOpen = true;
+    this.selection.cardOpen = false;
   }
 
   private pickLane(lane: number, fromMap = false) {

@@ -15,14 +15,17 @@ export function crisisMarkup(run: TradingRun, report: DayReport, outcome: DayOut
     '券商來電話了，這次已用手上現金先補錢。';
   return `<div class="crisis-flag">第 ${report.day} 日 · ${title}</div>
     <p><strong>${reaction}</strong></p>
-    <p>${sources.map(escapeHtml).join('／')}結算後資金出狀況。</p>
+    <p>${sources.map(escapeHtml).join('／')}結算後，這天的總身家變動是 ${signedMoney((applied?.before ?? outcome.close) - outcome.start)}。</p>
+    ${call?.liquidated ? `<p>券商賣了 ${money(call.sold)} 的股票，其中 ${money(call.paid)} 拿去還借款。平倉多花了 ${money(call.fee)}。${call.debtLeft ? `還欠 ${money(call.debtLeft)}。` : ''}</p>` : ''}
+    ${pending ? `<p>系統會先用剩下的資產還債。接受重整後可拿 ${money(rules.recoveryCash)} 繼續玩，新欠款為 ${money(rules.recoveryDebt)}，另有 ${money(rules.recoveryClosingFee)} 收盤時要付。${rules.recoveryLockDays} 天內不能再借錢加碼。</p>` : ''}
+    <details open class="crisis-details"><summary>看這筆交易的帳目</summary>
     ${call ? `<p>融資比率 ${Number.isFinite(call.ratio) ? percent(call.ratio) : '無可擔保部位'}，追繳門檻 ${percent(call.threshold)}。</p>
       <dl class="crisis-ledger">
         <div><dt>平倉前淨資產</dt><dd>${money(call.before)}</dd></div>
         <div><dt>需補繳金額</dt><dd>${money(call.required)}</dd></div>
         <div><dt>部位處分金額</dt><dd>${money(call.sold)}</dd></div>
         <div><dt>已清償融資</dt><dd>${money(call.paid)}</dd></div>
-        <div><dt>平倉費及增量損失</dt><dd>${money(call.fee)}</dd></div>
+        <div><dt>平倉手續費</dt><dd>${money(call.fee)}</dd></div>
         <div><dt>平倉後淨資產</dt><dd>${money(call.after)}</dd></div>
         <div><dt>仍未清償融資</dt><dd>${money(call.debtLeft)}</dd></div>
       </dl>` : ''}
@@ -36,8 +39,8 @@ export function crisisMarkup(run: TradingRun, report: DayReport, outcome: DayOut
       <div><dt>限制新增槓桿</dt><dd>${rules.recoveryLockDays} 日</dd></div>
       <div><dt>重整後即時淨資產</dt><dd>${money(rules.recoveryCash - rules.recoveryDebt)}</dd></div>
       ${applied ? `<div><dt>原負債減免</dt><dd>${money(applied.marginForgiven + applied.bailoutForgiven)}</dd></div>` : ''}` : ''}
-      </dl>` : ''}
-    ${pending ? '<p>舊資產會先處分並依序清償融資與紓困，剩餘舊債的減免會記入報告。</p><button class="gold-button" type="button" data-act="recover">東山再起・接受重整</button>' :
+      </dl>` : ''}</details>
+    ${pending ? '<p>原本還不完的債，會把減免金額記在戰績裡。</p><button class="gold-button" type="button" data-act="recover">東山再起・接受重整</button>' :
       outcome.risk.insolvent && !applied && !run.closed ? '<p>提早畢業，本局交易結束。你還能看其他人繼續玩，或查看自己的戰績。</p><div class="dialog-actions"><button type="button" data-act="close-dialog">觀看剩餘賽局</button><button type="button" data-act="personal">查看個人結算</button><button type="button" data-act="new">新市場</button></div>' : ''}
   `;
 }

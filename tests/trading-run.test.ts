@@ -167,6 +167,31 @@ describe('交易入口及種子', () => {
     expect(netWorth(run.player.account)).toBe(10141);
   });
 
+  it('卡片預覽提供引擎判斷的即時原因、金額及護盾效果', () => {
+    const config = removeVolatility(readFinancialConfig());
+    const run = start(config);
+    const lane = run.reachable(run.player)[0].lane;
+    const choose = (id: string) => { run.player.hand[0] = config.cards.find(card => card.id === id)!; };
+    choose('exit');
+    expect(run.preview(lane, 0)?.cardBlock).toBe('no_stock');
+    choose('restructure');
+    expect(run.preview(lane, 0)?.cardBlock).toBe('no_debt');
+    choose('hedge');
+    run.player.hedges = [0.6, 0.8];
+    expect(run.preview(lane, 0)?.cardBlock).toBe('full_shield');
+    run.player.hedges = [];
+    choose('cash');
+    expect(run.preview(lane, 0)?.cardImpact?.cash).toBe(240);
+    expect(run.player.account.cash).toBe(10000);
+
+    config.effects.none = { type: 'price', floor: -0.5, ceiling: -0.5 };
+    run.player.account.investmentValue = 5000;
+    playDay(run);
+    playDay(run);
+    choose('hedge');
+    expect(run.preview(run.reachable(run.player)[0].lane, 0, true)?.extraProtection).toBe(1500);
+  });
+
   it('競爭型卡片僅針對同一開盤快照的融資領先者，並列者受相同追繳門檻', () => {
     const config = removeVolatility(readFinancialConfig());
     const run = start(config);

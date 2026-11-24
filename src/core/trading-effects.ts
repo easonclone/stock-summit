@@ -21,6 +21,9 @@ export interface EffectContext {
   opponentCount: number;
 }
 
+export type CardBlock = 'no_stock' | 'full_shield' | 'no_news' | 'known_news' | 'cash_high' |
+  'cannot_borrow' | 'no_debt' | 'low_cash' | 'no_opponent' | 'route' | 'need_downturn';
+
 interface EffectLedger {
   invested: number;
   borrowed: number;
@@ -32,6 +35,7 @@ interface EffectLedger {
   investmentPnl: number;
   cashYield: number;
   protected: number;
+  marketRate: number | null;
   synergies: number;
   synergyGain: number;
   interestWaived: boolean;
@@ -40,7 +44,7 @@ interface EffectLedger {
 
 function effectLedger(config: FinancialConfig): EffectLedger {
   return { invested: 0, borrowed: 0, sold: 0, repaid: 0, deposited: 0, fees: 0, dividends: 0,
-    investmentPnl: 0, cashYield: 0, protected: 0, synergies: 0, synergyGain: 0, interestWaived: false,
+    investmentPnl: 0, cashYield: 0, protected: 0, marketRate: null, synergies: 0, synergyGain: 0, interestWaived: false,
     maintenance: config.financial.callLtv };
 }
 
@@ -49,7 +53,7 @@ export function marketTone(event: TradingEvent, config: FinancialConfig) {
   return !price ? 'neutral' : price.floor + price.ceiling > 0 ? 'positive' : price.floor + price.ceiling < 0 ? 'negative' : 'neutral';
 }
 
-function applyEffect(state: TradingState, effect: FinanceEffect, context: EffectContext, ledger: EffectLedger, extra = 0, market = false): boolean {
+function applyEffect(state: TradingState, effect: FinanceEffect, context: EffectContext, ledger: EffectLedger, extra = 0, market = false): true | CardBlock {
   const account = state.account;
   const rules = context.config.financial;
   switch (effect.type) {
@@ -59,7 +63,7 @@ function applyEffect(state: TradingState, effect: FinanceEffect, context: Effect
       ledger.invested += order.stake;
       ledger.borrowed += order.borrowed;
       ledger.fees += order.fee;
-      return order.stake > 0;
+      return order.stake > 0 || 'cannot_borrow';
     }
     case 'price': {
       const rate = effect.floor + (effect.ceiling - effect.floor) * context.marketDraw;
@@ -67,25 +71,28 @@ function applyEffect(state: TradingState, effect: FinanceEffect, context: Effect
       let protectedValue = 0;
       if (market && scenario < 0 && account.investmentValue && state.hedges.length) {
         protectedValue = scenario * state.hedges.shift()!;
-        ledger.protected += Math.round(-protectedValue * account.investmentValue);
       }
       const before = account.investmentValue;
       const profit = revalue(account, scenario - protectedValue);
+      if (market) {
+        ledger.marketRate = scenario;
+        ledger.protected += profit - Math.round(before * Math.max(-1, scenario));
+      }
       ledger.investmentPnl += profit;
       if (extra) ledger.synergyGain += profit - Math.round(before * rate);
-      return profit !== 0;
+      return profit !== 0 || 'no_stock';
     }
     case 'sell': {
       const sale = sellInvestment(account, effect.fraction);
       ledger.sold += sale;
       const paid = effect.repay ? repay(account, sale) : { margin: 0, bailout: 0 };
       ledger.repaid += paid.margin + paid.bailout;
-      return sale > 0;
+      return sale > 0 || 'no_stock';
     }
     case 'deposit': {
       const deposited = lockDeposit(account, effect.fraction, context.day, rules);
       ledger.deposited += deposited;
-      return deposited > 0;
+      return deposited > 0 || 'low_cash';
     }
     case 'dividend': {
       const dividend = Math.round(account.investmentValue * effect.rate * (1 + extra));
@@ -93,15 +100,16 @@ function applyEffect(state: TradingState, effect: FinanceEffect, context: Effect
       account.stats.dividends += dividend;
       ledger.dividends += dividend;
       if (extra) ledger.synergyGain += dividend - Math.round(account.investmentValue * effect.rate);
-      return dividend > 0;
+      return dividend > 0 || 'no_stock';
     }
     case 'hedge': {
-      if (state.hedges.length >= rules.maxHedges) return false;
+      if (state.hedges.length >= rules.maxHedges) return 'full_shield';
       state.hedges.push(effect.protection);
       return true;
     }
     case 'intel': {
-      if (context.eventDay === null || state.intelDay === context.eventDay) return false;
+      if (context.eventDay === null) return 'no_news';
+      if (state.intelDay === context.eventDay) return 'known_news';
       state.intelDay = context.eventDay;
       return true;
     }
@@ -111,8 +119,8 @@ function applyEffect(state: TradingState, effect: FinanceEffect, context: Effect
     case 'bailout': {
       const worth = netWorth(account);
       const borrowing = effect.amount + effect.fee;
-      if (account.cash >= account.initialCapital * effect.cashThreshold || worth <= effect.fee ||
-        debtBalance(account) + borrowing > (worth - effect.fee) * rules.maxDebtToEquity || account.closingPayable) return false;
+      if (account.cash >= account.initialCapital * effect.cashThreshold) return 'cash_high';
+      if (worth <= effect.fee || debtBalance(account) + borrowing > (worth - effect.fee) * rules.maxDebtToEquity || account.closingPayable) return 'cannot_borrow';
       account.cash += effect.amount;
       account.bailoutDebt += borrowing;
       account.stats.fees += effect.fee;
@@ -129,17 +137,17 @@ function applyEffect(state: TradingState, effect: FinanceEffect, context: Effect
       ledger.fees += fee;
       ledger.repaid += repaid;
       ledger.interestWaived ||= repaid > 0;
-      return repaid > 0;
+      return repaid > 0 || (debtBalance(account) ? 'low_cash' : 'no_debt');
     }
     case 'cash_yield': {
-      if (account.cash < netWorth(account) * effect.threshold || netWorth(account) <= 0) return false;
+      if (account.cash < netWorth(account) * effect.threshold || netWorth(account) <= 0) return 'low_cash';
       const income = Math.round(account.cash * effect.rate);
       account.cash += income;
       account.stats.cashYield += income;
       ledger.cashYield += income;
-      return income > 0;
+      return income > 0 || 'low_cash';
     }
-    case 'combo': return false;
+    case 'combo': return 'route';
   }
 }
 
@@ -148,27 +156,40 @@ export function applyTrade(state: TradingState, kind: InvestmentKind, card: Trad
   const ledger = effectLedger(config);
   const effects = card && !card.opponent ? card.effectIds.map(id => config.effects[id]) : [];
   let cardUsed = Boolean(card?.opponent && context.opponentCount);
+  let cardBlock: CardBlock = card?.opponent ? 'no_opponent' : 'route';
+  const openingCash = state.account.cash;
+  const openingDebt = debtBalance(state.account);
   for (const effect of effects) {
-    if (effect.type !== 'combo' && applyEffect(state, effect, context, ledger)) cardUsed = true;
+    if (effect.type === 'combo') continue;
+    const result = applyEffect(state, effect, context, ledger);
+    if (result === true) cardUsed = true;
+    else cardBlock = result;
   }
+  const cardImpact = card ? {
+    cash: state.account.cash - openingCash, debt: debtBalance(state.account) - openingDebt,
+    sold: ledger.sold, repaid: ledger.repaid, fees: ledger.fees
+  } : null;
   const eligible = kind.draft !== 'catchup' || context.eligibleAid;
   const combos = effects.filter(effect => effect.type === 'combo')
     .filter(effect => kind.tags.includes(effect.nodeTag) && (!effect.afterLoss || context.recentLoss));
+  if (effects.some(effect => effect.type === 'combo' && effect.afterLoss && !context.recentLoss)) cardBlock = 'need_downturn';
   let funded = true;
   for (const id of eligible ? kind.effectIds : []) {
     const effect = config.effects[id];
     if (effect.type === 'invest') {
-      funded = applyEffect(state, effect, context, ledger) || effect.borrow === 0;
+      funded = applyEffect(state, effect, context, ledger) === true || effect.borrow === 0;
+      if (!funded && combos.length) cardBlock = 'cannot_borrow';
       continue;
     }
     if (!funded) continue;
+    if (!state.account.investmentValue && combos.some(combo => combo.mode === effect.type)) cardBlock = 'no_stock';
     const matching = state.account.investmentValue ? combos.filter(combo => combo.mode === effect.type) : [];
     const bonus = matching.reduce((sum, combo) => sum + combo.amount, 0);
     applyEffect(state, effect, context, ledger, bonus);
     ledger.synergies += matching.length;
     cardUsed ||= matching.length > 0;
   }
-  return { ledger, cardUsed, funded, draft: eligible && Boolean(kind.draft) };
+  return { ledger, cardUsed, funded, cardImpact, cardBlock: card && !cardUsed ? cardBlock : null, draft: eligible && Boolean(kind.draft) };
 }
 
 export function applyMarket(state: TradingState, event: Pick<TradingEvent, 'effectIds'>, context: EffectContext, ledger: EffectLedger) {

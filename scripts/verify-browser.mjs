@@ -200,6 +200,11 @@ try {
     await action('close-dialog');
     assert.equal(await js('document.querySelector('+JSON.stringify(pressed('card'))+')?.dataset.value'), card);
     assert.equal(await js('document.querySelector('+JSON.stringify(pressed('lane'))+')?.dataset.value'), lane);
+    assert(await has('[data-card-status]'));
+    if (width === 390) {
+      await js('document.querySelector("[data-card-status]").scrollIntoView({block:"center"})');
+      await screenshot('card-feedback-390');
+    }
     await click(pressed('card'));
     await layout(width, height, true);
     await trustedClick(on('trade'), mobile, false);

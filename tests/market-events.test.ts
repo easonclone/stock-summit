@@ -6,6 +6,11 @@ import { marketTone } from '../src/core/trading-effects';
 
 it('市場新聞具備分類、副標、有效效果及虛構標記，無重複 ID', () => {
   const config = readFinancialConfig();
+  expect(config.events).toHaveLength(60);
+  expect(Object.fromEntries(['ai', 'taiwan', 'us', 'global', 'flows', 'memes'].map(category =>
+    [category, config.events.filter(event => event.category === category).length]))).toEqual({
+    ai: 12, taiwan: 12, us: 10, global: 8, flows: 10, memes: 8
+  });
   expect(new Set(config.events.map(item => item.id)).size).toBe(config.events.length);
   expect(config.events.every(event => event.subtitle.length > 0 && event.fictional)).toBe(true);
   expect(new Set(config.events.map(event => event.category)).size).toBe(6);

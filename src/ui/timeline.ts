@@ -1,5 +1,6 @@
 import type { TradingRun } from '../core/trading-run';
 import { escapeHtml } from './format';
+import { iconMarkup } from './pixels';
 
 function dayInfo(run: TradingRun, day: number) {
   const news = run.hasNewsOn(day);
@@ -19,7 +20,7 @@ export function timelineMarkup(run: TradingRun) {
     return `<button class="timeline-day${completed ? ' completed' : ''}" type="button" data-act="timeline" data-value="${day}"
       ${news ? 'data-news' : ''} ${shop ? 'data-shop' : ''} ${final ? 'data-final' : ''} ${current ? 'aria-current="step"' : ''}
       aria-label="${labels.filter(Boolean).join('，')}"><strong>${String(day).padStart(2, '0')}</strong>
-      <span aria-hidden="true">${news ? '▤' : ''}${shop ? '◆' : ''}${final ? '♛' : ''}</span></button>`;
+      <span aria-hidden="true">${news ? iconMarkup('news', '#a9d2f4') : ''}${shop ? iconMarkup('shop', '#f8ca76') : ''}${final ? iconMarkup('crown', '#ffdb8e') : ''}</span></button>`;
   });
   return `<nav class="timeline" aria-label="交易日進度" style="--days:${run.config.gameplay.turns}">${cells.join('')}</nav>`;
 }

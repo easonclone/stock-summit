@@ -1,5 +1,6 @@
 import './style.css';
 import './polish.css';
+import { loadHDArt } from './ui/hd-art';
 import { loadInvestorSprites } from './ui/investor-sprites';
 import { readFinancialConfig, type FinancialConfig, type PixelIcon, type TradingDifficulty } from './config/financial-settings';
 import { TradingRun, type DayOutcome, type DayReport } from './core/trading-run';
@@ -9,16 +10,16 @@ import { CardAudio } from './ui/audio';
 import { DayTransition } from './ui/day-transition';
 import { crisisMarkup } from './ui/crisis-dialog';
 import { escapeHtml, money, signedMoney } from './ui/format';
-import { drawCardArt, drawCity, drawIcon, portrait, sprite, type SpriteMood } from './ui/pixels';
+import { drawCardArt, drawCity, drawIcon, iconMarkup, portrait, sprite, type SpriteMood, type SystemIcon } from './ui/pixels';
 import { settlementMarkup, shareText } from './ui/settlement';
 import { cardDetailMarkup, chartDialogMarkup, newsMarkup, offerHeading, offerMarkup, openingMarkup, shopMarkup, tradingMarkup, type TerminalSelection } from './ui/trading-terminal';
 import { timelineDetail } from './ui/timeline';
-import { Coach, type TipId } from './ui/coach';
+import { playGuideMarkup } from './ui/coach';
 import { readTheaterConfig, type TheaterConfig } from './config/theater-settings';
 import { MarketTheater } from './ui/theater';
 import { buildTheater, type Step, type TheaterMode } from './ui/theater-script';
 
-type DialogKind = 'crisis' | 'recovery' | 'offer' | 'shop' | 'settings' | 'share' | 'chart' | 'news' | 'timeline' | 'card-detail';
+type DialogKind = 'crisis' | 'recovery' | 'offer' | 'shop' | 'settings' | 'share' | 'chart' | 'news' | 'timeline' | 'card-detail' | 'help';
 const freshSeed = () => crypto.getRandomValues(new Uint32Array(1))[0];
 
 class TerminalApp {
@@ -31,7 +32,7 @@ class TerminalApp {
   private readonly selection: TerminalSelection = { allocation: null, item: null, animate: false };
   private selectedCharacter: string;
   private difficulty: TradingDifficulty = 'normal';
-  private seed: number;
+  private readonly initialSeed: number;
   private reduced: boolean;
   private international = false;
   private personal = false;
@@ -39,7 +40,6 @@ class TerminalApp {
   private replace: number | null = null;
   private shopPick: number | null = null;
   private shopReplace: number | null = null;
-  private shopsVisited = 0;
   private dialogKind: DialogKind | null = null;
   private dialogTrigger: HTMLElement | null = null;
   private closingDialog = false;
@@ -47,7 +47,6 @@ class TerminalApp {
   private transitionTimer: number | undefined;
   private disposeEffect: (() => void) | undefined;
   private lastCrisis: { report: DayReport; outcome: DayOutcome } | null = null;
-  private readonly coach = new Coach();
   private readonly theater: TheaterConfig;
   private theaterMode: TheaterMode = 'full';
   private theaterDay = 0;
@@ -56,8 +55,13 @@ class TerminalApp {
   private detail: { kind: 'joker' | 'item' | 'daily'; slot: number } = { kind: 'joker', slot: 0 };
 
   constructor(private readonly root: HTMLElement, private readonly config: FinancialConfig) {
-    const fromUrl = new URLSearchParams(location.search).get('seed') ?? '';
-    this.seed = /^\d{1,10}$/.test(fromUrl) && Number(fromUrl) <= 0xffffffff ? Number(fromUrl) : freshSeed();
+    const url = new URL(location.href);
+    const fromUrl = url.searchParams.get('seed') ?? '';
+    this.initialSeed = /^\d{1,10}$/.test(fromUrl) && Number(fromUrl) <= 0xffffffff ? Number(fromUrl) : freshSeed();
+    if (url.searchParams.has('seed')) {
+      url.searchParams.delete('seed');
+      history.replaceState(history.state, '', url);
+    }
     this.selectedCharacter = config.characters[0].id;
     this.reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
     this.theater = readTheaterConfig(config);
@@ -95,9 +99,10 @@ class TerminalApp {
       <strong>${String(run.closed ? run.reports.length : run.day).padStart(2, '0')} <small>／ ${run.config.gameplay.turns}</small></strong></div>` : '';
     this.screen.innerHTML = `<header class="masthead"><div class="brand-lockup"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
       <div><b>STOCK SUMMIT</b><small>股市攻頂戰 · Market Showdown</small></div></div><div class="masthead-tools">${status}
-      <button class="gear" type="button" data-act="settings" aria-label="畫面與音效" title="畫面與音效">⚙</button></div></header>
-      ${run ? complete ? settlementMarkup(run, this.personal) : tradingMarkup(run, this.selection, this.coach.markup(run, this.selection))
-        : `<main>${openingMarkup(this.config, this.seed, this.selectedCharacter, this.difficulty)}</main>`}`;
+      <button class="help-trigger" type="button" data-act="help" aria-label="玩法說明" aria-haspopup="dialog" title="玩法說明">${iconMarkup('help', '#a3cff3')}<span>玩法說明</span></button>
+      <button class="gear" type="button" data-act="settings" aria-label="畫面與音效" title="畫面與音效">${iconMarkup('settings', '#b5c7e0')}</button></div></header>
+      ${run ? complete ? settlementMarkup(run, this.personal) : tradingMarkup(run, this.selection)
+        : `<main>${openingMarkup(this.config, this.selectedCharacter, this.difficulty)}</main>`}`;
     this.paint(this.screen);
     this.selection.animate = false;
     if (focus) this.screen.querySelector<HTMLElement>(focus)?.focus({ preventScroll: true });
@@ -117,13 +122,12 @@ class TerminalApp {
     parent.querySelectorAll<HTMLCanvasElement>('[data-city]').forEach(drawCity);
     parent.querySelectorAll<HTMLCanvasElement>('[data-card-art]').forEach(canvas => drawCardArt(canvas, canvas.dataset.cardArt as PixelIcon, canvas.dataset.color!, canvas.dataset.cardDesign));
     parent.querySelectorAll<HTMLCanvasElement>('[data-icon]').forEach(canvas => {
-      drawIcon(canvas, canvas.dataset.icon as PixelIcon, canvas.dataset.color!);
+      drawIcon(canvas, canvas.dataset.icon as SystemIcon, canvas.dataset.color!);
     });
   }
 
   private change(target: HTMLInputElement) {
     if (target.dataset.input === 'difficulty') this.difficulty = target.value as TradingDifficulty;
-    if (target.dataset.input === 'seed' && target.checkValidity() && Number.isSafeInteger(target.valueAsNumber)) this.seed = target.valueAsNumber;
     if (target.dataset.input === 'motion') this.reduced = target.checked;
     if (target.dataset.input === 'colors') this.international = target.checked;
     if (target.dataset.input === 'audio') this.audio.enabled = target.checked;
@@ -131,7 +135,6 @@ class TerminalApp {
       this.theaterMode = target.value as TheaterMode;
       try { localStorage.setItem('stock-summit-theater', this.theaterMode); } catch { /* ignore */ }
     }
-    if (target.dataset.input === 'tips') { this.coach.setEnabled(target.checked); if (this.run && !this.dialog.open) this.render(); }
     this.setPreferences();
   }
 
@@ -153,16 +156,11 @@ class TerminalApp {
         this.selectedCharacter = button.dataset.value!;
         this.render(`[data-act="character"][data-value="${this.selectedCharacter}"]`);
         break;
-      case 'start': {
-        const input = this.screen.querySelector<HTMLInputElement>('[data-input="seed"]')!;
-        if (!input.reportValidity()) return;
-        this.start(this.seed);
-        break;
-      }
+      case 'start': this.start(this.initialSeed); break;
       case 'replay': this.start(this.run!.options.seed); break;
       case 'new': this.start(freshSeed()); break;
       case 'settings': this.dialogTrigger = button; this.openDialog('settings'); break;
-      case 'chart': case 'news': this.dialogTrigger = button; this.openDialog(act); break;
+      case 'help': case 'chart': case 'news': this.dialogTrigger = button; this.openDialog(act); break;
       case 'timeline':
         if (!this.run || value < 1 || value > this.run.config.gameplay.turns) break;
         this.timelineDay = value;
@@ -179,8 +177,6 @@ class TerminalApp {
         this.detail = { kind: button.dataset.kind === 'item' ? 'item' : 'joker', slot: value };
         this.openDialog('card-detail');
         break;
-      case 'tip-ok': this.coach.dismiss(button.dataset.value as TipId); this.render('[data-act="trade"]'); break;
-      case 'coach-off': this.coach.setEnabled(false); this.render('[data-act="trade"]'); break;
       case 'crisis': this.dialogTrigger = button; this.openDialog('crisis'); break;
       case 'close-dialog': this.closeDialog(); break;
       case 'personal': this.personal = true; this.closeDialog(false); this.render('[data-act="spectate"]'); window.scrollTo(0, 0); break;
@@ -231,19 +227,14 @@ class TerminalApp {
 
   private start(seed: number) {
     this.closeDialog(false);
-    this.seed = seed;
     this.run = new TradingRun(this.config, { playerId: this.selectedCharacter, seed, difficulty: this.difficulty });
     this.personal = false;
     this.presentedDay = 1;
     this.dayTransition.close();
     this.lastCrisis = null;
-    this.shopsVisited = 0;
     this.theaterDay = 0;
     this.stage?.close();
     this.clearSelection();
-    const url = new URL(location.href);
-    url.searchParams.set('seed', String(seed));
-    history.replaceState(null, '', url);
     this.audio.unlock();
     this.audio.play('rise');
     this.render('[data-act="alloc"][aria-pressed="true"]');
@@ -515,7 +506,6 @@ class TerminalApp {
 
   private leaveShop() {
     if (!this.run?.leaveShop()) return;
-    this.shopsVisited += 1;
     this.closeDialog(false);
     this.render('[data-act="trade"]');
     this.showOffer();
@@ -534,7 +524,7 @@ class TerminalApp {
       case 'shop':
         if (!run.shop) return;
         heading = `第 ${run.shop.day} 日收盤・商店`;
-        content = shopMarkup(run, this.shopPick, this.shopReplace, this.shopsVisited === 0 && this.coach.enabled);
+        content = shopMarkup(run, this.shopPick, this.shopReplace);
         break;
       case 'crisis':
       case 'recovery':
@@ -547,9 +537,12 @@ class TerminalApp {
         content = `<div class="settings-options"><label><input type="checkbox" data-input="colors" ${this.international ? 'checked' : ''}> 切換綠漲紅跌</label>
           <label><input type="checkbox" data-input="motion" ${this.reduced ? 'checked' : ''}> 減少動態，直接看結算</label>
           <label><input type="checkbox" data-input="audio" ${this.audio.enabled ? 'checked' : ''}> 播放交易音效</label>
-          <label><input type="checkbox" data-input="tips" ${this.coach.enabled ? 'checked' : ''}> 顯示新手提示</label>
           <label class="select-label">市場新聞演出<select data-input="theater">${([['full', '完整 RPG 演出'], ['quick', '快速演出'], ['off', '略過演出']] as const)
             .map(([value, label]) => `<option value="${value}" ${this.theaterMode === value ? 'selected' : ''}>${label}</option>`).join('')}</select></label></div>`;
+        break;
+      case 'help':
+        heading = '玩法說明';
+        content = playGuideMarkup(this.config);
         break;
       case 'chart':
         heading = '總身家走勢';
@@ -652,7 +645,7 @@ async function startApp() {
   const root = document.querySelector<HTMLElement>('#app')!;
   try {
     const config = readFinancialConfig();
-    await loadInvestorSprites();
+    await Promise.all([loadInvestorSprites(), loadHDArt()]);
     new TerminalApp(root, config);
   } catch (error) {
     root.innerHTML = `<main class="initial-error"><h1>開盤卡住了</h1><p>${escapeHtml(error instanceof Error ? error.message : '遊戲資料讀取失敗')}</p></main>`;

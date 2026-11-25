@@ -115,3 +115,28 @@
   .day-result .chain { max-height:155px; overflow-y:auto; }
 }
 @media (prefers-reduced-motion: reduce) { .joker-payout { animation:none; } }
+
+/* 王牌展示完整場景，道具以透明物件留出輪廓。 */
+.card-top { position:relative; height:auto; min-height:0; width:100%; display:grid; place-items:center; }
+.card-top canvas { display:block; width:100%; height:auto; aspect-ratio:1; object-fit:contain; }
+.game-card.joker .card-top canvas { outline:1px solid #c7a36860; }
+.game-card.item .card-top canvas { width:min(100%,64px); }
+.card-top .rarity-mark { position:absolute; top:0; right:1px; background:#081323b8; padding-inline:3px; }
+.card-detail .card-top canvas { width:min(100%,128px); }
+.city-art { object-fit:cover; opacity:.70; }
+.stage::before { content:""; position:absolute; inset:0; z-index:-1; background:linear-gradient(transparent,#09132265); pointer-events:none; }
+.pixel-icon { width:24px; height:24px; display:inline-block; image-rendering:pixelated; vertical-align:middle; flex:none; }
+.help-trigger .pixel-icon { margin-right:4px; }
+.fighter-status { display:flex; align-items:center; gap:2px; }
+.fighter-status .pixel-icon,.plate .rank .pixel-icon { width:16px; height:16px; }
+.shop-sign h2,.shop-sign span,.shop-shortcut { display:flex; gap:4px; align-items:center; justify-content:center; }
+.shop-shortcut .pixel-icon { width:20px; height:20px; }
+@media (max-width:480px) {
+ .item-row .card-top,.joker-row .card-top { height:auto; }
+ .item-row .card-top canvas,.joker-row .card-top canvas { width:100%; height:auto; }
+ .help-trigger .pixel-icon { margin:0; }
+}
+
+.timeline-day span { display:flex; align-items:center; justify-content:center; }
+.timeline-day .pixel-icon { width:14px; height:14px; }
+@media (max-width:480px) { .timeline-day .pixel-icon { width:9px; height:9px; } }

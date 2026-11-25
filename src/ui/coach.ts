@@ -1,81 +1,17 @@
-import type { TradingRun } from '../core/trading-run';
-import type { TerminalSelection } from './trading-terminal';
-import { marketTone } from '../core/settlement';
+import type { FinancialConfig } from '../config/financial-settings';
+import { money } from './format';
 
-export type TipId = 'allocation' | 'jokers' | 'items' | 'shop' | 'cash_safe' | 'shield' | 'bankruptcy';
-
-const tips: Record<TipId, string> = {
-  allocation: '用現金買道具，或留著收盤買王牌。買股票可能大賺，也可能大跌。',
-  jokers: '王牌會每天自動幫你，不用按。賺錢時看結算，就知道是哪張王牌發威。',
-  items: '⚡ 立即牌和 ◆ 防禦牌先看效果，再按使用或部署。⌖ 行動牌留到下單。',
-  shop: '今天收盤後商店開門。王牌要用現金買，全部買股就沒錢逛商店。',
-  cash_safe: '股票跌的時候，留在手上的現金一毛都不會少。',
-  shield: '護盾放著就好，下次股票賠錢時會自動擋下，擋一次就用掉。',
-  bankruptcy: '總身家歸零時，第一次可以拿翻身資金重來，第二次就出局。'
-};
-
-const storageKey = 'stock-summit-coach';
-
-/** First-run guidance. Purely presentational; reads the run, never changes it. Storage failures fall back to defaults. */
-export class Coach {
-  enabled = true;
-  private seen = new Set<TipId>();
-
-  constructor() {
-    try {
-      const saved = JSON.parse(localStorage.getItem(storageKey) ?? '{}') as { off?: boolean; seen?: TipId[] };
-      this.enabled = !saved.off;
-      this.seen = new Set((saved.seen ?? []).filter(id => id in tips));
-    } catch { /* private mode or blocked storage */ }
-  }
-
-  setEnabled(on: boolean) {
-    this.enabled = on;
-    if (on) this.seen.clear();
-    this.save();
-  }
-
-  dismiss(id: TipId) {
-    if (!(id in tips)) return;
-    this.seen.add(id);
-    this.save();
-  }
-
-  private save() {
-    try {
-      localStorage.setItem(storageKey, JSON.stringify({ off: !this.enabled, seen: [...this.seen] }));
-    } catch { /* ignore */ }
-  }
-
-  /** Which first-encounter tip applies now, from the player's real record. */
-  private tipFor(run: TradingRun): TipId | null {
-    const { defenses } = run.player;
-    const latest = run.reports.at(-1);
-    const outcome = latest?.outcomes.find(item => item.investor === run.player);
-    const fell = Boolean(latest?.market && outcome?.marketApplied && marketTone(latest.market, run.config) === 'negative');
-    const checks: [TipId, boolean][] = [
-      ['bankruptcy', run.investors.some(item => item.account.eliminated) || Boolean(outcome?.risk.insolvent)],
-      ['allocation', run.day === 1],
-      ['shop', run.shopOpensAfter(run.day)],
-      ['cash_safe', fell],
-      ['shield', defenses.length > 0],
-      ['jokers', run.day >= 2],
-      ['items', run.day >= 3 && run.player.items.length > 0]
-    ];
-    return checks.find(([id, hit]) => hit && !this.seen.has(id))?.[0] ?? null;
-  }
-
-  markup(run: TradingRun, ui: TerminalSelection) {
-    if (!this.enabled || run.player.account.eliminated) return '';
-    const parts: string[] = [];
-    if (run.reports.length < 3) {
-      const step = ui.item !== null ? 2 : ui.allocation !== null ? 1 : 0;
-      parts.push(`<ol class="coach-steps" aria-label="怎麼玩">${['買多少股票', '用道具（可不用）', '開始交易'].map((label, index) =>
-        `<li class="${index < step ? 'done' : index === step ? 'now' : ''}">${label}</li>`).join('')}</ol>`);
-    }
-    const tip = this.tipFor(run);
-    if (tip) parts.push(`<p class="coach-tip" role="note"><span>${tips[tip]}</span><button type="button" class="text-button" data-act="tip-ok" data-value="${tip}">知道了</button></p>`);
-    if (!parts.length) return '';
-    return `<div class="coach">${parts.join('')}<button type="button" class="coach-off" data-act="coach-off" aria-label="關閉新手提示">略過教學</button></div>`;
-  }
+export function playGuideMarkup(config: FinancialConfig) {
+  const { turns, actionLimit, itemPlayLimit, stageDays } = config.gameplay;
+  const shopDays = stageDays.filter(day => day < turns);
+  return `<div class="play-guide">
+    <p>每位角色從 <strong>${money(config.financial.initialCapital)}</strong> 起家。${turns} 日後，現金和股票加起來最多的人獲勝。</p>
+    <dl>
+      <dt>交易</dt><dd>決定買多少股票，然後按「開始交易」。股票會跟著市場漲跌，現金可以用來購物。</dd>
+      <dt>王牌</dt><dd>開局選一張。符合條件時，王牌會自動發動。</dd>
+      <dt>道具</dt><dd>立即牌和防禦牌先點開，再按「立即使用」或「部署」。一天最多部署一張。行動牌最多選 ${actionLimit} 張，下單時發動。全天最多用 ${itemPlayLimit} 張道具。</dd>
+      ${config.shop.enabled ? `<dt>商店</dt><dd>道具商店每天開門，第 ${shopDays.join('、')} 日收盤後開放王牌商店。兩間都只收現金。</dd>` : ''}
+    </dl>
+    <p class="muted">市場新聞是虛構情境。可點上方日期查看日程。</p>
+  </div>`;
 }

@@ -1,3 +1,4 @@
+import { iconMarkup } from './pixels';
 import type { FinancialConfig, GameCard } from '../config/financial-settings';
 import { netWorth, returnRate } from '../core/economy';
 import type { TradingRun, DayOutcome, Investor } from '../core/trading-run';
@@ -16,18 +17,12 @@ import { performanceChart } from './performance-chart';
 
 export const financialLabels = { normal: '交易正常', bankruptcy: '身家歸零' };
 
-export function iconMarkup(icon: string, color: string) {
-  return `<canvas class="pixel-icon" data-icon="${icon}" data-color="${color}" width="10" height="9" aria-hidden="true"></canvas>`;
-}
-
-export function openingMarkup(config: FinancialConfig, seed: number, chosen: string, difficulty: string) {
+export function openingMarkup(config: FinancialConfig, chosen: string, difficulty: string) {
   const featured = config.characters.find(character => character.id === chosen) ?? config.characters[0];
   return `<section class="opening">
     <div class="opening-hero">
       <p class="opening-label"><i aria-hidden="true"></i> 還沒開盤</p>
       <div class="opening-title"><h1>股市攻頂戰</h1><p>Pixel Stock Arena</p></div>
-      <p class="opening-description">你有 ${money(config.financial.initialCapital)}。買股票可能賺錢，也可能賠錢。${config.gameplay.turns} 天後，最有錢的人獲勝！</p>
-      <ol class="opening-steps" aria-label="怎麼玩"><li>今天買多少股票</li><li>要不要用道具</li><li>開始交易</li></ol>
     </div>
     <section class="open-board panel"><h2>選一位角色出賽</h2>
     <div class="investor-feature" style="--ink:${featured.color}">
@@ -40,9 +35,8 @@ export function openingMarkup(config: FinancialConfig, seed: number, chosen: str
     </button>`).join('')}</div>
     <div class="opening-settings"><label>電腦難度<select data-input="difficulty">
       ${[['easy', '入門'], ['normal', '標準'], ['hard', '高手']].map(([value, label]) => `<option value="${value}" ${value === difficulty ? 'selected' : ''}>${label}</option>`).join('')}
-    </select></label><label>市場種子<input data-input="seed" type="number" inputmode="numeric" required min="0" max="4294967295" value="${seed}"></label></div>
+    </select></label></div>
     <button type="button" class="gold-button" data-act="start">開盤啦 <span aria-hidden="true">→</span></button>
-    <p class="opening-note">起手本金 ${money(config.financial.initialCapital)}。四位角色規則相同，新聞全是虛構情境。</p>
     </section>
   </section>`;
 }
@@ -107,11 +101,11 @@ function arenaMarkup(run: TradingRun, choosing: boolean, animate: boolean, previ
       <canvas class="sprite" width="72" height="96" data-sprite="${investor.character.id}" data-mood="${animate && sent ? 'strike' : mood}" aria-hidden="true"></canvas>
       <canvas class="portrait arena-portrait" width="64" height="64" data-portrait="${id}" aria-hidden="true"></canvas>
 
-      <div class="plate"><b class="rank">${standing.rank === 1 ? '♛ ' : ''}${standing.rank ? `#${standing.rank}` : '出局'}${climb ? `<small class="${direction(climb)}">${arrow(climb)}</small>` : ''}</b>
+      <div class="plate"><b class="rank">${standing.rank === 1 ? iconMarkup('crown', '#f4c56d') : ''}${standing.rank ? `#${standing.rank}` : '出局'}${climb ? `<small class="${direction(climb)}">${arrow(climb)}</small>` : ''}</b>
         <strong>${escapeHtml(investor.character.name)}${isPlayer ? '<em>你</em>' : ''}</strong>
         <span class="worth">${money(value)}</span>
         <span class="wealth-track ${animate ? 'wealth-moving' : ''}" aria-hidden="true" style="--start:${fill(outcome?.start ?? value)}%;--end:${fill(value)}%;--capital:${fill(capital)}%"><i></i><b></b><small></small></span>
-        ${investor.defenses.length || investor.memory.mirror !== null ? `<small class="fighter-status" aria-label="護盾 ${investor.defenses.length}，${investor.memory.mirror === null ? '' : '反擊鏡待命'}">${investor.defenses.length ? '🛡' + investor.defenses.length : ''}${investor.memory.mirror !== null ? ' ◈' : ''}</small>` : ''}</div>
+        ${investor.defenses.length || investor.memory.mirror !== null ? `<small class="fighter-status" aria-label="護盾 ${investor.defenses.length}，${investor.memory.mirror === null ? '' : '反擊鏡待命'}">${investor.defenses.length ? iconMarkup('shield', '#a5d4ff') + investor.defenses.length : ''}${investor.memory.mirror !== null ? iconMarkup('mirror', '#b3efff') : ''}</small>` : ''}</div>
       ${selectable ? `<button type="button" class="target-seat" data-act="target" data-value="${id}" aria-pressed="${Boolean(selected)}" aria-label="指定 ${escapeHtml(investor.character.name)}，現金 ${money(selectable.cash)}，股票 ${money(selectable.stock)}，護盾 ${selectable.shields}"><span aria-hidden="true">⌖</span></button>` : ''}
     </article>`;
   }).join('');
@@ -216,7 +210,7 @@ export function cardMarkup(config: FinancialConfig, card: GameCard, kind: 'joker
   const mark = card.rarity === 'legendary' ? '✦' : card.rarity === 'rare' ? '◆' : '·';
   const { line } = cardDescription(config, card);
   return `<span class="game-card ${kind}${role} rarity-${card.rarity}${timing ? ' phase-' + timing : ''}" style="--ink:${card.color}" ${attrs}>
-    <span class="card-top"><canvas data-card-art="${card.icon}" data-card-design="${card.id}" data-color="${card.color}" width="24" height="20" aria-hidden="true"></canvas>
+    <span class="card-top"><canvas data-card-art="${card.icon}" data-card-design="${card.id}" data-color="${card.color}" width="${kind === 'joker' ? 128 : 64}" height="${kind === 'joker' ? 128 : 64}" aria-hidden="true"></canvas>
       ${kind === 'joker' ? `<b class="rarity-mark" aria-label="${rarityLabel[card.rarity]}">${mark}</b>` : ''}</span>
     ${timing ? `<small class="item-phase">${phase}</small>` : ''}<strong>${escapeHtml(card.name)}</strong><span class="card-line">${escapeHtml(line)}</span>
     ${status ? `<span class="card-status">${status}</span>` : ''}</span>`;
@@ -401,7 +395,7 @@ const shopBlockCopy: Record<BuyBlock, string> = { sold: '已買下', owned: '已
  * The stage shop: three jokers and two items with real prices for this buyer. Only cash pays; buying lowers total
  * worth by the price, and owned cards never count toward it. Every number comes from the run's shop rules.
  */
-export function shopMarkup(run: TradingRun, picked: number | null, replace: number | null, first: boolean) {
+export function shopMarkup(run: TradingRun, picked: number | null, replace: number | null) {
   const shop = run.shop!;
   const { cash } = run.player.account;
   const { jokerSlots, itemSlots } = run.config.gameplay;
@@ -422,9 +416,8 @@ export function shopMarkup(run: TradingRun, picked: number | null, replace: numb
     `<button type="button" data-act="shop-replace" data-value="${index}" aria-pressed="${replace === index}">換掉 ${escapeHtml(card.name)}${slot.kind === 'joker' ? ` <small>回收 +${money(sellPrice(run.config, card))}</small>` : ''}</button>`).join('')}</div>` : '';
   const note = slot && check ? `<p class="shop-note" aria-live="polite"><strong>${escapeHtml(slot.card.name)}</strong>：${escapeHtml(cardDescription(run.config, slot.card).line)}。${escapeHtml(cardDescription(run.config, slot.card).detail)}
     ${check.block ? `<span class="shop-warning">${check.block === 'cash' ? `現金還差 ${money(check.shortfall)}。股票不能拿來付，下次商店日前可以多留點現金。` : shopBlockCopy[check.block]}</span>` : ''}</p>` : '';
-  return `<div class="shop" data-shop-day="${shop.day}"><div class="shop-sign" aria-hidden="true">◆　王牌商店　◆</div>
+  return `<div class="shop" data-shop-day="${shop.day}"><div class="shop-sign" aria-hidden="true">${iconMarkup('shop', '#ffc973')}王牌商店</div>
     <p class="shop-wallet">現金 <b class="cash-ink" data-shop-cash>${money(cash)}</b> · 王牌 ${run.player.jokers.length} / ${jokerSlots} · 道具 ${run.player.items.length} / ${itemSlots}</p>
-    ${first ? '<p class="coach-tip shop-tip">只能用現金買。買了總身家會少掉售價，王牌本身不算錢，但之後每天都會幫你賺。</p>' : ''}
     <div class="shop-grid">${shelves.join('')}</div>
     ${note}${replaceList}
     <div class="dialog-actions"><button type="button" data-act="leave-shop">離開商店</button>
@@ -435,7 +428,7 @@ export function shopMarkup(run: TradingRun, picked: number | null, replace: numb
 function dailyShopMarkup(run: TradingRun, selected?: number, feedback?: string) {
   const shop = run.dailyShop;
   if (!shop) return '';
-  return `<section class="daily-shop" aria-label="今日道具商店"><div class="shop-sign"><h2>今日道具商店</h2><span>◉ ${money(run.player.account.cash)}${run.player.memory.voucher ? ' · 折價券' : ''}</span></div>
+  return `<section class="daily-shop" aria-label="今日道具商店"><div class="shop-sign"><h2>${iconMarkup('shop', '#ffc973')}今日道具商店</h2><span>${iconMarkup('cash', '#f4c56d')}${money(run.player.account.cash)}${run.player.memory.voucher ? ' · 折價券' : ''}</span></div>
     <div class="daily-shelves">${shop.slots.map((slot, index) => {
       const check = run.dailyShopCheck(index);
       return `<article class="daily-product${check.block === 'sold' ? ' sold' : ''}"><button class="card-button" type="button" data-act="daily-detail" data-value="${index}" aria-label="查看 ${escapeHtml(slot.card.name)}">${cardMarkup(run.config, slot.card, 'item')}</button>
@@ -451,7 +444,7 @@ export interface TerminalSelection {
   actions?: ActionChoice[]; dailyPick?: number; feedback?: string; inspectItem?: number;
 }
 
-export function tradingMarkup(run: TradingRun, ui: TerminalSelection, coach: string) {
+export function tradingMarkup(run: TradingRun, ui: TerminalSelection) {
   const { item, animate } = ui;
   const allocation = ui.allocation ?? run.player.allocation;
   const eliminated = run.player.account.eliminated;
@@ -466,14 +459,14 @@ export function tradingMarkup(run: TradingRun, ui: TerminalSelection, coach: str
     ${timelineMarkup(run)}
     <div class="play-layout">
       <div class="stage-column">${arenaMarkup(run, choosing, animate, preview)}${heroMarkup(run)}${resultMarkup(run, animate)}</div>
-      <div class="decision-column">${coach}
+      <div class="decision-column">
         ${eliminated ? '<section class="panel spectator"><h2>本席已出局</h2><p>其他投資人會繼續結算。</p><button type="button" data-act="personal">查看個人結算</button></section>' :
       `${allocationMarkup(run, allocation, actions)}${jokerMarkup(run, animate)}${itemMarkup(run, allocation, ui)}${targetHint}${dailyShopMarkup(run, ui.dailyPick, ui.feedback)}`}
       </div>
     </div></main>
     <div class="trade-dock"><div class="dock-inner"><div class="dock-caption"><span>${eliminated ? '觀戰模式' : `第 ${run.day} / ${run.config.gameplay.turns} 日`}${item !== null && !eliminated ? ` · ${escapeHtml(run.player.items[item].name)}` : ''}</span>
       <strong>${eliminated ? '其餘席位繼續' : target ? '⌖ ' + escapeHtml(target.target.name) : preview?.targets.length ? '請先選對手' : escapeHtml(allocationOption(run.config, allocation).name)}</strong></div>
-      ${!eliminated && run.dailyShop ? '<button type="button" class="shop-shortcut" data-act="go-shop" aria-label="前往今日道具商店">◉ <span>商店</span></button>' : ''}
+      ${!eliminated && run.dailyShop ? `<button type="button" class="shop-shortcut" data-act="go-shop" aria-label="前往今日道具商店">${iconMarkup('shop', '#ffc973')}<span>商店</span></button>` : ''}
       <button type="button" class="gold-button" data-act="trade" ${!canTrade || run.offer?.source === 'daily' ? 'disabled' : ''}>
       ${eliminated ? '看下一個交易日' : run.day === run.config.gameplay.turns ? '開始交易・收盤' : '開始交易'} <span aria-hidden="true">→</span></button></div></div>`;
 }

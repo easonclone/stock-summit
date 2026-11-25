@@ -15,7 +15,7 @@ const server = createServer(async (req, res) => {
   if (!url.startsWith('/stock-summit/')) { res.writeHead(404).end(); return; }
   const path = url === '/stock-summit/' ? 'index.html' : url.slice('/stock-summit/'.length);
   try {
-    res.setHeader('Content-Type', path.endsWith('.js') ? 'text/javascript' : path.endsWith('.css') ? 'text/css' : path.endsWith('.png') ? 'image/png' : 'text/html');
+    res.setHeader('Content-Type', path.endsWith('.js') ? 'text/javascript' : path.endsWith('.css') ? 'text/css' : path.endsWith('.png') ? 'image/png' : path.endsWith('.jpg') ? 'image/jpeg' : 'text/html');
     res.end(await readFile(join(build, path)));
   } catch {
     res.writeHead(404).end();
@@ -129,7 +129,14 @@ async function openMarket(width, height, mobile, seed, reduced) {
   await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: reduced ? 'reduce' : 'no-preference' }] });
   await send('Page.navigate', { url: 'http://127.0.0.1:' + server.address().port + '/stock-summit/?seed=' + seed });
   await waitFor(on('start'));
+  assert(!(await has('[data-input="seed"]')), '開局不顯示技術參數');
+  assert.equal(await js('new URL(location.href).searchParams.has("seed")'), false);
   await layout(width, height);
+  assert(!(await has('dialog[open]')), '開局不自動打開玩法說明');
+  await trustedClick(on('help'), mobile);
+  assert(await has('.dialog-help[open] .play-guide'));
+  await action('close-dialog');
+  assert(await js('document.activeElement.dataset.act === "help"'), '關閉說明後回到原按鈕');
   await trustedClick(on('start'), mobile);
   await waitFor('main.trading');
   // 開局先免費三選一王牌，選完才能交易。
@@ -139,6 +146,10 @@ async function openMarket(width, height, mobile, seed, reduced) {
   await click(on('offer-card') + '[data-value="0"]');
   await action('take');
   transitions.joker++;
+  assert(!(await has('.coach, .opening-steps, .dialog-help[open]')));
+  await action('help');
+  assert(await has('.dialog-help[open]'));
+  await action('close-dialog');
   assert.equal(await js('document.querySelectorAll(".joker-row .card-button").length'), 1, '王牌列顯示一張王牌');
   await layout(width, height, true);
   await action('chart');
@@ -311,13 +322,16 @@ try {
       if (width === 320) await screenshot('settlement-320');
       else {
         await screenshot('settlement-desktop');
+        assert.doesNotMatch(await js('document.querySelector("main.settlement").textContent'), /種子|seed/i);
+        await js('Object.defineProperty(navigator.clipboard, "writeText", { configurable:true, value:async text => { window.sharedResult = text; } })');
         await action('share');
         await delay(150);
         assert.equal(await js('Boolean(document.querySelector("dialog[open] textarea")) || document.querySelector("#announce").textContent.includes("已複製")'), true);
         if (await has('dialog[open]')) await action('close-dialog');
-        const previous = await js('new URL(location.href).searchParams.get("seed")');
+        assert.doesNotMatch(await js('window.sharedResult'), /種子|seed=/i);
         await action('replay');
-        assert.equal(await js('new URL(location.href).searchParams.get("seed")'), previous);
+        assert(await has('.dialog-offer[open]'), '重玩本局可重新選擇王牌');
+        assert.equal(await js('new URL(location.href).searchParams.has("seed")'), false);
         await openMarket(width, height, false, 23, true);
       }
     } else {

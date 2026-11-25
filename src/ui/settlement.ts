@@ -72,20 +72,20 @@ export function settlementMarkup(run: TradingRun, personal = false) {
   });
   return `<main class="settlement" id="settlement"><section class="report-hero panel">
     <p class="opening-label"><i aria-hidden="true"></i> ${run.closed ? '市場已收盤' : '本席已出局'}</p><h1>${escapeHtml(title)}</h1>
-    <p>已結算 ${run.reports.length} 日 · 市場種子 ${run.options.seed}</p>${highlightsMarkup(run, player)}</section>
+    <p>已結算 ${run.reports.length} 日</p>${highlightsMarkup(run, player)}</section>
     <div class="report-layout"><section class="panel leaderboard"><div class="section-head"><h2>${run.closed ? '本局戰績' : '目前排行榜'}</h2><span>總身家</span></div>
       <ol>${standingsMarkup.join('')}</ol></section>${performanceChart(run)}</div>
     <section class="panel report-details"><h2>本局戰績明細</h2>${(personal ? [player] : standings.map(item => item.investor)).map(investor => detailMarkup(run, investor)).join('')}</section>
     <div class="settlement-actions">
       ${personal && !run.closed ? '<button type="button" data-act="spectate">返回觀戰</button>' : '<button type="button" data-act="share">分享戰績</button>'}
-      <button type="button" data-act="replay">同種子再玩</button><button type="button" class="gold-button" data-act="new">再開一局 →</button>
+      <button type="button" data-act="replay">重玩本局</button><button type="button" class="gold-button" data-act="new">再開一局 →</button>
     </div></main>`;
 }
 
 export function shareText(run: TradingRun) {
   const url = new URL(location.href);
-  url.searchParams.set('seed', String(run.options.seed));
+  url.searchParams.delete('seed');
   const standings = run.standings().map(({ investor, rank }) =>
     `${rank === null ? '出局' : `第 ${rank} 名`} ${investor.character.name} ${money(netWorth(investor.account))}（${signedPercent(returnRate(investor.account))}）`);
-  return `股市攻頂戰 Stock Summit · Market Showdown\n市場種子 ${run.options.seed}・第 ${run.reports.length} 日\n${standings.join('\n')}\n${url}`;
+  return `股市攻頂戰 Stock Summit · Market Showdown\n第 ${run.reports.length} 日\n${standings.join('\n')}\n${url}`;
 }

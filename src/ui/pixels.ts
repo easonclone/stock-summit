@@ -1,8 +1,10 @@
 import type { FinancialConfig, InvestorCharacter } from '../config/financial-settings';
+import { drawHDCard, drawHDCity } from './hd-art';
 import { drawInvestorArt } from './investor-art';
 import { drawInvestorPortrait, drawInvestorSprite } from './investor-sprites';
 
 type PixelIcon = FinancialConfig['jokers'][number]['icon'];
+export type SystemIcon = PixelIcon | 'shop' | 'help' | 'settings' | 'news' | 'target' | 'mirror';
 
 export type Pixel = (color: string, x: number, y: number, width: number, height: number) => void;
 
@@ -15,7 +17,7 @@ export function mixColor(first: string, second: string, weight: number) {
 
 /** 裁出臉部與上身，劇場和排行榜也能看清角色特徵。 */
 export function portrait(canvas: HTMLCanvasElement, character: InvestorCharacter) {
-  const size = 64;
+  const size = 128;
   canvas.width = size;
   canvas.height = size;
   const ctx = canvas.getContext('2d')!;
@@ -33,7 +35,13 @@ export function portrait(canvas: HTMLCanvasElement, character: InvestorCharacter
   }
 }
 
-const icons: Record<PixelIcon, string[]> = {
+const icons: Record<SystemIcon, string[]> = {
+  shop: ['0111110','1111111','1010101','0111110','0101010','0111110'],
+  help: ['0011100','0100010','0000110','0001000','0000000','0001000'],
+  settings: ['0010100','1111111','0110110','0110110','1111111','0010100'],
+  news: ['0111110','0100010','0111110','0101010','0110110','0111110'],
+  target: ['0011100','0101010','1110111','0101010','0011100','0000000'],
+  mirror: ['0011100','0111110','0111110','0011100','0001000','0001000'],
   shield: ['0111110','0100010','0111010','0100010','0010100','0001000'],
   rocket: ['0011100','0011100','0010100','0111110','0101010','0001000'],
   short: ['1111111','1111111','0111110','0011100','0011100','0001000'],
@@ -56,16 +64,36 @@ const icons: Record<PixelIcon, string[]> = {
   gift: ['0110110','1111111','1001001','1111111','1001001','1111111']
 };
 
-export function drawIcon(canvas: HTMLCanvasElement, icon: PixelIcon, color: string) {
-  canvas.width = 10;
-  canvas.height = 9;
+export function iconMarkup(icon: SystemIcon, color: string) {
+  return `<canvas class="pixel-icon" data-icon="${icon}" data-color="${color}" width="32" height="32" aria-hidden="true"></canvas>`;
+}
+
+export function drawIcon(canvas: HTMLCanvasElement, icon: SystemIcon, color: string) {
+  canvas.width = 32;
+  canvas.height = 32;
   const ctx = canvas.getContext('2d')!;
-  ctx.fillStyle = color;
-  icons[icon].forEach((row, y) => {
-    [...row].forEach((cell, x) => {
-      if (cell === '1') ctx.fillRect(x + 1, y + 1, 1, 1);
-    });
-  });
+  const cells = icons[icon];
+  if (!cells) return;
+  ctx.fillStyle = '#101a2b';
+  ctx.fillRect(3, 6, 26, 20);
+  ctx.fillRect(6, 3, 20, 26);
+  ctx.fillStyle = mixColor(color, '#131925', .74);
+  ctx.fillRect(5, 7, 22, 18);
+  const shadow = mixColor(color, '#0c1223', .52);
+  const bright = mixColor(color, '#ffffff', .48);
+  cells.forEach((row, y) => [...row].forEach((cell, x) => {
+    if (cell !== '1') return;
+    const left = 5 + x * 3;
+    const top = 6 + y * 3;
+    ctx.fillStyle = shadow;
+    ctx.fillRect(left + 1, top + 2, 3, 3);
+    ctx.fillStyle = color;
+    ctx.fillRect(left, top, 3, 3);
+    if (cells[y - 1]?.[x] !== '1') {
+      ctx.fillStyle = bright;
+      ctx.fillRect(left, top, 2, 1);
+    }
+  }));
 }
 
 export type SpriteMood = 'strike' | 'idle' | 'think' | 'gain' | 'loss' | 'shield' | 'hit' | 'call' | 'broke' | 'recover' | 'win';
@@ -122,6 +150,9 @@ const cardAccents: Record<string, [number, number][]> = {
 export function drawCardArt(canvas: HTMLCanvasElement, icon: PixelIcon, color: string, design = '') {
   const ctx = canvas.getContext('2d')!;
   const fill: Pixel = (paint, x, y, w, h) => { ctx.fillStyle = paint; ctx.fillRect(x, y, w, h); };
+  if (drawHDCard(ctx, design)) return;
+  canvas.width = 24;
+  canvas.height = 20;
   ctx.clearRect(0, 0, 24, 20);
   fill('#0d1523', 3, 3, 18, 14);
   fill('#0d1523', 6, 1, 12, 18);
@@ -151,6 +182,7 @@ export function drawCity(canvas: HTMLCanvasElement) {
   canvas.width = 288;
   canvas.height = 126;
   const ctx = canvas.getContext('2d')!;
+  if (drawHDCity(ctx)) return;
   const fill: Pixel = (color, x, y, w, h) => { ctx.fillStyle = color; ctx.fillRect(x, y, w, h); };
   fill('#11172b', 0, 0, 288, 126);
   fill('#192438', 0, 33, 288, 40);

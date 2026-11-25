@@ -8,20 +8,25 @@ const config = readFinancialConfig();
 const rules = config.financial;
 
 describe('財務資料驗證', () => {
-  it('指出無效的效果引用、會直接改股價的節點與不存在的起始配置', () => {
+  it('指出無效的效果引用、放錯類別的效果與不存在的起始配置', () => {
     const invalid = structuredClone(financialInput);
-    invalid.nodes.kinds.steady.effectIds = ['missing'];
-    expect(() => readFinancialConfig(invalid)).toThrow(/steady.*missing/);
+    invalid.jokers[0].effectIds = ['missing'];
+    expect(() => readFinancialConfig(invalid)).toThrow(/cash_cow.*missing/);
+    const misplaced = structuredClone(financialInput);
+    misplaced.items[0].effectIds = ['diamond'];
+    expect(() => readFinancialConfig(misplaced)).toThrow(/道具 gift 含不支援的效果/);
     const priced = structuredClone(financialInput);
-    priced.nodes.kinds.steady.effectIds = ['market_day'];
-    expect(() => readFinancialConfig(priced)).toThrow(/不得直接改變股價/);
+    priced.jokers[0].effectIds = ['market_day'];
+    expect(() => readFinancialConfig(priced)).toThrow(/王牌 cash_cow 含不支援的效果/);
     expect(() => readFinancialConfig({ ...financialInput, allocation: { ...financialInput.allocation, initial: 'nope' } })).toThrow(/起始資產配置/);
   });
 
-  it('預設遊戲只有三種配置，沒有借款或費用設定', () => {
+  it('預設遊戲只有三種配置、18 張王牌與 12 張道具，沒有借款或費用設定', () => {
     expect(config.allocation.options.map(option => option.ratio)).toEqual([0, 0.5, 1]);
-    expect(Object.keys(rules).sort()).toEqual(['initialCapital', 'maxHedges', 'maxRecoveries', 'recoveryCash', 'recoveryGap']);
-    expect(Object.values(config.effects).some(effect => ['bailout', 'repay', 'maintenance', 'fee_coupon'].includes(effect.type as string))).toBe(false);
+    expect(Object.keys(rules).sort()).toEqual(['initialCapital', 'maxDefenses', 'maxRecoveries', 'recoveryCash']);
+    expect([config.jokers.length, config.items.length]).toEqual([18, 12]);
+    expect([...config.jokers, ...config.items].every(card => card.line.length <= 24)).toBe(true);
+    expect(Object.values(config.effects).some(effect => ['bailout', 'repay', 'maintenance', 'fee_coupon', 'hedge'].includes(effect.type as string))).toBe(false);
   });
 });
 

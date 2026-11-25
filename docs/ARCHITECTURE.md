@@ -2,18 +2,19 @@
 
 | 位置 | 職責 |
 | --- | --- |
-| `src/config/financial-settings.ts` | Zod 驗證與跨檔效果引用檢查 |
-| `src/core/trading-run.ts` | 開盤、抽卡與換牌、開盤快照、同步決策、結算及收盤 |
-| `src/core/economy.ts` | 現金、部位、定存、債務、費用與績效帳務 |
-| `src/core/financial-risk.ts`、`bankruptcy.ts` | 財務警戒、追繳、平倉、破產與重整 |
-| `src/core/trading-effects.ts` | 依共用 effectIds 執行單一財務效果系統 |
-| `src/core/trade-preview.ts`、`npc-strategy.ts` | 用複製帳本評估卡片＋路線情境；規則式決策與保留手牌 |
-| `src/core/node-map.ts`、`random.ts`、`targets.ts` | 種子分岔圖、資料流與事件目標 |
-| `src/main.ts`、`src/ui` | DOM 互動、SVG 績效及路線、像素圖示、視窗與音效；Phaser 延遲載入以播放重大市場像素效果 |
-| `scripts/simulate.mjs` | 用正式引擎無畫面執行對照模擬 |
+| `src/config/financial-settings.ts` | Zod 驗證與跨檔效果引用檢查（王牌、道具、新聞各自允許的效果類型） |
+| `src/core/trading-run.ts` | 開局選王牌、商店與階段道具、道具取得、同步決策、狙擊、收盤、歸零翻身 |
+| `src/core/shop.ts` | 商店定價、折扣、回收價、能不能買（差額、已持有、需替換）與購買，玩家與電腦共用 |
+| `src/core/settlement.ts` | 單一結算引擎：換倉、道具、共同市場與新聞、王牌加成與倍率、護盾、固定現金收入；每一步寫入 `DayLedger.steps` |
+| `src/core/economy.ts` | 現金、股票與績效帳務 |
+| `src/core/financial-risk.ts`、`bankruptcy.ts` | 歸零判斷與一次翻身 |
+| `src/core/trade-preview.ts`、`npc-strategy.ts` | 用複製帳本在幾個市場情境下試算；電腦依同一試算挑配置、道具與卡片 |
+| `src/core/market-events.ts`、`random.ts`、`targets.ts` | 新聞排程、種子亂數與新聞目標 |
+| `src/main.ts`、`src/ui` | DOM 互動、SVG 績效、像素圖示、視窗與音效；Phaser 延遲載入以播放重大市場像素效果 |
+| `scripts/simulate.mjs` | 用正式引擎無畫面執行策略、角色與王牌對照模擬 |
 
-每人先取得開盤帳務、手牌、已知情報、公開排名與可前往路線。引擎鎖定決策以及個別事件的目標，先執行全部席位的卡片與路線，接著套用市場、利息、費用、追繳及破產判定。資產轉移與損益計入逐日結算。畫面只透過命令確認交易、選擇換牌及接受重整，預覽讀取獨立帳本副本。
+每人先取得開盤帳務、自己的王牌與道具、自己取得的新聞方向與公開排名。引擎鎖定四人的配置與道具，再抽共同市場與新聞目標，依結算順序處理每個人，接著處理狙擊與固定現金收入，最後判斷歸零與排名。畫面只透過命令確認交易、選擇卡片提案及接受翻身，預覽讀取獨立帳本副本。
 
-路線生成、即日行情、事件時程、目標、各席位抽卡與決策各用分離的亂數串流。無效確認與預覽不消耗正式結算亂數。分岔採相鄰且不交叉的連線，各列節點不同，連續單線最多兩日。高價值類型的出現日與權重由資料調整。
+共同市場、新聞排程、新聞目標、各席位王牌、道具與決策各用分離的亂數串流。無效確認與預覽不消耗正式結算亂數。
 
-`src/core/market-events.ts` 依種子、已公布新聞及公共規則排出市場日程。實際預告只交給已取得消息的席位；玩家及電腦的情境試算只讀取公開候選池或自己取得的消息。
+`src/core/market-events.ts` 依種子、已公布新聞及公共規則排出市場日程。實際預告只交給已取得消息的席位；玩家及電腦的情境試算只讀取整份新聞清單的平均利多／利空幅度，或自己用小道消息得知的方向。

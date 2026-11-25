@@ -570,8 +570,8 @@
    "animationId": "drift_up",
    "soundId": "chime",
    "dialogue": [
-    "除權息行情熱起來了。",
-    "有人等股息，有人先買個期待。"
+    "交易所發紅包啦！",
+    "每個人都有 $400，股價照舊。"
    ]
   },
   "margin_call_wave": {
@@ -584,14 +584,14 @@
     "停損單比鬧鐘還準時。"
    ]
   },
-  "etf_rebalance": {
+  "broker_gift": {
    "sceneId": "broker",
    "speakerId": "broker",
    "animationId": "rotate",
-   "soundId": "gavel",
+   "soundId": "fanfare",
    "dialogue": [
-    "大型 ETF 公布換股名單。",
-    "有人被請進群組，有人被請出去。"
+    "券商週年慶開跑！",
+    "每個帳戶抽一張道具，快去看看。"
    ]
   },
   "closing_bids": {

@@ -1,0 +1,18 @@
+{
+  "enabled": true,
+  "jokers": 3,
+  "items": 2,
+  "price": {
+    "joker": {
+      "common": 500,
+      "rare": 900,
+      "legendary": 1400
+    },
+    "item": {
+      "common": 150,
+      "rare": 250,
+      "legendary": 400
+    }
+  },
+  "sellRate": 0.25
+}

@@ -1,8 +1,11 @@
 {
   "turns": 15,
   "eventEvery": 3,
-  "initialHand": 2,
-  "inventorySize": 5,
-  "routeMap": false,
-  "dailyRoute": "trade"
+  "jokerSlots": 5,
+  "itemSlots": 3,
+  "startItems": 1,
+  "jokerChoices": 3,
+  "stageDays": [3, 6, 9, 12],
+  "stageItems": 1,
+  "rarity": { "common": 65, "rare": 30, "legendary": 5 }
 }

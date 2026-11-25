@@ -1,7 +1,7 @@
 import type { FinancialConfig } from '../config/financial-settings';
 import type { AnimationId, SceneId, Situation, TheaterConfig, TheaterSound } from '../config/theater-settings';
 import type { DayOutcome, DayReport, TradingRun } from '../core/trading-run';
-import { marketTone } from '../core/trading-effects';
+import { marketTone } from '../core/settlement';
 import { money } from './format';
 import type { SpriteMood } from './pixels';
 
@@ -51,11 +51,11 @@ export function cuesFor(outcome: DayOutcome, tone: Tone, rankBefore: number | nu
   add('champion', 0, champion);
   add('bankrupt', 0, outcome.risk.insolvent && !outcome.recovery);
   add('recovery', 0, Boolean(outcome.recovery));
-  add('shield', outcome.ledger.protected, outcome.ledger.protected > 0);
+  add('shield', outcome.ledger.shielded, outcome.ledger.shielded > 0);
   add('allin_up', outcome.marketPnl, hit && all && outcome.marketPnl > 0);
-  add('allin_down', outcome.marketPnl, hit && all && outcome.marketPnl < 0 && !outcome.ledger.protected);
-  add('attacked', net, outcome.incomingCards.length > 0 && net < 0);
-  add('combo', net, outcome.ledger.synergies > 0 && net > 0);
+  add('allin_down', outcome.marketPnl, hit && all && outcome.marketPnl < 0 && !outcome.ledger.shielded);
+  add('attacked', net, outcome.attackedBy.length > 0 && net < 0);
+  add('combo', net, outcome.ledger.combos > 0 && net > 0);
   add('sold_rally', 0, hit && tone === 'positive' && empty && previous !== 'cash');
   add('cash_rally', 0, hit && tone === 'positive' && empty && previous === 'cash');
   const heavy = -outcome.marketPnl >= outcome.start * 0.08;
@@ -64,7 +64,7 @@ export function cuesFor(outcome: DayOutcome, tone: Tone, rankBefore: number | nu
   add('overtake', 0, rankBefore !== null && rankAfter !== null && rankAfter < rankBefore);
   add('rank_drop', 0, rankBefore !== null && rankAfter !== null && rankAfter - rankBefore >= 2);
   add('market_gain', outcome.marketPnl, hit && outcome.marketPnl > 0 && !all);
-  add('market_loss', outcome.marketPnl, hit && outcome.marketPnl < 0 && !all && (outcome.allocation !== 'half' || heavy) && !outcome.ledger.protected);
+  add('market_loss', outcome.marketPnl, hit && outcome.marketPnl < 0 && !all && (outcome.allocation !== 'half' || heavy) && !outcome.ledger.shielded);
   return cues.sort((a, b) => b.score - a.score);
 }
 
@@ -102,8 +102,8 @@ export function buildTheater(run: TradingRun, report: DayReport, theater: Theate
     const ranks = outcome.investor.ranks as (number | null)[];
     return {
       id: outcome.investor.character.id, name: outcome.investor.character.name, color: outcome.investor.character.color,
-      applied: outcome.marketApplied, market: outcome.marketPnl, net: outcome.close - outcome.start, shielded: outcome.ledger.protected,
-      rankBefore: rankAt(ranks, index), rankAfter: rankAt(ranks, index + 1), combos: outcome.ledger.synergies,
+      applied: outcome.marketApplied, market: outcome.marketPnl, net: outcome.close - outcome.start, shielded: outcome.ledger.shielded,
+      rankBefore: rankAt(ranks, index), rankAfter: rankAt(ranks, index + 1), combos: outcome.ledger.combos,
       isPlayer: outcome.investor === run.player, empty: outcome.exposure.stock <= 0
     };
   });

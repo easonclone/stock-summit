@@ -1,30 +1,35 @@
 # 資料契約
 
-- `src/config/financial.json` 集中維護初始資金、融資上限、追繳門檻、費率、定存期限、避險上限與破產重整參數。
-- `src/config/gameplay.json` 維護交易日數、事件間隔、手牌容量及起手張數。
-- `src/config/npc.json` 維護決策擾動、前瞻、流動性成本、財務及手牌評估係數。難度只改決策。
-- `src/data/characters.json` 維護四位角色的 ID、姓名、外觀描述、代表色與肖像鍵。
-- `src/data/finance.json` 定義共用效果、節點及卡片。每筆資料透過 `effectIds` 引用效果，啟動時驗證引用、唯一識別碼、權重和數值門檻。
-- `src/data/market-states.json` 與 `src/config/ui-theme.json` 定義盤勢文字、圖示與漲跌配色。
+- `src/config/financial.json`：初始資金、翻身資金、可翻身次數、待命護盾上限。
+- `src/config/allocation.json`：三種配置（比例）、預設配置與共同市場效果 id。
+- `src/config/gameplay.json`：交易日數、新聞間隔、王牌與道具上限、起始道具、王牌選項數、商店與階段日（`stageDays`）、階段免費道具數、稀有度權重（65／30／5）。
+- `src/config/shop.json`：`enabled`、每次上架的王牌與道具數、依稀有度的 `price.joker`／`price.item`、王牌回收比例 `sellRate`。啟動時驗證回收比例低於最低折扣後售價比例。
+- `src/config/settlement.json`：倍率上限、少賠上限、每人每日被狙擊次數。
+- `src/config/npc.json`：決策擾動（只受難度影響）、風險厭惡、保留道具價值與道具估值、商店估值係數（`jokerShopScale`、`itemShopScale`、`shopMargin`）、商店日留現金加分（`shopCashValue`、`shopBudget`）、同流派加分 `styleSynergy`。
+- `src/data/characters.json`：四位角色的 ID、姓名、外觀描述、代表色與肖像鍵。
+- `src/data/finance.json`：所有效果（市場、王牌、道具共用）。
+- `src/data/cards.json`：`jokers` 與 `items`。欄位為 `id`、`name`、`line`（牌面一句話，最多 24 字）、`detail`、`icon`、`color`、`rarity`、`weight`、`effectIds`，可選 `shopOnly`（只在商店出現，不進開局與卡包）。
+- `src/data/market-events.json`：60 則虛構新聞。
+- `src/data/market-states.json` 與 `src/config/ui-theme.json`：盤勢文字、圖示與漲跌配色。
 
-| 資料類型 | 主要欄位 |
-| --- | --- |
-| 效果 | `type` 和對應參數。支援買進及融資、賣出、重估、現金收益、定存、股息、避險、預告、追繳條件、還款與協同 |
-| 節點 | ID、出現最早列、權重、描述、標籤、圖示、效果與可選三選一卡 |
-| 卡片 | ID、名稱、說明、使用條件、持續時間、權重、圖示及效果；主動使用 |
-| 市場事件 | ID、標題、副標、描述、分類、權重、特效層級、目標、效果及必填的虛構標記 |
+啟動時 `readFinancialConfig` 驗證：效果引用存在、ID 不重複、每類資料只能引用該類允許的效果（例如王牌不能直接改股價、道具不能放永久加成）、新聞最多一個股價效果、起始配置存在、可抽王牌足夠。
 
-協同可依節點標籤與已發生的盤勢判斷，追加重估率或股息倍數。市場調整由效果種類定義，不需要為不同新聞加入程式分支。
+| 效果類型 | 用在 | 意義 |
+| --- | --- | --- |
+| `price` | 共同市場、新聞 | 股價漲跌範圍 |
+| `cash_grant`、`item_grant` | 新聞、道具 | 拿現金、拿道具 |
+| `gain_add`、`streak_add`、`rebound_add`、`joker_add`、`today_add` | 王牌、道具 | 股票有賺時的百分比加成（先相加） |
+| `news_mult`、`repeat_mult`、`swing_mult`、`today_mult` | 王牌、道具 | 特殊倍率（依序相乘；`swing_mult`、`today_mult` 也放大虧損） |
+| `loss_cut`、`defense` | 王牌、道具 | 少賠（`defense` 為待命護盾：`cut`／`absorb`／`reverse`） |
+| `cash_yield`、`yield_boost`、`stock_yield`、`bear_bonus`、`item_bonus`、`attack_bonus`、`hold_bonus`、`climb_bonus` | 王牌 | 收盤固定現金 |
+| `news_item`、`shop_discount` | 王牌 | 新聞後拿道具、商店折扣 |
+| `intel`、`item_pack`、`attack`、`stock_cash`、`relief` | 道具 | 偷看方向、三選一、狙擊、領股票 %、低身家救急 |
 
-`src/data/market-events.json` 收錄 60 則虛構新聞。六類代碼依序為 `ai`、`taiwan`、`us`、`global`、`flows`、`memes`，數量為 12、12、10、8、10、8。事件只引用既有的股票漲跌及追繳效果。新聞文案不存效果百分比，畫面依效果設定和當日帳本輸出。
-
-卡片新增 `freedom`，搭配效果可設定 `base` 與 `prepareDays`；`fee_coupon.days` 設定融資券期限。玩法開關及換牌上限設定於 `src/config/card-rules.json`。
-
-完整牌池加入 `rarity`、`expandedOnly` 及選用的 `pairing`。`timed` 記錄持續或一次性布局，`route_card` 調整自有股票風險，`attack` 透過開盤目標套用。設定 `cardRules.rarity` 控制 65／30／5 的稀有度權重。
+新聞的方向由股價效果的正負決定；沒有股價效果的是特殊事件。新聞文案不存百分比，畫面依效果設定和當日紀錄輸出。
 
 ## 市場事件劇場（只負責呈現）
 
 - `src/data/event-theater.json`：`scenes` 為 12 種可重用像素場景（AI 科技中心、半導體工廠、交易所、中央銀行、記者會、港口、能源市場、金庫、散戶聊天室、券商辦公室、黑天鵝、市場狂歡）；`speakers` 為五位新聞角色；`events` 以新聞 id 對應 `sceneId`、`speakerId`、`animationId`、`soundId` 與 1–3 句 `dialogue`；`closing` 為收盤演出。嚴重度、標題、漲跌方向一律讀取 `market-events.json` 與效果引擎，不重複維護數值。
 - `src/data/character-lines.json`：17 種情境（剛開槓桿遇利多／利空、空手遇大漲、剛賣光就漲、空手避跌、定存避險、護盾、連招、被攻擊、追繳、超車、名次大跌、破產、重整、奪冠、新聞獲利、新聞虧損），每種至少 3 句共用台詞，另可為四位角色各加一句個人口吻。台詞只能用 `{amount}`、`{rank}`，數值由實際結算填入。
 - `src/config/theater-settings.ts` 於啟動時驗證：60 則新聞皆有演出、場景與主播存在、台詞數量與佔位符合法、角色 id 存在。
-- 結算紀錄 `DayOutcome.exposure` 記下新聞前的股票、定存與欠款，只供呈現判斷誰受影響，不參與計算。
+- 結算紀錄 `DayOutcome.exposure` 記下市場開盤時的股票與現金，只供呈現判斷誰受影響，不參與計算。`DayOutcome.ledger.steps` 是當日結算連鎖，畫面直接重播。

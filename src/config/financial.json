@@ -2,6 +2,5 @@
   "initialCapital": 10000,
   "recoveryCash": 1000,
   "maxRecoveries": 1,
-  "maxHedges": 2,
-  "recoveryGap": 0.18
+  "maxDefenses": 2
 }

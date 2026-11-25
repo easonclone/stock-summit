@@ -2,9 +2,11 @@ import { z } from 'zod';
 import financial from './financial.json';
 import allocation from './allocation.json';
 import gameplay from './gameplay.json';
-import cardRules from './card-rules.json';
+import settlement from './settlement.json';
 import npc from './npc.json';
+import shop from './shop.json';
 import data from '../data/finance.json';
+import cards from '../data/cards.json';
 import events from '../data/market-events.json';
 import characters from '../data/characters.json';
 import market from '../data/market-states.json';
@@ -17,126 +19,159 @@ const rate = z.number().min(0).max(1);
 const money = z.number().int().min(0).max(10000000);
 const positive = z.number().positive();
 const day = z.number().int().min(1).max(60);
-const icon = z.enum(['shield', 'rocket', 'short', 'eye', 'bolt', 'trap', 'anchor', 'cash', 'chart', 'bull', 'bear', 'bank', 'up', 'down', 'bills', 'halt']);
+const factor = z.number().min(1).max(5);
+const categories = ['ai', 'taiwan', 'us', 'global', 'flows', 'memes'] as const;
+export const icons = ['shield', 'rocket', 'short', 'eye', 'bolt', 'anchor', 'cash', 'chart', 'bull', 'bear', 'bank', 'up', 'down', 'bills', 'halt',
+  'gem', 'crown', 'dice', 'fire', 'gift'] as const;
+
+/**
+ * Every rule a market event, joker or item can apply. Cards and events only reference these by id,
+ * so one settlement engine (src/core/settlement.ts) resolves them all.
+ */
 const effect = z.discriminatedUnion('type', [
   z.object({ type: z.literal('price'), floor: z.number().min(-1).max(1), ceiling: z.number().min(-1).max(1) })
     .refine(value => value.floor <= value.ceiling, '價格波動下限不可大於上限'),
-  z.object({ type: z.literal('dividend'), rate }),
-  z.object({ type: z.literal('hedge'), protection: rate }),
-  z.object({ type: z.literal('intel'), count: z.number().int().min(1).max(2).optional(), bonusDraw: z.literal(true).optional() }),
-  z.object({ type: z.literal('cash_yield'), rate, threshold: rate }),
-  z.object({ type: z.literal('combo'), nodeTag: id, mode: z.enum(['price', 'dividend']), amount: rate,
-    base: rate.optional(), prepareDays: day.optional(), afterLoss: z.boolean().optional() }),
-  z.object({ type: z.literal('timed'), kind: z.enum(['cash','stock','rally','short','safe_shield']), days: day,
-    amount: rate, cap: money.optional() }),
-  z.object({ type: z.literal('route_card'), mode: z.enum(['cushion','desperate']), amount: rate, equity: rate.optional() }),
-  z.object({ type: z.literal('cash_grant'), amount: money.positive(), recovered: z.literal(true).optional() }),
-  z.object({ type: z.literal('gamble'), floor: z.number().int().min(-5000).max(0), ceiling: z.number().int().min(0).max(5000) }),
-  z.object({ type: z.literal('card_draft') }),
-  z.object({ type: z.literal('attack'), mode: z.literal('price'), amount: rate })
+  z.object({ type: z.literal('cash_grant'), amount: money.positive() }),
+  z.object({ type: z.literal('item_grant'), count: z.number().int().min(1).max(3) }),
+  // Jokers: automatic, in settlement order.
+  z.object({ type: z.literal('gain_add'), amount: rate }),
+  z.object({ type: z.literal('streak_add'), step: rate, cap: rate }),
+  z.object({ type: z.literal('rebound_add'), amount: rate }),
+  z.object({ type: z.literal('joker_add'), amount: rate }),
+  z.object({ type: z.literal('news_mult'), factor, categories: z.array(z.enum(categories)).min(1) }),
+  z.object({ type: z.literal('repeat_mult'), factor }),
+  z.object({ type: z.literal('swing_mult'), factor }),
+  z.object({ type: z.literal('loss_cut'), amount: rate }),
+  z.object({ type: z.literal('cash_yield'), rate, cap: money.positive() }),
+  z.object({ type: z.literal('yield_boost'), factor }),
+  z.object({ type: z.literal('stock_yield'), rate, cap: money.positive() }),
+  z.object({ type: z.literal('bear_bonus'), amount: money.positive() }),
+  z.object({ type: z.literal('item_bonus'), amount: money.positive() }),
+  z.object({ type: z.literal('attack_bonus'), amount: money.positive() }),
+  z.object({ type: z.literal('news_item'), count: z.number().int().min(1).max(2) }),
+  z.object({ type: z.literal('hold_bonus'), days: day, amount: money.positive() }),
+  z.object({ type: z.literal('climb_bonus'), amount: money.positive() }),
+  z.object({ type: z.literal('shop_discount'), rate }),
+  // Items: one-shot, at most one per day.
+  z.object({ type: z.literal('today_add'), amount: rate }),
+  z.object({ type: z.literal('today_mult'), factor }),
+  z.object({ type: z.literal('defense'), mode: z.enum(['cut', 'absorb', 'reverse']), amount: z.number().positive().max(10000) }),
+  z.object({ type: z.literal('intel') }),
+  z.object({ type: z.literal('item_pack'), count: z.number().int().min(2).max(4) }),
+  z.object({ type: z.literal('attack'), amount: rate }),
+  z.object({ type: z.literal('stock_cash'), rate }),
+  z.object({ type: z.literal('relief'), amount: money.positive(), below: money.positive() })
 ]);
-const display = z.object({ name: label, icon, color });
-const references = z.array(id).refine(items => new Set(items).size === items.length, '效果引用不得重複');
-const nodes = z.record(id, display.extend({
-  detail: label, weight: positive, fromRow: z.number().int().nonnegative(),
-  effectIds: references, tags: z.array(id).min(1), draft: z.enum(['open', 'catchup']).optional()
-}));
+
+const jokerTypes = ['gain_add', 'streak_add', 'rebound_add', 'joker_add', 'news_mult', 'repeat_mult', 'swing_mult', 'loss_cut', 'cash_yield',
+  'yield_boost', 'stock_yield', 'bear_bonus', 'item_bonus', 'attack_bonus', 'news_item', 'hold_bonus', 'climb_bonus', 'shop_discount'];
+const itemTypes = ['cash_grant', 'today_add', 'today_mult', 'defense', 'intel', 'item_pack', 'attack', 'stock_cash', 'relief'];
+const eventTypes = ['price', 'cash_grant', 'item_grant'];
+
+const references = z.array(id).min(1).refine(items => new Set(items).size === items.length, '效果引用不得重複');
+const card = z.object({
+  id, name: label, line: label.max(24), detail: label, icon: z.enum(icons), color,
+  rarity: z.enum(['common', 'rare', 'legendary']), weight: positive, effectIds: references, shopOnly: z.literal(true).optional()
+});
+const rarityPrice = z.object({ common: money.positive(), rare: money.positive(), legendary: money.positive() });
 const schema = z.object({
   financial: z.object({
     initialCapital: money.positive(), recoveryCash: money.positive(), maxRecoveries: z.number().int().min(0).max(1),
-    maxHedges: z.number().int().min(1).max(6), recoveryGap: rate
+    maxDefenses: z.number().int().min(1).max(4)
   }),
   allocation: z.object({
     initial: id, dailyMarket: id,
-    options: z.array(z.object({ id, name: label, short: label, detail: label, ratio: z.number().min(0).max(1), tags: z.array(id) })).min(2)
+    options: z.array(z.object({ id, name: label, short: label, detail: label, ratio: z.number().min(0).max(1) })).min(2)
   }),
-  gameplay: z.object({ turns: day, eventEvery: day, initialHand: day, inventorySize: day.max(9), routeMap: z.boolean(), dailyRoute: id }),
-  cardRules: z.object({ baseEffects: z.boolean(), preparations: z.boolean(), exchangeLimit: z.number().int().min(0).max(3), freeStarter: z.boolean(), expanded: z.boolean(), rarity: z.object({common:positive,rare:positive,legendary:positive}) }),
-  nodes: z.object({ lanes: z.literal(4), maxLinks: z.literal(2), attempts: day, kinds: nodes }),
+  gameplay: z.object({
+    turns: day, eventEvery: day, jokerSlots: z.number().int().min(1).max(8), itemSlots: z.number().int().min(1).max(5),
+    startItems: z.number().int().min(0).max(3), jokerChoices: z.number().int().min(1).max(4), stageDays: z.array(day),
+    stageItems: z.number().int().min(0).max(2),
+    rarity: z.object({ common: positive, rare: positive, legendary: positive })
+  }),
+  shop: z.object({
+    enabled: z.boolean(), jokers: z.number().int().min(0).max(5), items: z.number().int().min(0).max(5),
+    price: z.object({ joker: rarityPrice, item: rarityPrice }), sellRate: rate
+  }),
+  settlement: z.object({ maxGainMultiplier: factor, maxLossCut: rate, attacksPerTarget: z.number().int().min(1).max(3) }),
   npc: z.object({
-    easy: z.number().nonnegative(), normal: z.number().nonnegative(), hard: z.number().nonnegative(),
-    lookahead: rate, liquidity: positive, bankruptcyPenalty: positive, warningPenalty: positive,
-    cardReserve: positive, hedgeValue: positive, intelValue: positive, draftValue: positive
+    noise: z.object({ easy: z.number().nonnegative(), normal: z.number().nonnegative(), hard: z.number().nonnegative() }),
+    itemReserve: z.number().nonnegative(), riskAversion: rate, defenseValue: rate, intelValue: z.number().nonnegative(),
+    packValue: z.number().nonnegative(), jokerShopScale: z.number().nonnegative(), itemShopScale: z.number().nonnegative(),
+    shopCashValue: rate, shopBudget: money, shopMargin: money, styleSynergy: z.number().nonnegative()
   }),
   characters: z.array(z.strictObject({ id, name: label, description: label, color, spriteKey: id, portrait: id })).length(4),
   theme: z.object({ panel: color, gold: color, night: color, up: color, down: color }),
-  market: z.record(z.enum(['neutral', 'positive', 'negative']), z.object({ name: label, icon })),
+  market: z.record(z.enum(['neutral', 'positive', 'negative']), z.object({ name: label, icon: z.enum(icons) })),
   effects: z.record(id, effect),
-  cards: z.array(display.extend({ id, description: label, condition: label, duration: label, weight: positive,
-    opponent: z.enum(['nearest_ahead','stock_ahead']).optional(),
-    rarity: z.enum(['common','rare','legendary']), expandedOnly: z.literal(true).optional(),
-    pairing: z.object({ tags:z.array(id).min(1), amount:rate }).optional(),
-    freedom: z.enum(['free', 'pair', 'special']), preparationOnly: z.literal(true).optional(),
-    effectIds: references.refine(list => list.length > 0, '卡片至少需要一項效果') })).min(3),
+  jokers: z.array(card).min(3),
+  items: z.array(card).min(3),
   events: z.array(z.object({
     id, title: label, subtitle: label, description: label, fictional: z.literal(true), weight: positive,
-    category: z.enum(['ai', 'taiwan', 'us', 'global', 'flows', 'memes']),
+    category: z.enum(categories),
     target: z.enum(['all', 'random_one', 'random_two', 'first_place', 'last_place']),
     severity: z.enum(['normal', 'major', 'extreme']),
-    effectIds: references.refine(list => list.length > 0, '市場事件至少需要一項效果')
+    effectIds: references
   })).min(1)
 });
 
 export type FinancialConfig = z.infer<typeof schema>;
 export type FinancialRules = FinancialConfig['financial'];
 export type FinanceEffect = z.infer<typeof effect>;
-export type TradingCard = FinancialConfig['cards'][number];
+export type EffectType = FinanceEffect['type'];
+export type GameCard = FinancialConfig['jokers'][number];
 export type TradingEvent = FinancialConfig['events'][number];
-export type InvestmentKind = FinancialConfig['nodes']['kinds'][string];
 export type InvestorCharacter = FinancialConfig['characters'][number];
 export type TradingDifficulty = 'easy' | 'normal' | 'hard';
 export type AllocationOption = FinancialConfig['allocation']['options'][number];
 export type MarketTone = keyof FinancialConfig['market'];
+export type PixelIcon = typeof icons[number];
 
 export const financialInput = {
-  financial, allocation, characters, market, theme, effects: data.effects, cards: data.cards, events,
-  gameplay, cardRules,
-  nodes: { lanes: 4, maxLinks: 2, attempts: 24, kinds: data.nodes },
-  npc
+  financial, allocation, characters, market, theme, effects: data.effects, jokers: cards.jokers, items: cards.items, events,
+  gameplay, shop, settlement, npc
 };
 
 export function readFinancialConfig(raw: unknown = financialInput): FinancialConfig {
   const parsed = schema.safeParse(raw);
   if (!parsed.success) {
-    throw new Error(`財務設定錯誤：${parsed.error.issues.map(issue => `${issue.path.join('.')} ${issue.message}`).join('；')}`);
+    throw new Error(`遊戲設定錯誤：${parsed.error.issues.map(issue => `${issue.path.join('.')} ${issue.message}`).join('；')}`);
   }
   const config = parsed.data;
   const assert = (condition: boolean, detail: string) => {
-    if (!condition) throw new Error(`財務設定錯誤：${detail}`);
+    if (!condition) throw new Error(`遊戲設定錯誤：${detail}`);
   };
-  const { gameplay, nodes: routes } = config;
-  for (const items of [config.cards, config.events, config.characters]) {
+  const { gameplay, allocation: plan } = config;
+  for (const items of [[...config.jokers, ...config.items], config.events, config.characters]) {
     assert(new Set(items.map(item => item.id)).size === items.length, '資料含重複 ID');
   }
-  for (const [owner, item] of [
-    ...config.cards.map(card => [card.id, card] as const),
-    ...config.events.map(event => [event.id, event] as const),
-    ...Object.entries(routes.kinds)
-  ]) {
-    assert(item.effectIds.every(key => Object.hasOwn(config.effects, key)), `${owner} 引用了不存在的效果：${item.effectIds.filter(key => !Object.hasOwn(config.effects, key)).join('、')}`);
+  const groups = [
+    ['王牌', config.jokers, jokerTypes], ['道具', config.items, itemTypes], ['新聞', config.events, eventTypes]
+  ] as const;
+  for (const [kind, list, allowed] of groups) {
+    for (const item of list) {
+      const missing = item.effectIds.filter(key => !Object.hasOwn(config.effects, key));
+      assert(!missing.length, `${item.id} 引用了不存在的效果：${missing.join('、')}`);
+      const wrong = item.effectIds.filter(key => !(allowed as readonly string[]).includes(config.effects[key].type));
+      assert(!wrong.length, `${kind} ${item.id} 含不支援的效果：${wrong.join('、')}`);
+    }
   }
   for (const event of config.events) {
-    assert(event.effectIds.every(key => config.effects[key].type === 'price'), `${event.id} 含非市場效果`);
     assert(event.effectIds.filter(key => config.effects[key].type === 'price').length <= 1, `${event.id} 的市場價格變動只能定義一次`);
   }
-  for (const card of config.cards) {
-    const supported = card.opponent ? ['attack'] : ['combo', 'hedge', 'intel', 'cash_yield', 'timed', 'route_card', 'cash_grant', 'card_draft'];
-    assert(card.effectIds.every(key => supported.includes(config.effects[key].type)), `${card.id} 含不支援的手牌效果`);
-  }
-  const tags = new Set([...Object.values(routes.kinds).flatMap(kind => kind.tags), ...config.allocation.options.flatMap(option => option.tags)]);
-  for (const value of Object.values(config.effects)) {
-    if (value.type === 'combo') assert(tags.has(value.nodeTag), `卡片協同缺少節點或配置標籤 ${value.nodeTag}`);
-  }
-  const { allocation: plan } = config;
   assert(new Set(plan.options.map(option => option.id)).size === plan.options.length, '資產配置含重複 ID');
   assert(plan.options.some(option => option.id === plan.initial), `起始資產配置 ${plan.initial} 不存在`);
   assert(config.effects[plan.dailyMarket]?.type === 'price', `共同市場效果 ${plan.dailyMarket} 須為價格效果`);
-  for (const kind of Object.values(routes.kinds)) {
-    assert(kind.effectIds.every(key => !['price'].includes(config.effects[key].type)), '地圖節點不得直接改變股價');
-  }
-  assert(!config.cardRules.freeStarter || config.cards.some(card => card.freedom === 'free' && !card.preparationOnly), '缺少自由使用的起手牌');
-  assert(Object.values(routes.kinds).filter(kind => kind.fromRow === 0).length >= routes.lanes, '首日可用節點少於路線數');
-  assert(gameplay.initialHand < gameplay.inventorySize && gameplay.eventEvery <= gameplay.turns, '交易日或手牌容量無效');
-  assert(Object.hasOwn(routes.kinds, gameplay.dailyRoute), `每日交易節點 ${gameplay.dailyRoute} 不存在`);
+  assert(gameplay.eventEvery <= gameplay.turns, '新聞間隔大於交易日數');
+  assert(gameplay.startItems <= gameplay.itemSlots, '起始道具超過道具上限');
+  assert(gameplay.stageDays.every(value => value < gameplay.turns), '階段獎勵日須早於最後一日');
+  const pool = config.jokers.filter(joker => !joker.shopOnly);
+  assert(pool.length >= gameplay.jokerChoices + gameplay.jokerSlots, '可抽王牌數量不足');
+  // Selling back must never beat the cheapest possible purchase, or discount + sell + rebuy would print money.
+  const discount = Math.min(0.9, config.jokers.reduce((sum, joker) => sum + joker.effectIds
+    .reduce((total, key) => { const item = config.effects[key]; return total + (item.type === 'shop_discount' ? item.rate : 0); }, 0), 0));
+  assert(config.shop.sellRate < 1 - discount, '王牌回收價不得高於折扣後售價');
+  assert(config.jokers.length >= config.shop.jokers + gameplay.jokerSlots, '商店王牌數量不足');
+  assert(config.items.length >= 3, '道具數量不足');
   return config;
 }

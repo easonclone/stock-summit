@@ -15,7 +15,8 @@ function play(seed: number, onDay?: (run: TradingRun) => void) {
   const random = seededRandom(seed * 31 + 7);
   const run = new TradingRun(config, { seed, playerId: config.characters[seed % 4].id, difficulty: 'normal' });
   while (!run.closed) {
-    while (run.offer) run.chooseOffer(null);
+    while (run.offer) run.chooseOfferAutomatically();
+    run.shopAutomatically();
     if (!run.resolveControlled(view => chooseTrade(view, random, strategy))) break;
     if (run.pendingRecovery) run.acceptRecovery();
     onDay?.(run);
@@ -53,9 +54,9 @@ describe('市場事件劇場', () => {
           seen.add(step.situation);
           const expectations: Record<string, boolean> = {
             allin_up: all && outcome.marketPnl > 0, allin_down: all && outcome.marketPnl < 0,
-            shield: outcome.ledger.protected > 0, combo: outcome.ledger.synergies > 0 && outcome.close > outcome.start,
+            shield: outcome.ledger.shielded > 0, combo: outcome.ledger.combos > 0 && outcome.close > outcome.start,
             bankrupt: outcome.risk.insolvent && !outcome.recovery, recovery: Boolean(outcome.recovery),
-            attacked: outcome.incomingCards.length > 0 && outcome.close < outcome.start,
+            attacked: outcome.attackedBy.length > 0 && outcome.close < outcome.start,
             cash_rally: outcome.exposure.stock <= 0 && outcome.marketApplied && outcome.allocationBefore === 'cash',
             sold_rally: outcome.exposure.stock <= 0 && outcome.allocationBefore !== 'cash',
             cash_dodge: outcome.exposure.stock <= 0 && outcome.marketApplied, half_safe: outcome.allocation === 'half' && outcome.marketPnl < 0 && -outcome.marketPnl < outcome.start * 0.08,
@@ -65,7 +66,7 @@ describe('市場事件劇場', () => {
           };
           expect(expectations[step.situation], `${seed} 第 ${report.day} 日 ${step.speakerId} ${step.situation}`).toBe(true);
           const amounts = [...step.text.matchAll(/\$([\d,]+)/g)].map(match => Number(match[1].replaceAll(',', '')));
-          const real = [outcome.marketPnl, outcome.ledger.protected, outcome.close - outcome.start].map(value => Math.round(Math.abs(value)));
+          const real = [outcome.marketPnl, outcome.ledger.shielded, outcome.close - outcome.start].map(value => Math.round(Math.abs(value)));
           for (const amount of amounts) expect(real.some(value => Math.abs(value - amount) <= 1), step.text).toBe(true);
           expect(step.text).not.toMatch(/\{|\}/);
         }
@@ -99,7 +100,7 @@ describe('市場事件劇場', () => {
       expect(buildTheater(run, report, theater, 'off')).toHaveLength(0);
       expect(quick.length).toBeLessThanOrEqual(full.length);
       expect(full.at(-1)!.kind).toBe('results');
-      if (report.market!.severity === 'normal') expect(full.filter(step => step.kind === 'line').length).toBeLessThanOrEqual(2);
+      if (report.market!.severity === 'normal' && report !== run.reports.at(-1)) expect(full.filter(step => step.kind === 'line').length).toBeLessThanOrEqual(2);
     }
   });
 });

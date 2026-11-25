@@ -1,7 +1,8 @@
 import type { DayOutcome } from '../core/trading-run';
+import type { ChainStep } from '../core/settlement';
 
 export interface BreakdownLine {
-  key: 'stock' | 'news' | 'income' | 'other';
+  key: 'stock' | 'news' | 'joker' | 'item' | 'event' | 'attack' | 'restart';
   label: string;
   amount: number;
 }
@@ -10,33 +11,28 @@ export interface DayBreakdown {
   net: number;
   /** Additive lines; their amounts always sum to `net`. Zero lines are omitted. */
   lines: BreakdownLine[];
-  /** Part of the lines above that came from cards. Informational only, never added again. */
-  cardShare: number;
-  /** Loss the shield absorbed. Informational only: the news line already reflects it. */
+  /** The settlement chain itself, in the order it was resolved. */
+  chain: ChainStep[];
+  /** Loss avoided by loss cuts and defenses; already included in the lines above. */
   shielded: number;
   combos: number;
 }
 
-/**
- * Splits one day's actual total-worth change using the settlement ledger: the shared daily stock move, the news,
- * cash income, and the remainder (card boosts, rival attacks, restarting after hitting zero). The parts always
- * add up to the real change.
- */
+const group: Record<ChainStep['source'], BreakdownLine['key']> = {
+  market: 'stock', cap: 'joker', news: 'news', joker: 'joker', item: 'item', defense: 'item', attack: 'attack', event: 'event'
+};
+const labels: Record<BreakdownLine['key'], string> = {
+  stock: '今日股市', news: '市場新聞', joker: '王牌', item: '道具', event: '特殊事件', attack: '對手狙擊', restart: '歸零翻身'
+};
+
+/** Groups the actual settlement chain of one day; the parts always add up to the real change in total worth. */
 export function dayBreakdown(outcome: DayOutcome): DayBreakdown {
-  const { ledger } = outcome;
   const net = outcome.close - outcome.start;
-  const income = outcome.openingInterest + outcome.openingStockIncome + ledger.dividends + ledger.cashYield;
-  const stock = ledger.baseMarket;
-  const news = outcome.marketPnl;
-  const other = net - income - stock - news;
-  const lines: BreakdownLine[] = [
-    { key: 'stock', label: '今日股市', amount: stock },
-    { key: 'news', label: '市場新聞', amount: news },
-    { key: 'income', label: '現金收入', amount: income },
-    { key: 'other', label: outcome.recovery ? '歸零翻身' : '卡片與對手', amount: other }
-  ];
-  return {
-    net, lines: lines.filter(line => line.amount !== 0),
-    cardShare: ledger.cardGain, shielded: ledger.protected, combos: ledger.synergies
-  };
+  const totals = new Map<BreakdownLine['key'], number>();
+  for (const step of outcome.ledger.steps) totals.set(group[step.source], (totals.get(group[step.source]) ?? 0) + step.amount);
+  const counted = [...totals.values()].reduce((sum, value) => sum + value, 0);
+  if (net !== counted) totals.set('restart', net - counted);
+  const lines = (Object.keys(labels) as BreakdownLine['key'][])
+    .map(key => ({ key, label: labels[key], amount: totals.get(key) ?? 0 })).filter(line => line.amount !== 0);
+  return { net, lines, chain: outcome.ledger.steps, shielded: outcome.ledger.shielded, combos: outcome.ledger.combos };
 }

@@ -1,51 +1,31 @@
-import type { AllocationOption, FinanceEffect, FinancialConfig, TradingCard } from '../config/financial-settings';
+import type { FinanceEffect, FinancialConfig, GameCard } from '../config/financial-settings';
 import { money, percent } from './format';
 
-/** Short headline number for the card face, derived from the card's first meaningful effect. */
-function effectValue(effect: FinanceEffect): string | null {
+/** Short headline number for a card face, read from the card's first effect. */
+function effectBadge(effect: FinanceEffect): string {
   switch (effect.type) {
-    case 'combo': return effect.mode === 'dividend' ? `股息 +${percent(effect.amount)}` : `漲幅 +${percent(effect.amount)}`;
-    case 'hedge': return `擋 ${percent(effect.protection)}`;
-    case 'intel': return `偷看 ${effect.count ?? 1} 則${effect.bonusDraw ? '＋抽牌' : ''}`;
-    case 'cash_yield': return `+${percent(effect.rate)}`;
-    case 'timed':
-      if (effect.kind === 'cash') return `現金 +${percent(effect.amount)}/日`;
-      if (effect.kind === 'stock') return `每日 +${percent(effect.amount)}`;
-      if (effect.kind === 'rally') return `漲時 +${percent(effect.amount)}`;
-      if (effect.kind === 'short') return '跌變賺';
-      return `擋 ${percent(effect.amount)}`;
-    case 'route_card': return effect.mode === 'cushion' ? `少賠 ${percent(effect.amount)}` : `盈虧 ×${1 + effect.amount}`;
-    case 'cash_grant': return `+${money(effect.amount)}`;
-    case 'card_draft': return '三選一';
+    case 'gain_add': case 'rebound_add': case 'today_add': return `+${percent(effect.amount)}`;
+    case 'streak_add': return `最多 +${percent(effect.cap)}`;
+    case 'joker_add': return `每張 +${percent(effect.amount)}`;
+    case 'news_mult': case 'repeat_mult': case 'swing_mult': case 'today_mult': return `×${effect.factor}`;
+    case 'yield_boost': return `收益 ×${effect.factor}`;
+    case 'loss_cut': return `少賠 ${percent(effect.amount)}`;
+    case 'cash_yield': case 'stock_yield': return `每天 ${percent(effect.rate)}`;
+    case 'stock_cash': return `領 ${percent(effect.rate)}`;
+    case 'defense': return effect.mode === 'cut' ? `少賠 ${percent(effect.amount)}` : effect.mode === 'absorb' ? `擋 ${money(effect.amount)}` : '跌變賺';
+    case 'cash_grant': case 'bear_bonus': case 'item_bonus': case 'attack_bonus': case 'hold_bonus': case 'climb_bonus': case 'relief':
+      return `+${money(effect.amount)}`;
+    case 'news_item': case 'item_grant': return '+道具';
+    case 'shop_discount': return `${Math.round((1 - effect.rate) * 10)} 折`;
+    case 'intel': return '偷看';
+    case 'item_pack': return `${effect.count} 選 1`;
     case 'attack': return `對手 −${percent(effect.amount)}`;
-    default: return null;
+    case 'price': return '';
   }
 }
 
-export interface CardFace {
-  /** One plain sentence: the first sentence of the card description. */
-  line: string;
-  value: string;
-  /** Stock ratios that trigger this card's combo. */
-  pairs: AllocationOption[];
-  /** Short duration label, omitted for "today"/"immediately" which every card already implies. */
-  duration: string | null;
-  targetsRival: boolean;
+export function cardBadge(config: FinancialConfig, card: GameCard) {
+  return card.effectIds.map(id => effectBadge(config.effects[id])).find(Boolean) ?? '';
 }
 
-export function cardFace(config: FinancialConfig, card: TradingCard): CardFace {
-  const effects = card.effectIds.map(id => config.effects[id]);
-  const value = effects.map(effectValue).find(Boolean) ?? '';
-  const tags = new Set([...effects.flatMap(effect => effect.type === 'combo' ? [effect.nodeTag] : []), ...(card.pairing?.tags ?? [])]);
-  const pairs = config.allocation.options.filter(option => option.tags.some(tag => tags.has(tag)));
-  const line = card.description.split('。')[0].trim() + '。';
-  const duration = ['今天', '立即'].includes(card.duration) ? null : card.duration;
-  return { line, value, pairs, duration, targetsRival: Boolean(card.opponent) };
-}
-
-/** Names of paired stock ratios, shortened to fit a card face. */
-export function pairLabel(face: CardFace, limit = 2) {
-  if (!face.pairs.length) return '';
-  const names = face.pairs.slice(0, limit).map(kind => kind.name);
-  return names.join('、') + (face.pairs.length > limit ? ' 等' : '');
-}
+export const rarityLabel: Record<GameCard['rarity'], string> = { common: '普通', rare: '稀有', legendary: '傳說' };

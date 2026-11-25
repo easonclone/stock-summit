@@ -1,14 +1,16 @@
 import type { TradingRun } from '../core/trading-run';
 import type { TerminalSelection } from './trading-terminal';
-import { marketTone } from '../core/trading-effects';
+import { marketTone } from '../core/settlement';
 
-export type TipId = 'allocation' | 'cards' | 'cash_safe' | 'shield' | 'bankruptcy';
+export type TipId = 'allocation' | 'jokers' | 'items' | 'shop' | 'cash_safe' | 'shield' | 'bankruptcy';
 
 const tips: Record<TipId, string> = {
   allocation: '先選今天買多少股票。股票會跟著市場漲跌，現金不會。',
-  cards: '卡片可以讓你多賺或少賠，一天最多用一張，也可以留著以後用。',
+  jokers: '王牌會每天自動幫你，不用按。賺錢時看結算，就知道是哪張王牌發威。',
+  items: '道具一天最多用一張，也可以留著以後用。',
+  shop: '今天收盤後商店開門。王牌要用現金買，全部買股就沒錢逛商店。',
   cash_safe: '股票跌的時候，留在手上的現金一毛都不會少。',
-  shield: '護盾會在利空時自動擋下部分損失，擋一次就用掉。',
+  shield: '護盾放著就好，下次股票賠錢時會自動擋下，擋一次就用掉。',
   bankruptcy: '總身家歸零時，第一次可以拿翻身資金重來，第二次就出局。'
 };
 
@@ -47,16 +49,18 @@ export class Coach {
 
   /** Which first-encounter tip applies now, from the player's real record. */
   private tipFor(run: TradingRun): TipId | null {
-    const { hedges } = run.player;
+    const { defenses } = run.player;
     const latest = run.reports.at(-1);
     const outcome = latest?.outcomes.find(item => item.investor === run.player);
     const fell = Boolean(latest?.market && outcome?.marketApplied && marketTone(latest.market, run.config) === 'negative');
     const checks: [TipId, boolean][] = [
       ['bankruptcy', run.investors.some(item => item.account.eliminated) || Boolean(outcome?.risk.insolvent)],
       ['allocation', run.day === 1],
+      ['shop', run.shopOpensAfter(run.day)],
       ['cash_safe', fell],
-      ['shield', hedges.length > 0],
-      ['cards', run.day >= 2]
+      ['shield', defenses.length > 0],
+      ['jokers', run.day >= 2],
+      ['items', run.day >= 3 && run.player.items.length > 0]
     ];
     return checks.find(([id, hit]) => hit && !this.seen.has(id))?.[0] ?? null;
   }
@@ -65,8 +69,8 @@ export class Coach {
     if (!this.enabled || run.player.account.eliminated) return '';
     const parts: string[] = [];
     if (run.reports.length < 3) {
-      const step = ui.slot !== null ? 2 : ui.allocation !== null ? 1 : 0;
-      parts.push(`<ol class="coach-steps" aria-label="怎麼玩">${['買多少股票', '用卡（可不用）', '開始交易'].map((label, index) =>
+      const step = ui.item !== null ? 2 : ui.allocation !== null ? 1 : 0;
+      parts.push(`<ol class="coach-steps" aria-label="怎麼玩">${['買多少股票', '用道具（可不用）', '開始交易'].map((label, index) =>
         `<li class="${index < step ? 'done' : index === step ? 'now' : ''}">${label}</li>`).join('')}</ol>`);
     }
     const tip = this.tipFor(run);

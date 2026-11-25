@@ -7,7 +7,7 @@ if (!Number.isSafeInteger(seeds) || seeds < 1) throw new Error('種子數須為�
 const server = await createServer({ server: { middlewareMode: true, ws: false }, appType: 'custom' });
 try {
   const { readFinancialConfig } = await server.ssrLoadModule('/src/config/financial-settings.ts');
-  const { marketTone } = await server.ssrLoadModule('/src/core/trading-effects.ts');
+  const { marketTone } = await server.ssrLoadModule('/src/core/settlement.ts');
   const { seededRandom, weighted } = await server.ssrLoadModule('/src/core/random.ts');
   const { buildMarketSchedule } = await server.ssrLoadModule('/src/core/market-events.ts');
   const config = readFinancialConfig();

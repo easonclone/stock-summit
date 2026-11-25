@@ -1,13 +1,18 @@
 {
-  "easy": 330,
-  "normal": 95,
-  "hard": 15,
-  "lookahead": 0.32,
-  "liquidity": 0.38,
-  "bankruptcyPenalty": 4300,
-  "warningPenalty": 260,
-  "cardReserve": 85,
-  "hedgeValue": 230,
-  "intelValue": 250,
-  "draftValue": 205
+  "noise": {
+    "easy": 0.9,
+    "normal": 0.35,
+    "hard": 0.08
+  },
+  "itemReserve": 90,
+  "riskAversion": 0.3,
+  "defenseValue": 0.4,
+  "intelValue": 200,
+  "packValue": 150,
+  "jokerShopScale": 1,
+  "itemShopScale": 1,
+  "shopCashValue": 0.15,
+  "shopBudget": 2000,
+  "styleSynergy": 80,
+  "shopMargin": 50
 }

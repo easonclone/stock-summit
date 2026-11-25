@@ -1,19 +1,19 @@
 import './style.css';
-import { readFinancialConfig, type FinancialConfig, type TradingDifficulty } from './config/financial-settings';
+import { readFinancialConfig, type FinancialConfig, type PixelIcon, type TradingDifficulty } from './config/financial-settings';
 import { TradingRun, type DayOutcome, type DayReport } from './core/trading-run';
-import { marketTone } from './core/trading-effects';
+import { marketTone } from './core/settlement';
 import { CardAudio } from './ui/audio';
 import { crisisMarkup } from './ui/crisis-dialog';
 import { escapeHtml, money, signedMoney } from './ui/format';
 import { drawIcon, portrait, sprite, type SpriteMood } from './ui/pixels';
 import { settlementMarkup, shareText } from './ui/settlement';
-import { cardRulesMarkup, chartDialogMarkup, newsMarkup, offerMarkup, openingMarkup, tradingMarkup, type TerminalSelection } from './ui/trading-terminal';
+import { cardDetailMarkup, chartDialogMarkup, newsMarkup, offerHeading, offerMarkup, openingMarkup, shopMarkup, tradingMarkup, type TerminalSelection } from './ui/trading-terminal';
 import { Coach, type TipId } from './ui/coach';
 import { readTheaterConfig, type TheaterConfig } from './config/theater-settings';
 import { MarketTheater } from './ui/theater';
 import { buildTheater, type Step, type TheaterMode } from './ui/theater-script';
 
-type DialogKind = 'crisis' | 'recovery' | 'offer' | 'settings' | 'share' | 'chart' | 'news' | 'card-rules';
+type DialogKind = 'crisis' | 'recovery' | 'offer' | 'shop' | 'settings' | 'share' | 'chart' | 'news' | 'card-detail';
 const freshSeed = () => crypto.getRandomValues(new Uint32Array(1))[0];
 
 class TerminalApp {
@@ -21,7 +21,7 @@ class TerminalApp {
   private readonly screen: HTMLElement;
   private readonly dialog: HTMLDialogElement;
   private readonly audio = new CardAudio();
-  private readonly selection: TerminalSelection = { allocation: null, slot: null, prepare: false, animate: false };
+  private readonly selection: TerminalSelection = { allocation: null, item: null, animate: false };
   private selectedCharacter: string;
   private difficulty: TradingDifficulty = 'normal';
   private seed: number;
@@ -30,6 +30,9 @@ class TerminalApp {
   private personal = false;
   private offered: number | null = null;
   private replace: number | null = null;
+  private shopPick: number | null = null;
+  private shopReplace: number | null = null;
+  private shopsVisited = 0;
   private dialogKind: DialogKind | null = null;
   private dialogTrigger: HTMLElement | null = null;
   private closingDialog = false;
@@ -42,7 +45,7 @@ class TerminalApp {
   private theaterMode: TheaterMode = 'full';
   private theaterDay = 0;
   private stage: MarketTheater | null = null;
-  private rulesSlot = 0;
+  private detail: { kind: 'joker' | 'item'; slot: number } = { kind: 'joker', slot: 0 };
 
   constructor(private readonly root: HTMLElement, private readonly config: FinancialConfig) {
     const fromUrl = new URLSearchParams(location.search).get('seed') ?? '';
@@ -69,7 +72,7 @@ class TerminalApp {
     document.addEventListener('keydown', this.keyDown);
     this.dialog.addEventListener('cancel', event => {
       event.preventDefault();
-      if (this.dialogKind !== 'recovery' && this.dialogKind !== 'offer') this.closeDialog();
+      if (this.dialogKind !== 'recovery' && this.dialogKind !== 'offer' && this.dialogKind !== 'shop') this.closeDialog();
     });
     this.render();
   }
@@ -114,7 +117,7 @@ class TerminalApp {
       if (character) sprite(canvas, character, (canvas.dataset.mood ?? 'idle') as SpriteMood);
     });
     parent.querySelectorAll<HTMLCanvasElement>('[data-icon]').forEach(canvas => {
-      drawIcon(canvas, canvas.dataset.icon as FinancialConfig['cards'][number]['icon'], canvas.dataset.color!);
+      drawIcon(canvas, canvas.dataset.icon as PixelIcon, canvas.dataset.color!);
     });
   }
 
@@ -158,7 +161,11 @@ class TerminalApp {
       case 'new': this.start(freshSeed()); break;
       case 'settings': this.dialogTrigger = button; this.openDialog('settings'); break;
       case 'chart': case 'news': this.dialogTrigger = button; this.openDialog(act); break;
-      case 'card-rules': this.dialogTrigger = button; this.rulesSlot = value; this.openDialog('card-rules'); break;
+      case 'card-detail':
+        this.dialogTrigger = button;
+        this.detail = { kind: button.dataset.kind === 'item' ? 'item' : 'joker', slot: value };
+        this.openDialog('card-detail');
+        break;
       case 'tip-ok': this.coach.dismiss(button.dataset.value as TipId); this.render('[data-act="trade"]'); break;
       case 'coach-off': this.coach.setEnabled(false); this.render('[data-act="trade"]'); break;
       case 'crisis': this.dialogTrigger = button; this.openDialog('crisis'); break;
@@ -166,20 +173,9 @@ class TerminalApp {
       case 'personal': this.personal = true; this.closeDialog(false); this.render('[data-act="spectate"]'); window.scrollTo(0, 0); break;
       case 'spectate': this.personal = false; this.render('[data-act="trade"]'); window.scrollTo(0, 0); break;
       case 'alloc': this.pickAllocation(button.dataset.value ?? ''); break;
-      case 'card':
-        this.selection.slot = value === this.selection.slot ? null : value;
-        this.selection.prepare = false;
-        this.render(`[data-act="card"][data-value="${value}"]`);
-        break;
-      case 'prepare':
-        this.selection.prepare = !this.selection.prepare;
-        this.render('[data-act="prepare"]');
-        break;
-      case 'exchange':
-        if (this.selection.slot !== null && this.run?.exchangePlayerCard(this.selection.slot)) {
-          this.selection.prepare = false;
-          this.render('[data-card-status]');
-        }
+      case 'item':
+        this.selection.item = value === this.selection.item ? null : value;
+        this.render(`[data-act="item"][data-value="${value}"]`);
         break;
       case 'trade': this.trade(); break;
       case 'skip': this.finishAnimation(); break;
@@ -190,6 +186,14 @@ class TerminalApp {
       case 'replace': this.replace = value; this.openDialog('offer', `[data-act="replace"][data-value="${value}"]`); break;
       case 'take': this.takeOffer(this.offered, this.replace); break;
       case 'decline': this.takeOffer(null, null); break;
+      case 'shop-card':
+        this.shopPick = value;
+        this.shopReplace = null;
+        this.openDialog('shop', `[data-act="shop-card"][data-value="${value}"]`);
+        break;
+      case 'shop-replace': this.shopReplace = value; this.openDialog('shop', `[data-act="shop-replace"][data-value="${value}"]`); break;
+      case 'buy': this.buy(); break;
+      case 'leave-shop': this.leaveShop(); break;
       case 'share': this.dialogTrigger = button; void this.share(); break;
     }
   }
@@ -200,6 +204,7 @@ class TerminalApp {
     this.run = new TradingRun(this.config, { playerId: this.selectedCharacter, seed, difficulty: this.difficulty });
     this.personal = false;
     this.lastCrisis = null;
+    this.shopsVisited = 0;
     this.theaterDay = 0;
     this.stage?.close();
     this.clearSelection();
@@ -210,13 +215,13 @@ class TerminalApp {
     this.audio.play('rise');
     this.render('[data-act="alloc"][aria-pressed="true"]');
     window.scrollTo(0, 0);
-    this.announce('開盤啦，先決定今天買多少股票。');
+    this.announce('開盤啦，先選一張王牌。');
+    this.showOffer();
   }
 
   private clearSelection() {
     this.selection.allocation = null;
-    this.selection.slot = null;
-    this.selection.prepare = false;
+    this.selection.item = null;
   }
 
   private pickAllocation(id: string) {
@@ -228,8 +233,7 @@ class TerminalApp {
   private trade() {
     const run = this.run;
     if (!run || run.closed || this.dialog.open || this.locked) return;
-    const action = run.player.account.eliminated ? null : { lane: 0, card: this.selection.slot, prepare: this.selection.prepare,
-      allocation: this.selection.allocation ?? run.player.allocation };
+    const action = run.player.account.eliminated ? null : { item: this.selection.item, allocation: this.selection.allocation ?? run.player.allocation };
     this.audio.unlock();
     if (!run.confirm(action)) return;
     this.clearSelection();
@@ -287,8 +291,8 @@ class TerminalApp {
     const climbed = ranks.length > 1 && ranks.at(-1)! < ranks.at(-2)!;
     const sound = outcome.risk.insolvent ? 'alarm'
       : report.market?.severity === 'extreme' ? 'impact'
-      : outcome.ledger.protected ? 'shield'
-      : outcome.ledger.synergies ? 'combo'
+      : outcome.ledger.shielded ? 'shield'
+      : outcome.ledger.combos >= 2 ? 'combo'
       : climbed ? 'rank'
       : report.market ? marketTone(report.market, this.config) === 'negative' ? 'fall' : 'rise'
       : outcome.close < outcome.start ? 'fall' : outcome.close > outcome.start ? 'rise' : 'flat';
@@ -340,6 +344,14 @@ class TerminalApp {
   }
 
   private showOffer() {
+    if (this.run?.shop && !this.run.offer && !this.dialog.open) {
+      this.shopPick = null;
+      this.shopReplace = null;
+      this.audio.play('rank');
+      this.announce('商店開門了：三張王牌、兩張道具，只能用現金買。');
+      this.openDialog('shop');
+      return;
+    }
     if (!this.run?.offer || this.dialog.open) return;
     this.offered = this.run.offer.cards.length === 1 ? 0 : null;
     this.replace = null;
@@ -353,6 +365,27 @@ class TerminalApp {
     this.showOffer();
   }
 
+  private buy() {
+    const run = this.run;
+    if (!run?.shop || this.shopPick === null) return;
+    const purchase = run.buy(this.shopPick, this.shopReplace);
+    if (!purchase) return;
+    this.audio.play('combo');
+    this.announce(`買下 ${purchase.card.name}，花了 ${money(purchase.price)}${purchase.refund ? `，${purchase.replaced?.name} 回收 ${money(purchase.refund)}` : ''}。`);
+    this.shopPick = null;
+    this.shopReplace = null;
+    this.render();
+    this.openDialog('shop', '[data-act="leave-shop"]');
+  }
+
+  private leaveShop() {
+    if (!this.run?.leaveShop()) return;
+    this.shopsVisited += 1;
+    this.closeDialog(false);
+    this.render('[data-act="trade"]');
+    this.showOffer();
+  }
+
   private openDialog(kind: DialogKind, focus?: string) {
     this.dialogKind = kind;
     const run = this.run!;
@@ -360,8 +393,13 @@ class TerminalApp {
     let content = '';
     switch (kind) {
       case 'offer':
-        heading = run.offer?.source === 'draft' ? '抽張好牌・三選一' : '開盤抽卡';
+        heading = offerHeading(run);
         content = offerMarkup(run, this.offered, this.replace);
+        break;
+      case 'shop':
+        if (!run.shop) return;
+        heading = `第 ${run.shop.day} 日收盤・商店`;
+        content = shopMarkup(run, this.shopPick, this.shopReplace, this.shopsVisited === 0 && this.coach.enabled);
         break;
       case 'crisis':
       case 'recovery':
@@ -386,11 +424,11 @@ class TerminalApp {
         heading = '市場快訊';
         content = newsMarkup(run);
         break;
-      case 'card-rules': {
-        const card = run.player.hand[this.rulesSlot];
+      case 'card-detail': {
+        const card = (this.detail.kind === 'joker' ? run.player.jokers : run.player.items)[this.detail.slot];
         if (!card) return;
-        heading = '卡片規則';
-        content = cardRulesMarkup(run, card);
+        heading = this.detail.kind === 'joker' ? '王牌' : '道具';
+        content = cardDetailMarkup(run, card, this.detail.kind);
         break;
       }
       case 'share':
@@ -398,7 +436,7 @@ class TerminalApp {
         content = `<p>可複製以下結算摘要。</p><textarea aria-label="結算摘要" readonly rows="8">${escapeHtml(shareText(run))}</textarea>`;
         break;
     }
-    const dismissible = kind !== 'recovery' && kind !== 'offer';
+    const dismissible = kind !== 'recovery' && kind !== 'offer' && kind !== 'shop';
     this.dialog.className = `terminal-dialog dialog-${kind}`;
     this.dialog.innerHTML = `<header><h2 id="dialog-heading" tabindex="-1">${heading}</h2>${dismissible ?
       '<button type="button" data-act="close-dialog" aria-label="關閉視窗">×</button>' : ''}</header><div class="dialog-body">${content}</div>`;
@@ -449,9 +487,9 @@ class TerminalApp {
       return;
     }
     const slot = /^Digit([1-9])$/.exec(event.code);
-    if (slot && this.run.player.hand[Number(slot[1]) - 1] && !this.run.player.account.eliminated) {
+    if (slot && this.run.player.items[Number(slot[1]) - 1] && !this.run.player.account.eliminated) {
       event.preventDefault();
-      this.screen.querySelector<HTMLButtonElement>(`[data-act="card"][data-value="${Number(slot[1]) - 1}"]`)?.click();
+      this.screen.querySelector<HTMLButtonElement>(`[data-act="item"][data-value="${Number(slot[1]) - 1}"]`)?.click();
     }
     if (event.code !== 'ArrowLeft' && event.code !== 'ArrowRight') return;
     if (this.run.player.account.eliminated) return;

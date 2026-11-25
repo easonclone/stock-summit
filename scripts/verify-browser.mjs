@@ -113,7 +113,7 @@ async function layout(width, height, dock = false) {
     return {
       width: innerWidth, doc: document.documentElement.scrollWidth, body: document.body.scrollWidth,
       dock: rect && rect.top >= 0 && rect.bottom <= innerHeight && (ctr === trade || trade.contains(ctr)),
-      touch: Array.from(document.querySelectorAll('.hand-card,.alloc-button,.gold-button')).filter(el=>el.getClientRects().length).every(el=>el.getBoundingClientRect().height >= 44)
+      touch: Array.from(document.querySelectorAll('.card-button,.alloc-button,.gold-button')).filter(el=>el.getClientRects().length).every(el=>el.getBoundingClientRect().height >= 44)
     };
   })()`);
   assert.equal(dims.width, width);
@@ -131,16 +131,24 @@ async function openMarket(width, height, mobile, seed, reduced) {
   await layout(width, height);
   await trustedClick(on('start'), mobile);
   await waitFor('main.trading');
+  // 開局先免費三選一王牌，選完才能交易。
+  assert.match(await js('document.querySelector("dialog[open] #dialog-heading")?.textContent ?? ""'), /開局選一張王牌/);
+  assert.equal(await js('document.querySelectorAll("dialog[open] .offer-card").length'), 3);
+  if (width === 390) await screenshot('opening-joker-390');
+  await click(on('offer-card') + '[data-value="0"]');
+  await action('take');
+  transitions.joker++;
+  assert.equal(await js('document.querySelectorAll(".joker-row .card-button").length'), 1, '王牌列顯示一張王牌');
   await layout(width, height, true);
   await action('chart');
   assert.equal(await js('document.querySelectorAll("dialog[open] .chart polyline").length'), 4);
   await action('close-dialog');
-  for (const hidden of ['無融資', '交易正常', '正常交易', '無避險', '融資', '借款', '利息', '追繳', '定存', '欠款', '路線']) assert(!(await js('document.querySelector("main").innerText')).includes(hidden), '主畫面不顯示 ' + hidden);
+  for (const hidden of ['無融資', '交易正常', '正常交易', '無避險', '融資', '借款', '利息', '追繳', '定存', '欠款', '路線', '手牌', '行動力']) assert(!(await js('document.querySelector("main").innerText')).includes(hidden), '主畫面不顯示 ' + hidden);
   assert.equal(await js('document.querySelectorAll(\'[data-act="alloc"]\').length'), 3, '三個配置按鈕');
   assert.equal(await js('document.querySelector(\'[data-act="alloc"][aria-pressed="true"]\').dataset.value'), 'half', '預設一半買股');
 }
 
-const transitions = { draw: 0, draft: 0, recovery: 0, skip: 0, effect: 0, personal: 0, show: 0 };
+const transitions = { joker: 0, shop: 0, bought: 0, itemFull: 0, recovery: 0, skip: 0, effect: 0, personal: 0, show: 0 };
 async function clearDialogs(replaceOne = false) {
   for (let n = 0; n < 6; n++) {
     if (await has('.theater')) {
@@ -167,21 +175,38 @@ async function clearDialogs(replaceOne = false) {
       } else {
         await action('close-dialog');
       }
+    } else if (dialog.includes('dialog-shop')) {
+      transitions.shop++;
+      assert.match(body, /商店/);
+      assert.equal(await js('document.querySelectorAll("dialog .shop-card").length'), 5, '商店三張王牌加兩張道具');
+      assert.equal(await js('document.querySelectorAll("dialog .shop-card .joker").length'), 3);
+      const cash = () => js('Number(document.querySelector("[data-shop-cash]").textContent.replace(/[^\\d]/g, ""))');
+      const before = await cash();
+      // Buy the first shelf that needs no replacement and is affordable; the wallet must drop by exactly its price.
+      const index = await js(`[...document.querySelectorAll("dialog .shop-card")].findIndex(b => b.querySelector(".shop-status").textContent === "買得起")`);
+      if (index >= 0) {
+        await click(on('shop-card') + `[data-value="${index}"]`);
+        const price = await js('Number(document.querySelector("[data-act=buy]").textContent.replace(/[^\\d]/g, ""))');
+        await action('buy');
+        assert.equal(await cash(), before - price, '商店扣款等於售價');
+        transitions.bought++;
+      }
+      await action('leave-shop');
     } else if (dialog.includes('dialog-offer')) {
-      const draft = (await js('document.querySelector("dialog #dialog-heading").textContent')).includes('三選一');
-      if (draft) {
-        transitions.draft++;
-        assert.equal(await js('document.querySelectorAll(".offer-card").length'), 3);
-      } else transitions.draw++;
-      if (draft) {
-        await action('offer-card');
+      const heading = await js('document.querySelector("dialog #dialog-heading").textContent');
+      const count = await js('document.querySelectorAll(".offer-card").length');
+      if (count > 1) {
+        await click(on('offer-card') + '[data-value="0"]');
         if (await has(on('replace'))) await action('replace');
         await action('take');
-      } else if (replaceOne) {
-        await action('replace');
-        await action('take');
-        replaceOne = false;
-      } else await action('decline');
+      } else {
+        transitions.itemFull++;
+        if (replaceOne) {
+          await action('replace');
+          await action('take');
+          replaceOne = false;
+        } else await action('decline');
+      }
     } else throw Error('未預期的對話框 ' + dialog);
   }
 }
@@ -198,26 +223,29 @@ try {
   for (const [width, height] of viewports) {
     const mobile = width < 500;
     await openMarket(width, height, mobile, width === 320 ? 2 : 23, mobile);
-    await action('card');
+    const hasItem = await has(on('item'));
+    if (hasItem) await action('item');
     if (!mobile) {
       await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'ArrowRight', code: 'ArrowRight' });
       await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'ArrowRight', code: 'ArrowRight' });
       assert.equal(await js('document.querySelector('+JSON.stringify(pressed('alloc'))+')?.dataset.value'), 'all', '方向鍵切換配置');
     } else await click(on('alloc') + '[data-value="all"]');
-    const card = await js('document.querySelector('+JSON.stringify(pressed('card'))+')?.dataset.value');
+    const card = await js('document.querySelector('+JSON.stringify(pressed('item'))+')?.dataset.value');
     assert.match(await js('document.querySelector(".alloc-section .preview").innerText'), /現金 \$0 · 股票 \$10,000/, '全部買股預覽');
     if (width === 390) {
       await resize(844, 390, true);
       await layout(844, 390);
       await resize(width, height, true);
     }
-    assert.equal(await js('document.querySelector('+JSON.stringify(pressed('card'))+')?.dataset.value'), card);
-    assert(await has('[data-card-status]'));
-    if (width === 390) {
-      await js('document.querySelector("[data-card-status]").scrollIntoView({block:"center"})');
-      await screenshot('card-feedback-390');
+    assert.equal(await js('document.querySelector('+JSON.stringify(pressed('item'))+')?.dataset.value'), card);
+    if (hasItem) {
+      assert(await has('[data-item-status]'), '選道具後顯示今天的效果');
+      if (width === 390) {
+        await js('document.querySelector("[data-item-status]").scrollIntoView({block:"center"})');
+        await screenshot('item-feedback-390');
+      }
+      await click(pressed('item'));
     }
-    await click(pressed('card'));
     await layout(width, height, true);
     await trustedClick(on('trade'), mobile, false);
     if (await has(on('skip'))) {
@@ -279,20 +307,24 @@ try {
     results.push({ width, height, mobile, fullRun: width === 320 || !mobile });
     console.error(width + ' px 已驗證');
   }
+  // 王牌詳情、結算連鎖：全部買股連玩三天，結算列出股市與王牌步驟，加總等於當日變化。
   await openMarket(1440, 900, false, 6, true);
-  await click(on('card') + '[data-card-id="dividend"]');
-  await action('prepare');
-  assert.match(await js('document.querySelector("[data-card-status]").textContent'), /先存著/);
-  await trustedClick(on('trade'), false, false);
-  await clearDialogs();
-  assert.match(await js('document.querySelector(".pending-cards").textContent'), /還有 3 個交易日。可觸發 1 次/);
-  await action('card');
-  const selected = () => js(`document.querySelector('[data-act="card"][aria-pressed="true"]').dataset.cardId`);
-  const before = await selected();
-  await action('exchange');
-  assert.notEqual(before, await selected());
-  assert.match(await js(`document.querySelector('[data-act="exchange"]').textContent`), /剩 2 次/);
-  await screenshot('card-preparation-desktop');
+  await click(on('card-detail') + '[data-kind="joker"]');
+  assert.match(await js('document.querySelector("dialog[open]").innerText'), /每天自動發動/);
+  await action('close-dialog');
+  for (let day = 1; day <= 3; day++) {
+    await click(on('alloc') + '[data-value="all"]');
+    await trustedClick(on('trade'), false, false);
+    await clearDialogs();
+    const chain = await js(`(() => {
+      const parse = text => Number(text.replace(/[^0-9−+-]/g, '').replace('−', '-'));
+      const steps = [...document.querySelectorAll('.chain li b')].map(el => parse(el.textContent));
+      return { sum: steps.reduce((a, b) => a + b, 0), net: parse(document.querySelector('.day-result header strong').textContent) };
+    })()`);
+    assert.equal(chain.sum, chain.net, '結算連鎖加總等於當日變化，第 ' + day + ' 日');
+  }
+  await js('scrollTo(0,0)');
+  await screenshot('chain-desktop');
   await layout(1440, 900, true);
 
   if (!desktopOnly) {
@@ -300,14 +332,16 @@ try {
     await action('trade');
     await clearDialogs();
     await click(on('alloc') + '[data-value="cash"]');
-    if (await has(on('card') + '[data-card-id="trend"]')) {
-      await click(on('card') + '[data-card-id="trend"]');
-      assert.match(await js('document.querySelector("[data-card-status]").textContent'), /沒有股票/, '全留現金時說明卡片不會多賺');
+    const stockItem = await js(`[...document.querySelectorAll('[data-act="item"]')].find(el => ['trend', 'double', 'dividend'].includes(el.dataset.cardId))?.dataset.value ?? null`);
+    if (stockItem !== null) {
+      await click(on('item') + '[data-value="' + stockItem + '"]');
+      assert.match(await js('document.querySelector("[data-item-status]").textContent'), /沒有股票/, '全留現金時說明道具不會多賺');
+      assert.equal(await js('document.querySelector(\'[data-act="trade"]\').disabled'), true, '用不了的道具不能送出');
       await click(on('alloc') + '[data-value="half"]');
-      assert.match(await js('document.querySelector("[data-card-status]").textContent'), /連招/);
-      assert.match(await js('document.querySelector("[data-card-impact]").textContent'), /估計多賺 \$[0-9,]+/);
-      await js('document.querySelector("[data-card-status]").scrollIntoView({block:"center"})');
-      await screenshot('combo-card-390');
+      assert.doesNotMatch(await js('document.querySelector("[data-item-status]").textContent'), /用不了/);
+      await js('document.querySelector("[data-item-status]").scrollIntoView({block:"center"})');
+      await screenshot('item-block-390');
+      await click(pressed('item'));
     }
     await layout(390, 844, true);
 
@@ -364,7 +398,9 @@ try {
     await screenshot('market-impact-320');
     await action('close-dialog');
   }
-  assert(transitions.draw > 0, '滿手抽卡替換');
+  assert(transitions.joker > 0, '開局選王牌');
+  assert(transitions.shop > 0, '商店開門');
+  assert(transitions.bought > 0, '商店購買');
   assert(transitions.skip > 0, '略過動畫');
   assert(transitions.effect > 0, 'Phaser 市場特效');
   assert.deepEqual(errors, [], '瀏覽器例外與警告');

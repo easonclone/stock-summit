@@ -1,21 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import { readFinancialConfig, type FinancialConfig } from '../src/config/financial-settings';
+import { financialInput, readFinancialConfig, type FinancialConfig } from '../src/config/financial-settings';
 import { netWorth } from '../src/core/economy';
 import { chooseTrade, strategies, type Planner } from '../src/core/npc-strategy';
 import { seededRandom } from '../src/core/random';
-import { TradingRun } from '../src/core/trading-run';
+import { sumSteps } from '../src/core/settlement';
+import { TradingRun, type Investor } from '../src/core/trading-run';
 
 const start = (config = readFinancialConfig(), seed = 91, playerId = config.characters[0].id) =>
   new TradingRun(config, { playerId, seed, difficulty: 'normal' });
 
-function declineOffers(run: TradingRun) {
-  while (run.offer) expect(run.chooseOffer(null)).toBe(true);
+function settleOffers(run: TradingRun) {
+  while (run.offer) expect(run.chooseOfferAutomatically()).toBe(true);
+  if (run.shop) expect(run.shopAutomatically()).toBe(true);
 }
 
-const hold = (allocation: string): Planner => () => ({ lane: 0, card: null, allocation });
+const hold = (allocation: string): Planner => () => ({ allocation, item: null });
 
 function playDay(run: TradingRun, planner: Planner = chooseTrade) {
-  declineOffers(run);
+  settleOffers(run);
   expect(run.resolveControlled(planner)).toBe(true);
   if (run.pendingRecovery) expect(run.acceptRecovery()).toBe(true);
 }
@@ -32,87 +34,406 @@ function calmMarket(config: FinancialConfig, move = 0.02) {
   }];
   config.effects.none = { type: 'price', floor: 0, ceiling: 0 };
   config.effects.market_day = { type: 'price', floor: move, ceiling: move };
+  config.gameplay.startItems = 0;
+  config.gameplay.stageDays = [];
   return config;
 }
 
+const joker = (config: FinancialConfig, id: string) => config.jokers.find(card => card.id === id)!;
+const item = (config: FinancialConfig, id: string) => config.items.find(card => card.id === id)!;
+
+/** Opening offers declined, then the given cards dealt to one investor. */
+function equip(run: TradingRun, investor: Investor, jokers: string[], items: string[] = []) {
+  while (run.offer) run.chooseOffer(null);
+  investor.jokers = jokers.map(id => joker(run.config, id));
+  investor.items = items.map(id => item(run.config, id));
+}
+
+const outcomeOf = (run: TradingRun, investor: Investor, day = run.reports.length) =>
+  run.reports[day - 1].outcomes.find(outcome => outcome.investor === investor)!;
+
 describe('每日流程與種子', () => {
-  it('同一種子及打法完整重現 15 日與每天的配置、新聞和收盤', () => {
+  it('同一種子及打法完整重現 15 日、王牌、道具與收盤', () => {
     const summary = () => {
       const run = playAll(start());
       return run.reports.map(report => [report.day, report.market?.id ?? null,
-        report.outcomes.map(outcome => [outcome.investor.character.id, outcome.allocation, outcome.close])]);
+        report.outcomes.map(outcome => [outcome.investor.character.id, outcome.allocation, outcome.item?.id ?? null, outcome.close])]);
     };
     const first = summary();
     expect(first).toHaveLength(15);
     expect(summary()).toEqual(first);
   });
 
-  it('不用選路線：每天只有固定的今日交易，地圖不影響結算', () => {
+  it('開局先免費三選一王牌，選完才能交易', () => {
     const run = start();
-    expect(run.reachable(run.player)).toEqual([{ row: 0, lane: 0, kind: 'trade', next: [0] }]);
-    playDay(run);
-    expect(run.player.path.map(node => node.kind)).toEqual(['trade']);
+    expect(run.offer).toMatchObject({ kind: 'joker', source: 'opening' });
+    expect(run.offer!.cards).toHaveLength(3);
+    expect(run.confirm({ allocation: 'all', item: null })).toBe(false);
+    expect(run.chooseOffer(0)).toBe(true);
+    expect(run.player.jokers).toHaveLength(1);
+    for (const rival of run.investors.filter(investor => investor !== run.player)) expect(rival.jokers).toHaveLength(1);
+    expect(run.confirm({ allocation: 'all', item: null })).toBe(true);
   });
 
-  it('配置沿用前一天；不存在的配置不會被接受，也不消耗任何東西', () => {
-    const run = start();
-    declineOffers(run);
+  it('配置沿用前一天；不存在的配置或用不了的道具不會被接受', () => {
+    const config = calmMarket(readFinancialConfig());
+    const run = start(config);
+    equip(run, run.player, [], ['trend']);
     expect(run.player.allocation).toBe('half');
-    expect(run.confirm({ lane: 0, card: null, allocation: 'leverage' })).toBe(false);
+    expect(run.confirm({ allocation: 'leverage', item: null })).toBe(false);
+    expect(run.confirm({ allocation: 'cash', item: 0 })).toBe(false);
+    expect(run.preview('cash', 0)!.itemBlock).toBe('no_stock');
     expect(run.day).toBe(1);
-    expect(run.confirm({ lane: 0, card: null, allocation: 'all' })).toBe(true);
-    if (run.pendingRecovery) run.acceptRecovery();
-    declineOffers(run);
-    expect(run.player.allocation).toBe('all');
-    expect(run.confirm({ lane: 0, card: null })).toBe(true);
-    expect(run.reports[1].outcomes.find(item => item.investor === run.player)!.allocation).toBe('all');
+    expect(run.confirm({ allocation: 'all', item: null })).toBe(true);
+    expect(run.confirm({ item: null })).toBe(true);
+    expect(outcomeOf(run, run.player, 2).allocation).toBe('all');
   });
 
-  it('預覽沒有副作用，配置先鎖定才公布市場', () => {
+  it('預覽沒有副作用', () => {
     const run = start();
-    declineOffers(run);
-    const before = JSON.stringify(run.player.account);
-    for (const option of run.config.allocation.options) run.preview(0, null, true, false, option.id);
-    expect(JSON.stringify(run.player.account)).toBe(before);
-    expect(run.player.allocation).toBe('half');
+    settleOffers(run);
+    const before = JSON.stringify([run.player.account, run.player.items, run.player.memory]);
+    for (const option of run.config.allocation.options) for (const slot of [null, 0]) run.preview(option.id, slot);
+    expect(JSON.stringify([run.player.account, run.player.items, run.player.memory])).toBe(before);
   });
 });
 
 describe('共同市場與資產守恆', () => {
   it('所有人承受相同的每日漲跌；股票越多賺越多，現金不受影響', () => {
-    const config = calmMarket(readFinancialConfig());
-    const run = start(config);
+    const run = start(calmMarket(readFinancialConfig()));
+    for (const investor of run.investors) equip(run, investor, []);
     const plan: Record<string, string> = Object.fromEntries(run.investors.map((investor, index) =>
       [investor.character.id, ['cash', 'half', 'all', 'all'][index]]));
-    playDay(run, view => ({ lane: 0, card: null, allocation: plan[view.characterId] }));
-    const moves = run.reports[0].outcomes.map(outcome => [outcome.allocation, outcome.ledger.baseMarket, outcome.close]);
-    expect(moves).toEqual([['cash', 0, 10000], ['half', 100, 10100], ['all', 200, 10200], ['all', 200, 10200]]);
+    playDay(run, view => ({ allocation: plan[view.characterId], item: null }));
+    expect(run.reports[0].outcomes.map(outcome => [outcome.allocation, outcome.ledger.marketPnl, outcome.close]))
+      .toEqual([['cash', 0, 10000], ['half', 100, 10100], ['all', 200, 10200], ['all', 200, 10200]]);
   });
 
-  it('沒有卡片時，每日變化正好等於股市與新聞；任何時候都沒有負現金、負股票或欠款', () => {
+  it('每天的結算明細加總正好等於總身家變化；沒有負現金、負股票或欠款', () => {
     for (const strategy of strategies) {
       const random = seededRandom(7);
       const run = playAll(start(readFinancialConfig(), 13), view => chooseTrade(view, random, strategy));
       for (const report of run.reports) for (const outcome of report.outcomes) {
-        if (!outcome.card && !outcome.incomingCards.length && !outcome.recovery && !outcome.openingInterest && !outcome.openingStockIncome
-          && !outcome.ledger.cardGain) {
-          expect(outcome.close - outcome.start, `${strategy} 第 ${report.day} 日`).toBe(outcome.ledger.baseMarket + outcome.marketPnl);
-        }
+        if (outcome.recovery) continue;
+        expect(outcome.close - outcome.start, `${strategy} 第 ${report.day} 日`).toBe(sumSteps(outcome.ledger));
       }
       for (const investor of run.investors) {
         expect(investor.account.cash).toBeGreaterThanOrEqual(0);
         expect(investor.account.investmentValue).toBeGreaterThanOrEqual(0);
-        expect(netWorth(investor.account)).toBe(investor.account.cash + investor.account.investmentValue);
+        expect(investor.jokers.length).toBeLessThanOrEqual(run.config.gameplay.jokerSlots);
+        expect(investor.items.length).toBeLessThanOrEqual(run.config.gameplay.itemSlots);
         expect(Object.keys(investor.account)).not.toContain('debt');
       }
     }
   });
 });
 
+describe('王牌連鎖', () => {
+  it('百分比加成先相加，特殊乘數再計算，固定現金最後結算', () => {
+    const config = calmMarket(readFinancialConfig(), 0.1);
+    const run = start(config);
+    equip(run, run.player, ['diamond', 'gambler', 'dividend_king'], ['trend']);
+    playDay(run, view => view.characterId === run.player.character.id ? { allocation: 'all', item: 0 } : { allocation: 'cash', item: null });
+    const { ledger, close } = outcomeOf(run, run.player);
+    expect(ledger.steps.map(step => [step.id, step.kind, step.amount])).toEqual([
+      ['market', 'base', 1000], ['diamond', 'add', 250], ['trend', 'add', 500], ['gambler', 'mult', 1750], ['dividend_king', 'cash', 135]
+    ]);
+    expect(close).toBe(10000 + 1000 + 250 + 500 + 1750 + 135);
+    expect(ledger.combos).toBe(3);
+  });
+
+  it('倍率有上限：賭神加瘋狂加碼最多只到基礎獲利的 5 倍', () => {
+    const config = calmMarket(readFinancialConfig(), 0.05);
+    const run = start(config);
+    equip(run, run.player, ['gambler', 'diamond', 'god'], ['double']);
+    playDay(run, view => view.characterId === run.player.character.id ? { allocation: 'all', item: 0 } : { allocation: 'cash', item: null });
+    const { ledger } = outcomeOf(run, run.player);
+    expect(ledger.stockFinal).toBe(500 * 5);
+    expect(ledger.capped).toBe(true);
+  });
+
+  it('賭神也放大虧損；防彈衣與護盾一起最多少賠 80%，股票不會變負', () => {
+    const config = calmMarket(readFinancialConfig(), -0.1);
+    const run = start(config);
+    equip(run, run.player, ['gambler', 'vest'], ['bell']);
+    playDay(run, view => view.characterId === run.player.character.id ? { allocation: 'all', item: 0 } : { allocation: 'cash', item: null });
+    const { ledger } = outcomeOf(run, run.player);
+    expect(ledger.stockBase).toBe(-1000);
+    expect(ledger.steps.map(step => [step.id, step.amount])).toEqual([['market', -1000], ['gambler', -1000], ['vest', 400], ['bell', 1200]]);
+    expect(ledger.stockFinal).toBe(-400);
+    expect(run.player.defenses).toEqual([]);
+    const crash = calmMarket(readFinancialConfig(), -0.6);
+    const doomed = start(crash);
+    equip(doomed, doomed.player, ['gambler']);
+    playDay(doomed, view => view.characterId === doomed.player.character.id ? { allocation: 'all', item: null } : { allocation: 'cash', item: null });
+    expect(outcomeOf(doomed, doomed.player).ledger.stockFinal).toBe(-10000);
+    expect(doomed.player.account.investmentValue).toBe(0);
+  });
+
+  it('現金奶牛加銀行大戶：現金收益加倍；空軍司令在沒有股票的下跌日發動', () => {
+    const config = calmMarket(readFinancialConfig(), -0.02);
+    const run = start(config);
+    equip(run, run.player, ['cash_cow', 'bank', 'bear']);
+    playDay(run, view => view.characterId === run.player.character.id ? { allocation: 'cash', item: null } : { allocation: 'all', item: null });
+    expect(outcomeOf(run, run.player).ledger.steps.map(step => [step.id, step.amount])).toEqual([['cash_cow', 200], ['bank', 200], ['bear', 300]]);
+  });
+
+  it('連勝王、複利怪獸與長期持有讀取前幾天的紀錄', () => {
+    const config = calmMarket(readFinancialConfig(), 0.02);
+    const run = start(config);
+    equip(run, run.player, ['streak', 'compound', 'holder']);
+    const all = hold('all');
+    playDay(run, all);
+    expect(outcomeOf(run, run.player).ledger.steps.map(step => step.id)).toEqual(['market']);
+    playDay(run, all);
+    expect(outcomeOf(run, run.player).ledger.steps.map(step => step.id)).toEqual(['market', 'streak', 'compound']);
+    playDay(run, all);
+    const third = outcomeOf(run, run.player).ledger.steps;
+    expect(third.find(step => step.id === 'streak')!.value).toBeCloseTo(0.1);
+    expect(third.find(step => step.id === 'holder')!.amount).toBe(500);
+    playDay(run, all);
+    expect(outcomeOf(run, run.player).ledger.steps.some(step => step.id === 'holder')).toBe(false);
+  });
+});
+
+describe('道具', () => {
+  it('每天最多一張；護盾留到下次賠錢才發動，最多同時放兩個', () => {
+    const config = calmMarket(readFinancialConfig(), 0.02);
+    const run = start(config);
+    equip(run, run.player, [], ['guard', 'escape', 'bell']);
+    const me = (slot: number | null) => (view: { characterId: string }) => view.characterId === run.player.character.id
+      ? { allocation: 'all', item: slot } : { allocation: 'cash', item: null };
+    playDay(run, me(0));
+    playDay(run, me(0));
+    expect(run.player.defenses.map(item => item.itemId)).toEqual(['guard', 'escape']);
+    expect(run.preview('all', 0)!.itemBlock).toBe('full_defense');
+    run.config.effects.market_day = { type: 'price', floor: -0.1, ceiling: -0.1 };
+    playDay(run, me(null));
+    const { ledger } = outcomeOf(run, run.player);
+    expect(ledger.defenseUsed?.itemId).toBe('guard');
+    expect(ledger.shielded).toBe(Math.round(-ledger.stockBase * 0.5));
+    expect(run.player.defenses.map(item => item.itemId)).toEqual(['escape']);
+  });
+
+  it('小道消息只告訴自己下一則新聞的方向，電腦看不到別人的情報', () => {
+    const config = readFinancialConfig();
+    const run = start(config);
+    equip(run, run.player, [], ['tip']);
+    playDay(run, view => view.characterId === run.player.character.id ? { allocation: 'half', item: 0 } : { allocation: 'half', item: null });
+    const intel = run.intelFor(run.player)!;
+    expect(intel.day).toBe(3);
+    expect(['positive', 'negative', 'neutral']).toContain(intel.tone);
+    expect(Object.keys(intel).sort()).toEqual(['day', 'tone']);
+    playDay(run, hold('half'));
+    expect(run.decisionView(run.player).knownTone).toBe(intel.tone);
+    for (const rival of run.investors.filter(investor => investor !== run.player)) {
+      if (!rival.items.some(card => card.id === 'tip')) expect(run.decisionView(rival).knownTone).toBeNull();
+    }
+  });
+
+  it('主力狙擊打最近的領先者；同一人一天只會被狙擊一次，被搶先的道具會留著', () => {
+    const config = calmMarket(readFinancialConfig(), 0);
+    const run = start(config, 5);
+    const [first, second, third, fourth] = run.investors;
+    for (const investor of run.investors) equip(run, investor, ['wolf'], ['snipe']);
+    first.account.cash = 12000;
+    second.account.cash = 11000;
+    third.account.cash = 10500;
+    fourth.account.cash = 10400;
+    playDay(run, view => view.characterId === first.character.id ? { allocation: 'all', item: null } : { allocation: 'all', item: 0 });
+    const outcomes = run.reports[0].outcomes;
+    const hit = (investor: Investor) => outcomes.find(outcome => outcome.investor === investor)!;
+    expect(hit(first).attackedBy).toEqual([second.character.name]);
+    expect(hit(second).attackedBy).toEqual([third.character.name]);
+    expect(hit(third).attackedBy).toEqual([fourth.character.name]);
+    expect(hit(second).ledger.steps.find(step => step.id === 'wolf')!.amount).toBe(200);
+    expect(hit(first).ledger.attackLoss).toBe(Math.round(12000 * 0.05));
+  });
+
+  it('神秘卡包讓玩家三選一道具；東山再起要身家低於 $5,000', () => {
+    const config = calmMarket(readFinancialConfig(), 0);
+    const run = start(config);
+    equip(run, run.player, [], ['pack', 'comeback']);
+    expect(run.preview('half', 1)!.itemBlock).toBe('not_low');
+    expect(run.confirm({ allocation: 'half', item: 0 })).toBe(true);
+    expect(run.offer).toMatchObject({ kind: 'item', source: 'pack' });
+    expect(run.offer!.cards).toHaveLength(3);
+    expect(run.offer!.cards.some(card => card.id === 'pack')).toBe(false);
+    expect(run.chooseOffer(1)).toBe(true);
+    expect(run.player.items).toHaveLength(2);
+  });
+});
+
+describe('取得卡片', () => {
+  it('開局三選一王牌；之後王牌要用現金在商店買，最多五張', () => {
+    const run = start();
+    expect(run.offer).toMatchObject({ kind: 'joker', source: 'opening' });
+    playAll(run);
+    expect(Math.max(...run.investors.map(investor => investor.jokers.length))).toBeLessThanOrEqual(5);
+    for (const investor of run.investors) {
+      const bought = investor.purchases.filter(purchase => purchase.kind === 'joker').length;
+      expect(investor.jokers.length).toBeLessThanOrEqual(1 + bought);
+    }
+  });
+
+  it('精打細算只在商店出現，不會出現在免費選牌', () => {
+    let inShop = false;
+    for (let seed = 1; seed < 40; seed++) {
+      const other = start(readFinancialConfig(), seed);
+      expect(other.offer!.cards.some(card => card.id === 'thrifty')).toBe(false);
+      while (!other.closed && (other.day <= 3 || other.shop)) {
+        while (other.offer) other.chooseOfferAutomatically();
+        if (other.shop) { inShop ||= other.shop.slots.some(slot => slot.card.id === 'thrifty'); other.leaveShop(); }
+        else expect(other.resolveControlled(chooseTrade)).toBe(true);
+      }
+    }
+    expect(inShop).toBe(true);
+    expect(readFinancialConfig().jokers).toHaveLength(18);
+    expect(readFinancialConfig().items).toHaveLength(12);
+  });
+});
+
+/** Plays to the first shop with everyone holding `allocation`, then returns the run with the player's shop open. */
+function toShop(config = readFinancialConfig(), allocation = 'cash', seed = 91) {
+  const run = start(config, seed);
+  while (!run.shop) {
+    while (run.offer) run.chooseOffer(null);
+    if (run.shop) break;
+    expect(run.resolveControlled(hold(allocation))).toBe(true);
+  }
+  return run;
+}
+
+describe('商店', () => {
+  it('第 3、6、9、12 日收盤後開店：三張王牌加兩張道具，依稀有度定價，離開前不能交易', () => {
+    const config = readFinancialConfig();
+    const run = start(config);
+    const opened: number[] = [];
+    while (!run.closed) {
+      settleOffers(run);
+      if (run.closed) break;
+      expect(run.resolveControlled(hold('cash'))).toBe(true);
+      while (run.offer) run.chooseOffer(null);
+      if (run.shop) {
+        opened.push(run.shop.day);
+        const kinds = run.shop.slots.map(slot => slot.kind);
+        expect(kinds).toEqual(['joker', 'joker', 'joker', 'item', 'item']);
+        for (const slot of run.shop.slots) expect(slot.base).toBe(config.shop.price[slot.kind][slot.card.rarity]);
+        const jokers = run.shop.slots.filter(slot => slot.kind === 'joker').map(slot => slot.card.id);
+        expect(new Set(jokers).size).toBe(3);
+        expect(jokers.some(id => run.player.jokers.some(card => card.id === id))).toBe(false);
+        expect(run.resolveControlled(hold('cash'))).toBe(false);
+        expect(run.leaveShop()).toBe(true);
+      }
+    }
+    expect(opened).toEqual([3, 6, 9, 12]);
+  });
+
+  it('購買只花現金：扣款精確、總身家減少售價；現金不足時顯示差額且什麼都不變', () => {
+    const run = toShop();
+    const before = netWorth(run.player.account);
+    const index = run.shop!.slots.findIndex(slot => slot.kind === 'item');
+    const price = run.shopCheck(index).price;
+    const items = run.player.items.length;
+    const purchase = run.buy(index);
+    expect(purchase).toMatchObject({ price, refund: 0, replaced: null });
+    expect(netWorth(run.player.account)).toBe(before - price);
+    expect(run.player.items).toHaveLength(Math.min(items + 1, 3));
+    expect(run.buy(index)).toBeNull();
+    expect(run.shopCheck(index).block).toBe('sold');
+
+    const joker = run.shop!.slots.findIndex(slot => slot.kind === 'joker');
+    Object.assign(run.player.account, { cash: 100, investmentValue: 20000 });
+    const check = run.shopCheck(joker);
+    expect(check).toMatchObject({ block: 'cash', shortfall: check.price - 100 });
+    expect(run.buy(joker)).toBeNull();
+    expect(run.player.account.cash).toBe(100);
+    expect(run.player.stats.spent).toBe(price);
+  });
+
+  it('王牌滿五張要換掉一張，舊牌以兩成五低價回收；已持有的王牌不能重買', () => {
+    const config = readFinancialConfig();
+    const run = toShop(config);
+    const shelf = run.shop!.slots.filter(slot => slot.kind === 'joker').map(slot => slot.card.id);
+    const owned = config.jokers.filter(card => !shelf.includes(card.id) && card.id !== 'thrifty').slice(0, 5);
+    run.player.jokers = [...owned];
+    run.player.account.cash = 5000;
+    const index = 0;
+    expect(run.shopCheck(index)).toMatchObject({ needsReplace: true, block: 'full' });
+    expect(run.buy(index)).toBeNull();
+    const price = run.shopCheck(index, 2).price;
+    const purchase = run.buy(index, 2)!;
+    expect(purchase.replaced!.id).toBe(owned[2].id);
+    expect(purchase.refund).toBe(Math.floor(config.shop.price.joker[owned[2].rarity] * config.shop.sellRate));
+    expect(run.player.account.cash).toBe(5000 - price + purchase.refund);
+    expect(run.player.jokers).toHaveLength(5);
+    expect(run.player.jokers[2].id).toBe(shelf[0]);
+    expect(run.player.stats.spent).toBe(price - purchase.refund);
+
+    run.shop!.slots[1] = { ...run.shop!.slots[1], card: run.player.jokers[0], sold: false };
+    expect(run.shopCheck(1, 0).block).toBe('owned');
+  });
+
+  it('精打細算打八折；回收價高於折扣價的設定在啟動時被拒絕，不能低買高賣', () => {
+    const config = readFinancialConfig();
+    const run = toShop(config);
+    run.player.account.cash = 5000;
+    const full = run.shopCheck(0).price;
+    run.player.jokers = [joker(config, 'thrifty')];
+    expect(run.shopCheck(0).price).toBe(Math.round(full * 0.8));
+    for (const card of config.jokers) {
+      expect(Math.floor(config.shop.price.joker[card.rarity] * config.shop.sellRate)).toBeLessThan(Math.round(config.shop.price.joker[card.rarity] * 0.8));
+    }
+    const raw = structuredClone(financialInput);
+    raw.shop.sellRate = 0.85;
+    expect(() => readFinancialConfig(raw)).toThrow('王牌回收價不得高於折扣後售價');
+  });
+
+  it('電腦用同樣價格買、只花自己的現金；逛不逛商店都不改變共同市場與新聞', () => {
+    const summary = (shopping: boolean) => {
+      const run = start(readFinancialConfig(), 17);
+      while (!run.closed) {
+        while (run.offer) run.chooseOfferAutomatically();
+        if (run.shop) { if (shopping) run.shopAutomatically(); else run.leaveShop(); continue; }
+        expect(run.resolveControlled(chooseTrade)).toBe(true);
+        if (run.pendingRecovery) run.acceptRecovery();
+      }
+      return run;
+    };
+    const buying = summary(true);
+    const leaving = summary(false);
+    const market = (run: TradingRun) => run.reports.map(report => [report.market?.id ?? null, report.outcomes[0].ledger.rate]);
+    expect(market(buying)).toEqual(market(leaving));
+    let purchases = 0;
+    for (const investor of buying.investors) {
+      for (const purchase of investor.purchases) {
+        // Same list price as the player; only a 精打細算 owned at the time can lower it.
+        const base = buying.config.shop.price[purchase.kind][purchase.card.rarity];
+        expect([base, Math.round(base * 0.8)]).toContain(purchase.price);
+        purchases++;
+      }
+      expect(investor.account.cash).toBeGreaterThanOrEqual(0);
+    }
+    expect(purchases).toBeGreaterThan(0);
+  });
+
+  it('商店日電腦會多留現金，其他日子不受影響', () => {
+    const run = start(calmMarket(readFinancialConfig()));
+    equip(run, run.investors[1], []);
+    const view = run.decisionView(run.investors[1]);
+    expect(view.shopToday).toBe(false);
+    const shopView = { ...view, shopToday: true, eventToday: false };
+    const plain = { ...view, eventToday: false };
+    const pick = (sample: typeof view) => chooseTrade(sample, seededRandom(1), 'mixed', 'hard').allocation;
+    expect(pick(plain)).toBe('all');
+    expect(pick(shopView)).not.toBe('all');
+  });
+});
+
 describe('歸零與翻身', () => {
-  it('四人同時歸零：玩家先決定翻身，翻身只有一次，第二次全部出局會立即收盤', () => {
+  it('四人同時歸零：玩家先決定翻身，翻身只有一次並保留王牌，第二次全部出局會立即收盤', () => {
     const run = start(calmMarket(readFinancialConfig(), 0));
-    declineOffers(run);
+    for (const investor of run.investors) equip(run, investor, ['diamond'], ['gift']);
     for (const investor of run.investors) Object.assign(investor.account, { cash: 0, investmentValue: 0 });
     expect(run.resolveControlled(hold('half'))).toBe(true);
     expect(run.pendingRecovery).not.toBeNull();
@@ -120,67 +441,13 @@ describe('歸零與翻身', () => {
     for (const investor of run.investors) {
       expect(investor.recoveries).toBe(1);
       expect(netWorth(investor.account)).toBe(run.config.financial.recoveryCash);
-      expect(investor.hedges).toEqual([]);
-      expect(investor.hand.length).toBeLessThanOrEqual(1);
+      expect(investor.items).toEqual([]);
+      expect(investor.jokers.map(card => card.id)).toEqual(['diamond']);
     }
-    declineOffers(run);
     for (const investor of run.investors) Object.assign(investor.account, { cash: 0, investmentValue: 0 });
     expect(run.resolveControlled(hold('half'))).toBe(true);
     expect(run.pendingRecovery).toBeNull();
     expect(run.investors.every(investor => investor.account.eliminated)).toBe(true);
     expect(run.closed).toBe(true);
-  });
-});
-
-describe('卡片', () => {
-  it('卡池不再含借款、還款、利息或追繳相關卡片', () => {
-    const config = readFinancialConfig();
-    const ids = config.cards.map(card => card.id);
-    for (const retired of ['bailout', 'restructure', 'repay', 'exit', 'audit', 'margin_coupon', 'redeem', 'credit', 'higher_interest']) {
-      expect(ids).not.toContain(retired);
-    }
-    expect(ids).toHaveLength(21);
-  });
-
-  it('順風車在一半買股時觸發連招，全留現金時告知沒有股票', () => {
-    const config = calmMarket(readFinancialConfig());
-    const run = start(config);
-    declineOffers(run);
-    run.player.hand = [config.cards.find(card => card.id === 'trend')!];
-    const half = run.preview(0, 0, true, false, 'half')!;
-    expect(half.enabledCard).toBe(true);
-    expect(half.synergies).toBe(1);
-    const cash = run.preview(0, 0, true, false, 'cash')!;
-    expect(cash.enabledCard).toBe(false);
-    expect(cash.cardBlock).toBe('no_stock');
-  });
-
-  it('主力狙擊只影響開盤時排名最近、手上有股票的領先者', () => {
-    const config = calmMarket(readFinancialConfig(), 0);
-    const run = start(config, 5);
-    declineOffers(run);
-    run.player.account.cash = 9000;
-    const [leader, ...others] = run.investors.filter(investor => investor !== run.player);
-    Object.assign(leader.account, { cash: 10000, investmentValue: 2000 });
-    for (const other of others) Object.assign(other.account, { cash: 8000, investmentValue: 0 });
-    run.player.hand = [config.cards.find(card => card.id === 'snipe')!];
-    expect(run.resolveControlled(view => view.characterId === run.player.character.id
-      ? { lane: 0, card: 0, allocation: 'cash' } : { lane: 0, card: null, allocation: 'all' })).toBe(true);
-    const outcomes = run.reports[0].outcomes;
-    const hit = outcomes.filter(outcome => outcome.incomingCards.length);
-    expect(hit.map(outcome => outcome.investor)).toEqual([leader]);
-    expect(hit[0].close).toBe(Math.round(12000 * 0.95));
-  });
-
-  it('情報只交給取得的人；電腦看不到別人的預告', () => {
-    const config = readFinancialConfig();
-    const run = start(config);
-    declineOffers(run);
-    run.player.hand = [config.cards.find(card => card.id === 'intel')!];
-    playDay(run, view => view.characterId === run.player.character.id ? { lane: 0, card: 0 } : { lane: 0, card: null });
-    expect(run.intelligenceFor(run.player)).toHaveLength(1);
-    for (const investor of run.investors.filter(item => item !== run.player)) {
-      expect(run.decisionView(investor).knownEvent).toBeNull();
-    }
   });
 });

@@ -1,0 +1,5 @@
+{
+  "maxGainMultiplier": 5,
+  "maxLossCut": 0.8,
+  "attacksPerTarget": 1
+}

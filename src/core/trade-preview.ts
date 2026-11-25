@@ -1,33 +1,30 @@
-import type { AllocationOption, FinancialConfig, InvestmentKind, TradingCard, TradingEvent } from '../config/financial-settings';
+import type { AllocationOption, FinancialConfig, GameCard } from '../config/financial-settings';
 import { netWorth } from './economy';
-import type { RouteNode } from './node-map';
-import { applyMarket, applyTrade, copyTradingState, marketTone, settleTrade, type EffectContext, type TradingState } from './trading-effects';
+import {
+  closeDay, copyHolder, itemBlock, newsOutlook, priceEffect, tradeDay, type DayContext, type DayLedger, type Holder, type ItemBlock, type Tone
+} from './settlement';
 
-/** Allocation id is locked with the route and card before any market result is known. */
-export interface TradeChoice { lane: number; card: number | null; prepare?: boolean; allocation?: string }
+/** Locked before any market result is known: today's stock ratio and at most one item (slot in the holder's items). */
+export interface TradeChoice { allocation?: string; item: number | null }
 
+/** Everything one investor may know when deciding: public standings, their own cards, and their own intel. */
 export interface DecisionView {
   config: FinancialConfig;
   characterId: string;
   day: number;
-  state: TradingState;
-  /** Allocation kept from the previous day; the default for today's choice. */
+  holder: Holder;
+  /** Allocation kept from the previous day; the default for today. */
   allocation: string;
-  hand: readonly TradingCard[];
-  routes: readonly RouteNode[];
-  nextRow: readonly RouteNode[];
-  knownEvent: TradingEvent | null;
-  intelDay: number | null;
-  eventToday: boolean;
-  publicEvents: readonly TradingEvent[];
-  nextEventDay: number | null;
-  recentLoss: boolean;
-  eligibleAid: boolean;
   rank: number;
   gap: number;
-  opponents: readonly { id: string; name: string }[];
-  attackTargets: Readonly<Record<NonNullable<TradingCard['opponent']>, readonly { id: string; name: string }[]>>;
-  followingEventDay: number | null;
+  /** Nearest rival ranked ahead at the open (主力狙擊 target), with their public total worth. */
+  target: { id: string; name: string; worth: number } | null;
+  eventToday: boolean;
+  nextNewsDay: number | null;
+  /** Direction of today's news if this investor learned it earlier with an item. */
+  knownTone: Tone | null;
+  /** The stage shop opens after today's close; only cash can pay for it. */
+  shopToday: boolean;
 }
 
 export function allocationOption(config: FinancialConfig, id: string | undefined): AllocationOption {
@@ -35,107 +32,73 @@ export function allocationOption(config: FinancialConfig, id: string | undefined
     ?? config.allocation.options.find(option => option.id === config.allocation.initial)!;
 }
 
-export function targetsFor(view: DecisionView, card: TradingCard | null) {
-  return card?.opponent ? view.attackTargets[card.opponent] : [];
+export function viewContext(view: DecisionView, allocation: AllocationOption): DayContext {
+  return { config: view.config, day: view.day, allocation, marketRate: 0, news: null, nextNewsDay: view.nextNewsDay, hasTarget: view.target !== null };
 }
 
-export function forecastTrade(view: DecisionView, node: RouteNode, card: TradingCard | null, showCardImpact = false, prepare = false, allocationId = view.allocation) {
-  const { config, day } = view;
-  const allocation = allocationOption(config, allocationId);
-  const kind = config.nodes.kinds[node.kind];
-  const initial = netWorth(view.state.account);
-  const draw = (marketDraw: number, market: TradingEvent | null, localDraw = marketDraw, selectedCard = card) => {
-    const state = copyTradingState(view.state);
-    const context: EffectContext = { config, day, eventDay: view.nextEventDay, allocation,
-      recentLoss: view.recentLoss, marketDraw: localDraw, eligibleAid: view.eligibleAid, opponentCount: targetsFor(view, selectedCard).length, followingEventDay: view.followingEventDay, marketToday: view.eventToday };
-    const action = applyTrade(state, kind, selectedCard, context, selectedCard === card && prepare);
-    if (market) applyMarket(state, market, { ...context, marketDraw }, action.ledger);
-    const risk = settleTrade(state);
-    return { state, action, risk, delta: netWorth(state.account) - initial };
-  };
+export interface Scenario { marketRate: number; newsRate: number; tone: Tone | null; weight: number }
 
-  const knownToday = view.eventToday && view.intelDay === day ? view.knownEvent : null;
-  const publicEvents = view.eventToday && !knownToday && view.publicEvents.length ? publicScenarios(config, view.publicEvents) : null;
-  const guaranteed = knownToday?.target === 'all' ? knownToday : null;
-  const base = draw(0.5, guaranteed);
-  const downside = knownToday && !guaranteed && marketTone(knownToday, config) === 'negative'
-    ? knownToday : guaranteed ?? publicEvents?.low ?? null;
-  const upside = knownToday && !guaranteed && marketTone(knownToday, config) === 'positive'
-    ? knownToday : guaranteed ?? publicEvents?.high ?? null;
-  const bearish = draw(0, downside);
-  const bullish = draw(1, upside);
-  const average = publicEvents ? draw(0.5, publicEvents.typical) : base;
-  const { account } = average.state;
-  const { ledger } = base.action;
-  const extraProtection = showCardImpact && card && base.action.cardUsed && bearish.action.ledger.protected
-    ? Math.max(0, bearish.action.ledger.protected - draw(0, downside, 0, null).action.ledger.protected) : 0;
+/** Market low / middle / high, crossed with the public news outlook (or the direction this investor knows). */
+export function scenarios(view: DecisionView): Scenario[] {
+  const market = priceEffect(view.config, { effectIds: [view.config.allocation.dailyMarket] })!;
+  const moves = [
+    { marketRate: market.floor, weight: 0.25 }, { marketRate: (market.floor + market.ceiling) / 2, weight: 0.5 }, { marketRate: market.ceiling, weight: 0.25 }
+  ];
+  const news = view.eventToday ? newsOutlook(view.config, view.knownTone) : [{ tone: null, rate: 0, weight: 1 }];
+  return moves.flatMap(move => news.map(item => ({ marketRate: move.marketRate, newsRate: item.rate, tone: item.tone, weight: move.weight * item.weight })));
+}
+
+function simulate(view: DecisionView, allocation: AllocationOption, item: GameCard | null, scenario: Scenario) {
+  const holder = copyHolder(view.holder);
+  const before = netWorth(holder.account);
+  const context = viewContext(view, allocation);
+  context.marketRate = scenario.marketRate;
+  // Only the rate matters to a forecast; the event's topic (and so 護國神山) is unknown until the news airs.
+  const placeholder = { ...view.config.events[0], category: 'flows' as const };
+  context.news = view.eventToday && scenario.newsRate ? { event: placeholder, rate: scenario.newsRate, applies: true } : null;
+  const ledger = tradeDay(holder, item, context);
+  closeDay(holder, context, ledger, false);
+  return { holder, ledger, delta: netWorth(holder.account) - before };
+}
+
+export interface Forecast {
+  allocation: AllocationOption;
+  cash: number;
+  stock: number;
+  low: number;
+  high: number;
+  expected: number;
+  item: GameCard | null;
+  itemBlock: ItemBlock | null;
+  /** Cash the item pays right away, if any. */
+  itemCash: number;
+  /** Expected extra gain from jokers and items over the plain stock move. */
+  boost: number;
+  shielded: number;
+  /** Estimated hit on the target if the item is 主力狙擊 (their stock is private, so half their worth is assumed). */
+  attack: number;
+  ledger: DayLedger;
+}
+
+/** The same settlement the run uses, applied to copies under a few market scenarios. Never changes the real state. */
+export function forecastTrade(view: DecisionView, allocationId: string | undefined, slot: number | null): Forecast {
+  const allocation = allocationOption(view.config, allocationId ?? view.allocation);
+  const item = slot === null ? null : view.holder.items[slot] ?? null;
+  const block = item ? itemBlock(view.holder, item, viewContext(view, allocation)) : null;
+  const used = block ? null : item;
+  const runs = scenarios(view).map(scenario => ({ scenario, result: simulate(view, allocation, used, scenario) }));
+  const deltas = runs.map(run => run.result.delta);
+  const expected = runs.reduce((sum, run) => sum + run.result.delta * run.scenario.weight, 0);
+  const middle = runs.reduce((best, run) => run.scenario.weight > best.scenario.weight ? run : best, runs[0]).result;
+  const boost = runs.reduce((sum, run) => sum + (run.result.ledger.stockFinal - run.result.ledger.stockBase) * run.scenario.weight, 0);
+  const shielded = Math.max(...runs.map(run => run.result.ledger.shielded));
+  const worth = Math.max(0, netWorth(view.holder.account));
+  const stock = Math.floor(worth * allocation.ratio);
+  const itemCash = used ? middle.ledger.steps.filter(step => step.source === 'item' && step.kind === 'cash').reduce((sum, step) => sum + step.amount, 0) : 0;
+  const attackRate = used ? used.effectIds.map(id => view.config.effects[id]).find(effect => effect.type === 'attack') : undefined;
+  const attack = attackRate?.type === 'attack' && view.target ? Math.round(view.target.worth * 0.5 * attackRate.amount) : 0;
   return {
-    kind, available: base.action.funded, enabledCard: base.action.cardUsed, draft: base.action.draft || ledger.cardDraft,
-    low: Math.min(bearish.delta, base.delta, bullish.delta),
-    high: Math.max(bearish.delta, base.delta, bullish.delta),
-    expected: (base.delta + average.delta + (bullish.delta + bearish.delta) * 0.5) / 3,
-    riskOfLoss: Math.max(0, -bearish.delta), insolvencyRisk: Number(bearish.risk.insolvent) || Number(base.risk.insolvent),
-    cash: account.cash, investment: account.investmentValue,
-    rebalance: ledger.rebalance, sold: ledger.sold,
-    marketLow: bearish.action.ledger.baseMarket, marketHigh: bullish.action.ledger.baseMarket,
-    fees: ledger.fees, hedgeCount: base.state.hedges.length, intelDay: base.state.intelDay,
-    gainedHedge: base.state.hedges.some((hedge, index) => hedge > (view.state.hedges[index] ?? 0)),
-    afterWorth: netWorth(account),
-    synergyGain: ledger.synergyGain, synergies: ledger.synergies, cardImpact: base.action.cardImpact, cardBlock: base.action.cardBlock, extraProtection,
-    preparation: base.action.preparation, baseGain: ledger.baseGain, activeComboGain: ledger.activeComboGain, feeSaved: ledger.feeSaved,
-    opponents: targetsFor(view, card).map(opponent => opponent.name), bonusDraw: ledger.bonusDraw, intelCount: [base.state.intelDay, ...base.state.extraIntel].filter(day => day !== null).length
+    allocation, cash: worth - stock, stock, low: Math.min(...deltas), high: Math.max(...deltas), expected,
+    item, itemBlock: block, itemCash, boost, shielded, attack, ledger: middle.ledger
   };
-}
-
-export function cardPreparationAvailable(config: FinancialConfig, card: TradingCard) {
-  return config.cardRules.preparations && card.effectIds.some(id => {
-    const effect = config.effects[id];
-    return effect.type === 'combo' && effect.prepareDays !== undefined;
-  });
-}
-
-export function inspectCard(view: DecisionView, node: RouteNode, card: TradingCard, prepare = false, allocationId = view.allocation) {
-  return applyTrade(copyTradingState(view.state), view.config.nodes.kinds[node.kind], card, {
-    config: view.config, allocation: allocationOption(view.config, allocationId), day: view.day, eventDay: view.nextEventDay, recentLoss: view.recentLoss,
-    marketDraw: 0.5, eligibleAid: view.eligibleAid, opponentCount: targetsFor(view, card).length, followingEventDay: view.followingEventDay, marketToday: view.eventToday
-  }, prepare);
-}
-
-export function handAvailability(view: DecisionView, allocationId = view.allocation) {
-  return view.hand.map(card => {
-    const results = view.routes.flatMap(node => [
-      inspectCard(view, node, card, false, allocationId),
-      ...(cardPreparationAvailable(view.config, card) ? [inspectCard(view, node, card, true, allocationId)] : [])
-    ]);
-    return { usable: results.some(result => result.cardUsed), routeBlocked: results.length > 0 &&
-      results.every(result => result.cardBlock === 'route') };
-  });
-}
-
-export function futureValue(node: RouteNode, next: readonly RouteNode[], kinds: Record<string, InvestmentKind>, tags: readonly string[]) {
-  if (!node.next.length) return 0;
-  const routes = node.next.map(lane => kinds[next[lane].kind]);
-  return Math.max(...routes.map(kind => Number(kind.tags.some(tag => tags.includes(tag))))) + (routes.length - 1) * 0.25;
-}
-
-const cachedScenarios = new WeakMap<readonly TradingEvent[], ReturnType<typeof calculateScenarios>>();
-function calculateScenarios(config: FinancialConfig, candidates: readonly TradingEvent[]) {
-  const impact = (event: TradingEvent) => {
-    const effect = event.effectIds.map(id => config.effects[id]).find(effect => effect.type === 'price');
-    return effect ? (effect.floor + effect.ceiling) / 2 : 0;
-  };
-  const ordered = [...candidates].sort((first, second) => impact(first) - impact(second));
-  const average = candidates.reduce((sum, event) => sum + impact(event) * event.weight, 0) /
-    candidates.reduce((sum, event) => sum + event.weight, 0);
-  return { low: ordered[0], high: ordered.at(-1)!,
-    typical: ordered.reduce((best, event) => Math.abs(impact(best) - average) < Math.abs(impact(event) - average) ? best : event) };
-}
-
-function publicScenarios(config: FinancialConfig, candidates: readonly TradingEvent[]) {
-  let scenarios = cachedScenarios.get(candidates);
-  if (!scenarios) {
-    scenarios = calculateScenarios(config, candidates);
-    cachedScenarios.set(candidates, scenarios);
-  }
-  return scenarios;
 }

@@ -12,7 +12,7 @@ import {
 } from './settlement';
 import { buy, checkBuy, listPrice, type Purchase, type Shop } from './shop';
 import { marketTargets } from './targets';
-import { attackOf, resolveAttacks, type AttackRecord } from './attacks';
+import { attackOf, resolveAttacks, type AttackMiss, type AttackRecord } from './attacks';
 import { allocationOption, attackTargets, forecastTrade, type ActionChoice, type DecisionView, type TradeChoice } from './trade-preview';
 
 export interface TradingOptions { playerId: string; seed: number; difficulty: TradingDifficulty }
@@ -74,7 +74,11 @@ export interface DayOutcome {
   exposure: { stock: number; cash: number };
 }
 
-export interface DayReport { day: number; market: TradingEvent | null; outcomes: DayOutcome[]; attacks: AttackRecord[] }
+export interface DayReport {
+  day: number; market: TradingEvent | null; outcomes: DayOutcome[]; attacks: AttackRecord[];
+  /** Locked attacks that did not land, with the reason. Presentation only. */
+  misses: AttackMiss[];
+}
 export interface Standing { investor: Investor; rank: number | null }
 
 function localSeed(seed: number, text: string) {
@@ -430,10 +434,11 @@ export class TradingRun {
       .flatMap(({ trade, index }) => trade.cards.flatMap(card => {
         const effect = card.effect;
         return effect ? combatants.filter(target => card.targets.includes(target.id)).map(to => ({
-          from: combatants[index], to, effect, slot: card.slot, factor: card.factor
+          from: combatants[index], to, effect, slot: card.slot, factor: card.factor, itemId: card.card.id
         })) : [];
       }));
-    const attacks = resolveAttacks(strikes, this.config.settlement);
+    const misses: AttackMiss[] = [];
+    const attacks = resolveAttacks(strikes, this.config.settlement, misses);
     for (const trade of trades) {
       const id = trade.investor.character.id;
       const sent = attacks.find(attack => attack.from === id);
@@ -471,7 +476,7 @@ export class TradingRun {
         clearedItems: 0, attackedBy: trade.attackedBy, attacked: trade.attacked, attackBlocked: trade.attackBlocked, received, exposure: ledger.exposure
       };
     });
-    const report: DayReport = { day: this.day, market, outcomes, attacks };
+    const report: DayReport = { day: this.day, market, outcomes, attacks, misses };
     if (market) this.latestNews = { day: this.day, event: market };
     if (outcomes.some(outcome => outcome.investor === this.player && this.eligibleForRecovery(outcome))) this.pendingRecovery = report;
     else this.finishDay(report);

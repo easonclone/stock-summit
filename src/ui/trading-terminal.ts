@@ -6,6 +6,7 @@ import { allocationOption } from '../core/trade-preview';
 import { sellPrice, type BuyBlock } from '../core/shop';
 import { marketTone, type ChainStep, type ItemBlock } from '../core/settlement';
 import { dayBreakdown } from './breakdown';
+import { worthRange } from './fx-events';
 import { cardDescription } from './card-copy';
 import { timelineMarkup } from './timeline';
 import { rarityLabel } from './card-face';
@@ -71,7 +72,9 @@ function arenaMarkup(run: TradingRun, choosing: boolean, animate: boolean, previ
   const fresh = Boolean(news && latest?.market && news.day === latest.day);
   const next = run.nextEventDay;
   const capital = run.config.financial.initialCapital;
-  const maxWorth = Math.max(capital, ...run.investors.map(investor => netWorth(investor.account)), ...(latest?.outcomes.map(outcome => outcome.start) ?? []));
+  // One shared scale for the whole show: includes every running total of the day, so bars never rescale mid-animation.
+  const maxWorth = Math.max(capital, ...run.investors.map(investor => netWorth(investor.account)),
+    ...(latest?.outcomes.map(outcome => worthRange(outcome).peak) ?? []));
   const step = capital / 2;
   const scale = step * (1 + Math.floor(maxWorth / step));
   const fill = (value: number) => 100 * Math.max(0, value) / scale;
@@ -87,24 +90,20 @@ function arenaMarkup(run: TradingRun, choosing: boolean, animate: boolean, previ
     const id = investor.character.id;
     const selectable = preview?.targets.find(target => target.id === id);
     const selected = preview?.attack?.target.id === id;
-    const sent = latest?.attacks.find(hit => hit.from === id);
-    const received = latest?.attacks.find(hit => hit.to === id);
-    const strike = received && received.kind !== 'shield_break' ? received.amount - (received.kind === 'cash_raid' ? received.reflected : 0) : 0;
-    const rebound = sent?.reflected ?? 0;
     const bubble = moodText[mood] && (animate || mood === 'think' || mood === 'win' || mood === 'broke') ? moodText[mood] : '';
-    return `<article class="fighter mood-${mood} ${isPlayer ? 'is-player' : ''} ${animate && climb > 0 ? 'rank-up' : ''} ${selectable ? 'can-target' : ''} ${selected ? 'is-target' : ''} ${animate && sent ? 'striking' : ''} ${animate && (received || rebound) ? 'struck' : ''} ${animate && received?.reflected ? 'reflecting' : ''}" style="--ink:${investor.character.color}"
-      aria-label="${escapeHtml(investor.character.name)}，${standing.rank ? `第 ${standing.rank} 名` : '出局'}，總身家 ${money(value)}">
+    // Hit numbers, flashes and the bar movement are played by ArenaFx from the settled records; the markup only
+    // starts the bar at the open when that show is about to run.
+    const shown = animate && outcome ? outcome.start : value;
+    return `<article class="fighter mood-${mood} ${isPlayer ? 'is-player' : ''} ${animate && climb > 0 ? 'rank-up' : ''} ${selectable ? 'can-target' : ''} ${selected ? 'is-target' : ''}" style="--ink:${investor.character.color}"
+      data-fighter="${id}" aria-label="${escapeHtml(investor.character.name)}，${standing.rank ? `第 ${standing.rank} 名` : '出局'}，總身家 ${money(value)}${outcome && delta ? `，今天 ${signedMoney(delta)}` : ''}">
       ${bubble ? `<span class="bubble">${bubble}</span>` : ''}
-      ${animate && delta ? `<span class="float ${direction(delta)}">${signedMoney(delta)}</span>` : ''}
-      ${animate && (received || rebound) ? `<span class="strike-flash">✦ ${received?.kind === 'shield_break' ? '破盾' : [strike ? money(-strike) : '', rebound ? '反擊 ' + money(-rebound) : ''].filter(Boolean).join(' · ')}</span>` : ''}
-      ${animate && outcome?.ledger.shielded ? `<span class="shield-pop">◆ 擋下 ${money(outcome.ledger.shielded)}</span>` : ''}
-      <canvas class="sprite" width="72" height="96" data-sprite="${investor.character.id}" data-mood="${animate && sent ? 'strike' : mood}" aria-hidden="true"></canvas>
+      <canvas class="sprite" width="72" height="96" data-sprite="${investor.character.id}" data-mood="${mood}" aria-hidden="true"></canvas>
       <canvas class="portrait arena-portrait" width="64" height="64" data-portrait="${id}" aria-hidden="true"></canvas>
 
       <div class="plate"><b class="rank">${standing.rank === 1 ? iconMarkup('crown', '#f4c56d') : ''}${standing.rank ? `#${standing.rank}` : '出局'}${climb ? `<small class="${direction(climb)}">${arrow(climb)}</small>` : ''}</b>
         <strong>${escapeHtml(investor.character.name)}${isPlayer ? '<em>你</em>' : ''}</strong>
-        <span class="worth">${money(value)}</span>
-        <span class="wealth-track ${animate ? 'wealth-moving' : ''}" aria-hidden="true" style="--start:${fill(outcome?.start ?? value)}%;--end:${fill(value)}%;--capital:${fill(capital)}%"><i></i><b></b><small></small></span>
+        <span class="worth">${money(shown)}</span>
+        <span class="wealth-track" aria-hidden="true" data-start="${shown}" style="--now:${fill(shown)}%;--lag:${fill(shown)}%;--capital:${fill(capital)}%"><i></i><b></b><small></small></span>
         ${investor.defenses.length || investor.memory.mirror !== null ? `<small class="fighter-status" aria-label="護盾 ${investor.defenses.length}，${investor.memory.mirror === null ? '' : '反擊鏡待命'}">${investor.defenses.length ? iconMarkup('shield', '#a5d4ff') + investor.defenses.length : ''}${investor.memory.mirror !== null ? iconMarkup('mirror', '#b3efff') : ''}</small>` : ''}</div>
       ${selectable ? `<button type="button" class="target-seat" data-act="target" data-value="${id}" aria-pressed="${Boolean(selected)}" aria-label="指定 ${escapeHtml(investor.character.name)}，現金 ${money(selectable.cash)}，股票 ${money(selectable.stock)}，護盾 ${selectable.shields}"><span aria-hidden="true">⌖</span></button>` : ''}
     </article>`;
@@ -116,7 +115,7 @@ function arenaMarkup(run: TradingRun, choosing: boolean, animate: boolean, previ
         <strong>${news ? escapeHtml(news.event.title) : '交易所開盤，等待第一則新聞'}</strong></span>
       <span class="ticker-next">${next === null ? '新聞已結束' : `下則 第 ${next} 日`}</span>
     </button>
-    <div class="stage"><canvas class="city-art" data-city aria-hidden="true"></canvas>${fighters}</div>
+    <div class="stage" data-scale="${scale}"><canvas class="city-art" data-city aria-hidden="true"></canvas>${fighters}</div>
   </section>`;
 }
 
@@ -228,12 +227,13 @@ function firedJokers(run: TradingRun) {
   return gains;
 }
 
-function jokerMarkup(run: TradingRun, animate: boolean) {
+/** Payouts come from the settlement chain. With motion, ArenaFx reveals them one by one; otherwise they show at once. */
+function jokerMarkup(run: TradingRun, fresh: boolean, animate: boolean) {
   const { jokerSlots } = run.config.gameplay;
-  const fired = animate ? firedJokers(run) : new Map<string, { amount: number; order: number }>();
+  const fired = fresh ? firedJokers(run) : new Map<string, { amount: number; order: number }>();
   const cards = run.player.jokers.map((joker, index) => `<button type="button" class="card-button ${fired.has(joker.id) ? 'fired' : ''}" data-act="card-detail" data-kind="joker" data-value="${index}"
-      style="--i:${fired.get(joker.id)?.order ?? 0}" aria-label="王牌 ${escapeHtml(joker.name)}：${escapeHtml(cardDescription(run.config, joker).line)}">${cardMarkup(run.config, joker, 'joker')}
-      ${fired.has(joker.id) ? `<span class="joker-payout ${direction(fired.get(joker.id)!.amount)}">${signedMoney(fired.get(joker.id)!.amount)}</span>` : ''}</button>`);
+      data-joker-id="${joker.id}" aria-label="王牌 ${escapeHtml(joker.name)}：${escapeHtml(cardDescription(run.config, joker).line)}${fired.has(joker.id) ? `，今天 ${signedMoney(fired.get(joker.id)!.amount)}` : ''}">${cardMarkup(run.config, joker, 'joker')}
+      ${fired.has(joker.id) ? `<span class="joker-payout ${direction(fired.get(joker.id)!.amount)} ${animate ? 'fx-wait' : ''}">${signedMoney(fired.get(joker.id)!.amount)}</span>` : ''}</button>`);
   const empty = Array.from({ length: jokerSlots - cards.length }, () => '<span class="card-slot joker" aria-hidden="true">王牌</span>');
   return `<section class="joker-section" aria-label="我的王牌">
     <div class="section-head"><h2>我的王牌</h2><span>${run.player.jokers.length} / ${jokerSlots}</span></div>
@@ -440,12 +440,17 @@ function dailyShopMarkup(run: TradingRun, selected?: number, feedback?: string) 
 }
 
 export interface TerminalSelection {
-  allocation: string | null; item: number | null; targetId?: string; animate: boolean;
+  allocation: string | null; item: number | null; targetId?: string;
+  /** Motion allowed for the day just settled (ArenaFx moves bars from the open to the close). */
+  animate: boolean;
+  /** The latest day was settled just now, so its numbers are shown once (statically when motion is reduced). */
+  fresh?: boolean;
   actions?: ActionChoice[]; dailyPick?: number; feedback?: string; inspectItem?: number;
 }
 
 export function tradingMarkup(run: TradingRun, ui: TerminalSelection) {
   const { item, animate } = ui;
+  const fresh = Boolean(ui.fresh || animate);
   const allocation = ui.allocation ?? run.player.allocation;
   const eliminated = run.player.account.eliminated;
   const actions = ui.actions ?? [];
@@ -461,7 +466,7 @@ export function tradingMarkup(run: TradingRun, ui: TerminalSelection) {
       <div class="stage-column">${arenaMarkup(run, choosing, animate, preview)}${heroMarkup(run)}${resultMarkup(run, animate)}</div>
       <div class="decision-column">
         ${eliminated ? '<section class="panel spectator"><h2>本席已出局</h2><p>其他投資人會繼續結算。</p><button type="button" data-act="personal">查看個人結算</button></section>' :
-      `${allocationMarkup(run, allocation, actions)}${jokerMarkup(run, animate)}${itemMarkup(run, allocation, ui)}${targetHint}${dailyShopMarkup(run, ui.dailyPick, ui.feedback)}`}
+      `${allocationMarkup(run, allocation, actions)}${jokerMarkup(run, fresh, animate)}${itemMarkup(run, allocation, ui)}${targetHint}${dailyShopMarkup(run, ui.dailyPick, ui.feedback)}`}
       </div>
     </div></main>
     <div class="trade-dock"><div class="dock-inner"><div class="dock-caption"><span>${eliminated ? '觀戰模式' : `第 ${run.day} / ${run.config.gameplay.turns} 日`}${item !== null && !eliminated ? ` · ${escapeHtml(run.player.items[item].name)}` : ''}</span>

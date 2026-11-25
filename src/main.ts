@@ -8,9 +8,13 @@ import { itemTiming } from './core/item-timing';
 import { marketTone } from './core/settlement';
 import { CardAudio } from './ui/audio';
 import { DayTransition } from './ui/day-transition';
+import { ArenaFx } from './ui/arena-fx';
+import { buildFxPlan } from './ui/fx-events';
+import { readFeedbackConfig, type FeedbackConfig } from './config/feedback-settings';
 import { crisisMarkup } from './ui/crisis-dialog';
 import { escapeHtml, money, signedMoney } from './ui/format';
-import { drawCardArt, drawCity, drawIcon, iconMarkup, portrait, sprite, type SpriteMood, type SystemIcon } from './ui/pixels';
+import { iconMarkup } from './ui/pixels';
+import { paintCanvases } from './ui/paint';
 import { settlementMarkup, shareText } from './ui/settlement';
 import { cardDetailMarkup, chartDialogMarkup, newsMarkup, offerHeading, offerMarkup, openingMarkup, shopMarkup, tradingMarkup, type TerminalSelection } from './ui/trading-terminal';
 import { timelineDetail } from './ui/timeline';
@@ -28,6 +32,10 @@ class TerminalApp {
   private readonly dialog: HTMLDialogElement;
   private readonly audio = new CardAudio();
   private readonly dayTransition: DayTransition;
+  private readonly arenaFx: ArenaFx;
+  /** How long the hit show still runs, so the next day's banner waits for it. */
+  private showUntil = 0;
+  private readonly feedback: FeedbackConfig = readFeedbackConfig();
   private presentedDay = 1;
   private readonly selection: TerminalSelection = { allocation: null, item: null, animate: false };
   private selectedCharacter: string;
@@ -73,6 +81,7 @@ class TerminalApp {
     this.screen = root.querySelector('#screen')!;
     this.dialog = root.querySelector('dialog')!;
     this.dayTransition = new DayTransition(root);
+    this.arenaFx = new ArenaFx(config, this.audio);
     root.style.setProperty('--gold', config.theme.gold);
     root.style.setProperty('--bg', config.theme.night);
     root.style.setProperty('--panel', config.theme.panel);
@@ -91,6 +100,8 @@ class TerminalApp {
   }
 
   private render(focus?: string) {
+    // Any re-render ends the current hit show; its numbers are already in the records and are never played twice.
+    this.arenaFx.dispose();
     this.disposeEffect?.();
     this.disposeEffect = undefined;
     const run = this.run;
@@ -105,25 +116,12 @@ class TerminalApp {
         : `<main>${openingMarkup(this.config, this.selectedCharacter, this.difficulty)}</main>`}`;
     this.paint(this.screen);
     this.selection.animate = false;
+    this.selection.fresh = false;
     if (focus) this.screen.querySelector<HTMLElement>(focus)?.focus({ preventScroll: true });
   }
 
   private paint(parent: ParentNode) {
-    parent.querySelectorAll<HTMLCanvasElement>('[data-portrait]').forEach(canvas => {
-      const character = this.config.characters.find(item => item.id === canvas.dataset.portrait);
-      if (!character) return;
-      portrait(canvas, character);
-
-    });
-    parent.querySelectorAll<HTMLCanvasElement>('[data-sprite]').forEach(canvas => {
-      const character = this.config.characters.find(item => item.id === canvas.dataset.sprite);
-      if (character) sprite(canvas, character, (canvas.dataset.mood ?? 'idle') as SpriteMood);
-    });
-    parent.querySelectorAll<HTMLCanvasElement>('[data-city]').forEach(drawCity);
-    parent.querySelectorAll<HTMLCanvasElement>('[data-card-art]').forEach(canvas => drawCardArt(canvas, canvas.dataset.cardArt as PixelIcon, canvas.dataset.color!, canvas.dataset.cardDesign));
-    parent.querySelectorAll<HTMLCanvasElement>('[data-icon]').forEach(canvas => {
-      drawIcon(canvas, canvas.dataset.icon as SystemIcon, canvas.dataset.color!);
-    });
+    paintCanvases(parent, this.config);
   }
 
   private change(target: HTMLInputElement) {
@@ -233,6 +231,7 @@ class TerminalApp {
     this.dayTransition.close();
     this.lastCrisis = null;
     this.theaterDay = 0;
+    this.arenaFx.playedDay = 0;
     this.stage?.close();
     this.clearSelection();
     this.audio.unlock();
@@ -370,13 +369,17 @@ class TerminalApp {
     const report = run.pendingRecovery ?? run.reports.at(-1);
     const outcome = report?.outcomes.find(item => item.investor === run.player);
     this.closeDialog(false);
-    this.selection.animate = !this.reduced;
+    // Bars start at the open only when the show will actually run right after this render (not behind a recovery choice).
+    this.selection.animate = !this.reduced && !run.pendingRecovery;
+    this.selection.fresh = !run.pendingRecovery;
     this.render(run.closed ? '[data-act="replay"]' : '[data-act="trade"]');
     if (report && outcome && outcome.risk.insolvent) this.lastCrisis = { report, outcome };
     // The theater waits for a finished day: a pending recovery is decided first, then the show plays once.
     const settled = report && !run.pendingRecovery && this.theaterDay !== report.day ? report : null;
     const steps = settled ? buildTheater(run, settled, this.theater, this.theaterMode) : [];
-    if (report && outcome && !steps.length) this.playSound(report, outcome);
+    const fx = settled && !run.closed ? buildFxPlan(this.feedback, settled, run.player.character.id) : null;
+    const audible = Boolean(fx?.events.some(event => event.kind !== 'own' && event.kind !== 'jokers'));
+    if (report && outcome && !steps.length && (!audible || outcome.risk.insolvent)) this.playSound(report, outcome);
     if (!steps.length && !this.reduced && report?.market && !run.closed) void this.playMarketEffect(report);
     this.announce(run.closed ? '本局正式收盤。' : `第 ${report?.day ?? run.day} 日收盤。${outcome ? `你今天 ${signedMoney(outcome.close - outcome.start)}。` : ''}`);
     const next = () => {
@@ -384,10 +387,19 @@ class TerminalApp {
       else if (outcome && !outcome.recovery && outcome.risk.insolvent) this.openDialog('crisis');
       else this.showOffer();
     };
+    // The hit show runs on the arena after the theater (if any), so nothing plays hidden behind the news.
+    const show = () => {
+      if (!fx) return;
+      this.arenaFx.play(this.screen, fx, run.player.character.id, this.reduced);
+      this.showUntil = performance.now() + (this.reduced ? 0 : fx.span);
+    };
     if (settled && steps.length) {
       this.theaterDay = settled.day;
-      void this.playTheater(steps, settled).then(next);
-    } else next();
+      void this.playTheater(steps, settled).then(() => { show(); next(); });
+    } else {
+      show();
+      next();
+    }
     if (run.closed) window.scrollTo(0, 0);
   }
 
@@ -474,7 +486,7 @@ class TerminalApp {
     const run = this.run;
     if (!run || run.closed || run.day === this.presentedDay) return;
     this.presentedDay = run.day;
-    if (!this.reduced) this.dayTransition.play(run.day);
+    if (!this.reduced) this.dayTransition.play(run.day, Math.max(0, this.showUntil - performance.now()));
     const card = run.playerOpeningItem;
     if (card) {
       if (!this.reduced) this.screen.querySelector('[data-morning-item]')?.classList.add('morning-arrival');

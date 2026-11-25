@@ -249,7 +249,7 @@ summary { cursor: pointer; min-height: 39px; display: list-item; padding: 8px 0;
 .fighter.is-player .sprite { filter: drop-shadow(0 0 4px color-mix(in srgb, var(--ink) 70%, transparent)); }
 .arena-animate .mood-gain .sprite, .mood-win .sprite { animation: hop 360ms steps(3, end) both; }
 .arena-animate .mood-loss .sprite { animation: sag 380ms ease-out both; }
-.arena-animate .mood-hit .sprite, .arena-animate .mood-call .sprite { animation: shake 300ms steps(4, end); }
+.arena-animate .mood-call .sprite { animation: shake 300ms steps(4, end); }
 .mood-broke .sprite { opacity: .6; transform: rotate(-8deg) translateY(4px); animation: none; }
 .mood-recover .sprite { animation: rise 700ms steps(4, end) both; }
 .mood-think .sprite { animation: idle 900ms steps(2, end) infinite; }
@@ -264,13 +264,12 @@ summary { cursor: pointer; min-height: 39px; display: list-item; padding: 8px 0;
 .fighter:nth-child(odd) { margin-bottom: 10px; }
 .fighter.is-player .plate { outline: 1px solid var(--ink); background: #182d3b; }
 .wealth-track { display: block; position: relative; width: 88%; height: 9px; margin: 4px 0; overflow: hidden; border: 1px solid #637386; background: #09111b; }
-.wealth-track i, .wealth-track b { position: absolute; inset: 0 auto 0 0; width: var(--end); }
-.wealth-track i { background: #f3a177; }
-.wealth-track b { background: var(--ink); }
+.wealth-track i, .wealth-track b { position: absolute; inset: 0 auto 0 0; max-width: 100%; }
+/* i: lagging layer (damage trail on a loss, light ghost on a gain); b: the bar itself. Both read the same scale. */
+.wealth-track i { width: var(--lag); background: #f3a177; transition: width 320ms ease-in; }
+.wealth-track b { width: var(--now); background: var(--ink); transition: width 220ms ease-out; }
+.wealth-track.fx-gain i { background: #fff0b8; }
 .wealth-track small { position: absolute; inset: 0 auto 0 var(--capital); border-left: 1px solid #fffa; }
-.wealth-moving i { animation: wealth-change 400ms 80ms both; }
-.wealth-moving b { animation: wealth-change 380ms both; }
-@keyframes wealth-change { from { width: var(--start); } to { width: var(--end); } }
 .fighter-status { color: var(--ice); font-size: .7rem; }
 .target-seat { position: absolute; inset: 0; width: 100%; border: 1px dashed #f4ae84; padding: 3px; background: transparent; text-align: right; color: #ffe2a8; align-content: start; }
 .target-seat span { display: block; font-size: 1.25rem; line-height: 1; }
@@ -278,22 +277,12 @@ summary { cursor: pointer; min-height: 39px; display: list-item; padding: 8px 0;
 .target-hint { color: var(--gold); font-size: .85rem; }
 .game-card.card-attack { border-top-style: solid; }
 .game-card.card-defense { border-top-style: double; }
-.arena-animate .fighter.striking .sprite { animation: strike-dart 360ms steps(4, end) both; }
-.arena-animate .fighter.struck .sprite { animation: strike-back 380ms steps(5, end) both; }
-.arena-animate .fighter.reflecting .sprite { filter: drop-shadow(0 0 7px #a9eefa); }
-.strike-flash { z-index: 3; pointer-events: none; position: absolute; top: 25%; color: #ffe2a8; font: 800 clamp(.65rem, 2.7vw, .85rem) var(--number); text-shadow: 0 1px 4px #090e19, 0 1px 4px #090e19; animation: strike-pop 420ms ease-out both; }
-@keyframes strike-dart { 35% { transform: translate(8px, -5px); } }
-@keyframes strike-back { 30% { transform: translate(-6px, -3px); filter: brightness(1.6); } }
-@keyframes strike-pop { 0%, 85% { opacity: 1; } 100% { opacity: 0; transform: translateY(-10px); } }
-.reduced-motion .strike-flash { display: none; }
 .fighter.mood-broke .plate { border-top-color: var(--danger); opacity: .75; }
 .bubble { position: absolute; top: -18px; z-index: 2; padding: 1px 5px; background: var(--text); color: #101521; font-size: .62rem; font-weight: 900; white-space: nowrap; }
 .bubble::after { content: ""; position: absolute; left: 50%; bottom: -4px; border: 4px solid transparent; border-bottom: 0; border-top-color: var(--text); transform: translateX(-50%); }
 .mood-call .bubble, .mood-broke .bubble, .mood-hit .bubble { background: var(--danger); }
 .mood-shield .bubble { background: var(--ice); }
 .mood-win .bubble { background: var(--gold); }
-.float { position: absolute; top: 18%; z-index: 2; font: 900 .74rem var(--number); text-shadow: 0 1px 0 #000, 0 0 4px #000; animation: float-up 1.6s ease-out both; pointer-events: none; }
-.shield-pop { position: absolute; bottom: 58px; z-index: 2; padding: 0 4px; background: #0b151ee6; border: 1px solid var(--ice); color: var(--ice); font-size: .58rem; font-weight: 900; white-space: nowrap; animation: float-up 1.8s ease-out .3s both; }
 .rank-up .plate .rank { animation: rank-pop 220ms steps(3, end); }
 
 /* C+D: hero summary */
@@ -570,7 +559,6 @@ summary { cursor: pointer; min-height: 39px; display: list-item; padding: 8px 0;
 @keyframes tick-in { from { opacity: 0; transform: translateX(-6px); } }
 @keyframes show-in { from { opacity: 0; } }
 .reduced-motion *, .reduced-motion *::before, .reduced-motion *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
-.reduced-motion .float, .reduced-motion .shield-pop { display: none; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; } }
 
 @media (min-width: 900px) {

@@ -27,7 +27,9 @@
 | `attack`、`cash_raid`、`shield_break` | 道具 | 指定對手並在市場結算後扣股票、轉移現金或破一盾，單體攻擊牌只接受單一效果 |
 | `mirror` | 道具 | 單面待命，受到造成金額變動的直接攻擊後依設定比例反擊 |
 
-`TradeChoice.actions` 依序儲存道具格號及單體攻擊的鎖定目標，`DayReport.attacks` 記錄命中者、目標、種類、實際金額和反擊金額。`amount` 是實際金額，破盾另以種類表示。
+- `src/config/feedback.json`（只影響呈現）：`tiers` 為命中分級門檻（傷害占目標開盤身家比例：`normal` 3%、`strong` 8%、`heavy` 15%，以下為輕擊）；`bigMarket` 為大漲跌門檻；`timing` 為演出節奏毫秒數（基本間隔、王牌連鎖起點與間隔、攻擊起點與間隔、反擊延遲、名次延遲、總長上限）。
+
+`TradeChoice.actions` 依序儲存道具格號及單體攻擊的鎖定目標，`DayReport.attacks` 記錄命中者、目標、種類、實際金額和反擊金額。`amount` 是實際金額，破盾另以種類表示；`itemId` 為使用的道具，`factor` 為雙重打擊等倍數。`DayReport.misses`（`AttackMiss`）記錄沒有造成效果的攻擊與原因：`limit`（對手今天已被打過）、`no_stock`、`no_cash`、`no_shield`、`capped`（損失已到上限）；只供畫面顯示「未命中」，不改變規則。
 
 新聞的方向由股價效果的正負決定；沒有股價效果的是特殊事件。新聞文案不存百分比，畫面依效果設定和當日紀錄輸出。
 

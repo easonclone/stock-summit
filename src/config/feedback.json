@@ -1,0 +1,14 @@
+{
+  "tiers": { "normal": 0.03, "strong": 0.08, "heavy": 0.15 },
+  "bigMarket": 0.03,
+  "timing": {
+    "baseGap": 90,
+    "chainStart": 180,
+    "chainGap": 140,
+    "attackStart": 360,
+    "attackGap": 170,
+    "reflectDelay": 150,
+    "rankDelay": 120,
+    "maxSpan": 1500
+  }
+}

@@ -24,8 +24,6 @@
   .arena .fighter .sprite { display:none; }
   .arena .arena-portrait { display:block; width:min(100%,70px); image-rendering:pixelated; }
   .arena .is-player .arena-portrait { box-shadow:0 0 0 1px var(--gold); }
-  .arena-animate .fighter.striking .arena-portrait { animation:rank-pop 220ms steps(3,end); }
-  .arena-animate .fighter.struck .arena-portrait { animation:shake 300ms steps(3,end); }
 }
 .fighter.is-player .plate { background:#172a37; outline:1px solid #cdad6c; }
 .plate .worth { font-weight:900; font-variant-numeric:tabular-nums; }
@@ -140,3 +138,84 @@
 .timeline-day span { display:flex; align-items:center; justify-content:center; }
 .timeline-day .pixel-icon { width:14px; height:14px; }
 @media (max-width:480px) { .timeline-day .pixel-icon { width:9px; height:9px; } }
+
+/* ── 攻防與結算回饋（ArenaFx）：只讀已結算紀錄；不攔截點擊，減少動態時只留靜態數字。 ── */
+.fighter { overflow:visible; }
+.fx-layer { position:absolute; inset:0; z-index:5; pointer-events:none; }
+.fx-float { position:absolute; left:50%; top:calc(14% - var(--row, 0) * 1.35em); display:grid; justify-items:center; gap:0;
+  transform:translateX(calc(-50% + var(--side, 1) * var(--row, 0) * 6px)); white-space:nowrap; line-height:1.05;
+  font:900 clamp(.74rem, 3.1vw, .98rem) var(--number); letter-spacing:-.03em; color:#f4f7ff;
+  text-shadow:0 2px 0 #060a12, 1px 0 0 #060a12, -1px 0 0 #060a12, 0 -1px 0 #060a12, 0 0 6px #060a12;
+  animation:fx-float 760ms cubic-bezier(.2,.9,.3,1) both; }
+.fx-float small { font-size:.62em; font-weight:850; letter-spacing:0; }
+.fx-float b { font-weight:950; }
+.fx-float.market-gain { color:var(--gain); font-size:clamp(.66rem, 2.6vw, .84rem); }
+.fx-float.market-loss { color:var(--loss); font-size:clamp(.66rem, 2.6vw, .84rem); }
+.fx-float.big { font-size:clamp(.82rem, 3.4vw, 1.05rem); }
+.fx-float.cash-gain { color:#ffd77a; }
+.fx-float.joker { color:#ffd77a; font-size:clamp(.66rem, 2.6vw, .84rem); }
+.fx-float.shield { color:#bfe6ff; text-shadow:0 2px 0 #06101c, 0 0 8px #3d8fd0; }
+.fx-float.cast { top:-10px; color:#ffe7a6; font-size:clamp(.6rem, 2.3vw, .74rem); padding:1px 5px; background:#2a1d10e6; border:1px solid #f6c56b;
+  box-shadow:0 0 10px #f6c56b88; text-shadow:none; animation:fx-cast 520ms ease-out both; }
+.fx-float.hit { color:#fff4d6; text-shadow:0 2px 0 #3a0b06, 1px 0 0 #3a0b06, -1px 0 0 #3a0b06, 0 -1px 0 #3a0b06, 0 0 8px #ff6a3d; }
+.fx-float.hit small { color:#ffb27a; }
+.fx-float.tier-light { font-size:clamp(.7rem, 2.8vw, .88rem); }
+.fx-float.tier-strong { font-size:clamp(.92rem, 4vw, 1.25rem); }
+.fx-float.tier-heavy { font-size:clamp(1.05rem, 4.8vw, 1.5rem); animation-duration:900ms; }
+.fx-float.tier-heavy small { color:#ffe08a; }
+.fx-float.reflect { color:#c9f6ff; text-shadow:0 2px 0 #04161c, 0 0 8px #43d4ff; }
+.fx-float.miss { color:#b9c4d2; font-size:clamp(.58rem, 2.3vw, .72rem); font-weight:800; }
+.fx-float.fx-still { animation:none; top:calc(10% - var(--row, 0) * 1.3em); transform:translateX(-50%); }
+@keyframes fx-float { 0% { opacity:0; transform:translateX(-50%) scale(.4); } 14% { opacity:1; transform:translateX(-50%) scale(1.22); }
+  26% { transform:translateX(calc(-50% + var(--side, 1) * var(--row, 0) * 6px)) scale(1); } 78% { opacity:1; }
+  100% { opacity:0; transform:translateX(calc(-50% + var(--side, 1) * var(--row, 0) * 6px)) translateY(-22px) scale(1); } }
+@keyframes fx-cast { 0% { opacity:0; transform:translateX(-50%) translateY(4px); } 20% { opacity:1; transform:translateX(-50%); filter:brightness(1.6); }
+  80% { opacity:1; } 100% { opacity:0; transform:translateX(-50%); } }
+
+/* Local hit flash on the struck fighter only; never full screen. */
+.fx-flash { position:absolute; left:50%; top:34%; width:58px; height:58px; margin:-29px 0 0 -29px; border-radius:50%;
+  background:radial-gradient(circle, #fffbe8 0 18%, #ffb35c 34%, #ff5a2e00 68%); mix-blend-mode:screen; animation:fx-flash 220ms ease-out both; }
+.fx-flash.tier-light { transform:scale(.6); }
+.fx-flash.tier-strong { width:74px; height:74px; margin:-37px 0 0 -37px; }
+.fx-flash.tier-heavy { width:92px; height:92px; margin:-46px 0 0 -46px; animation-duration:250ms; }
+.fx-flash.shield { background:radial-gradient(circle, #e9f7ff00 30%, #8fd2ff 44%, #3a8fd8 52%, #3a8fd800 66%); animation-duration:250ms; }
+.fx-flash.mirror { background:radial-gradient(circle, #f2ffff 0 14%, #7ee7ff 36%, #7ee7ff00 66%); }
+.fx-flash.shatter { background:radial-gradient(circle, #e8f6ff 0 16%, #9fd0ff 34%, #9fd0ff00 64%); }
+@keyframes fx-flash { 0% { opacity:0; transform:scale(.5); } 30% { opacity:1; } 100% { opacity:0; transform:scale(1.15); } }
+.fighter.fx-hit .sprite, .fighter.fx-hit .arena-portrait { animation:fx-hit 200ms steps(4, end) both; }
+@keyframes fx-hit { 0% { filter:brightness(2.2); transform:translateX(-2px); } 50% { transform:translateX(2px); } 100% { filter:none; transform:none; } }
+.fighter.fx-glow .plate { animation:fx-glow 420ms ease-out both; }
+@keyframes fx-glow { 30% { box-shadow:0 0 0 1px var(--gain), 0 0 12px color-mix(in srgb, var(--gain) 55%, transparent); } }
+.stage.fx-quake { animation:fx-quake 200ms steps(4, end); }
+@keyframes fx-quake { 25% { transform:translate(-2px, 1px); } 50% { transform:translate(2px, -1px); } 75% { transform:translate(-1px, 0); } }
+
+/* Pixel bursts, shield shards and coins (decorative; amounts live in the floats). */
+.fx-burst, .fx-shard { position:absolute; left:50%; top:34%; width:5px; height:5px; background:#ffd36b; box-shadow:0 0 4px #ff8a3d;
+  animation:fx-spark 360ms ease-out both; }
+.fx-shard { width:6px; height:3px; background:#bfe6ff; box-shadow:0 0 4px #5fb4ff; }
+@keyframes fx-spark { from { opacity:1; transform:translate(-50%, -50%); } to { opacity:0; transform:translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) rotate(90deg); } }
+.fx-coin { position:absolute; z-index:6; width:8px; height:8px; margin:-4px; border-radius:50%; background:#ffd36b; border:1px solid #9a6417;
+  box-shadow:0 0 5px #ffd36b; pointer-events:none; animation:fx-coin 420ms ease-in both; }
+@keyframes fx-coin { 0% { opacity:0; transform:none; } 15% { opacity:1; } 55% { transform:translate(calc(var(--x) * .55), calc(var(--y) * .55 - 18px)); }
+  100% { opacity:.2; transform:translate(var(--x), var(--y)); } }
+
+/* Joker chain: cards light in order; the running total sits over the player's fighter. */
+.joker-payout.fx-wait { opacity:0; animation:none; }
+.card-button.fx-fire .game-card { animation:card-fire 200ms ease-out both; }
+.fx-combo { position:absolute; left:50%; top:-30px; transform:translateX(-50%); padding:1px 6px; white-space:nowrap;
+  background:#2a1d10f0; border:1px solid #f6c56b; color:#ffe7a6; font:900 clamp(.6rem, 2.4vw, .78rem) var(--number); box-shadow:0 0 10px #f6c56b77;
+  animation:fx-combo-out 1.4s ease-in 600ms both; }
+.fx-combo.bump { animation:fx-bump 160ms ease-out, fx-combo-out 1.4s ease-in 600ms both; }
+@keyframes fx-bump { 50% { transform:translateX(-50%) scale(1.18); } }
+@keyframes fx-combo-out { 0%, 70% { opacity:1; } 100% { opacity:0; } }
+.plate .rank.fx-rank { animation:rank-pop 320ms steps(3, end); }
+
+.reduced-motion .fx-layer *, .reduced-motion .fx-coin { animation:none !important; }
+.reduced-motion .fx-combo { display:none; }
+@media (max-width:480px) {
+  .fx-float { font-size:clamp(.68rem, 3.4vw, .86rem); }
+  .fx-float.tier-strong { font-size:clamp(.82rem, 4.2vw, 1.05rem); }
+  .fx-float.tier-heavy { font-size:clamp(.9rem, 4.8vw, 1.18rem); }
+  .fx-float.cast { font-size:.58rem; }
+}
+.stage.fx-running .bubble { visibility:hidden; }

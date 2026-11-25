@@ -19,7 +19,14 @@ export interface AttackRecord {
   amount: number;
   reflected: number;
   slot: number;
+  /** The item that made the attack and the 雙重打擊 multiplier applied. Record only, for the presentation. */
+  itemId: string;
+  factor: number;
 }
+
+/** Why a locked attack did not land. Record only: written while resolving, never read back by the rules. */
+export type MissReason = 'limit' | 'no_stock' | 'no_cash' | 'no_shield' | 'capped';
+export interface AttackMiss { from: string; to: string; kind: AttackEffect['type']; slot: number; itemId: string; reason: MissReason }
 
 export function attackOf(config: FinancialConfig, card: GameCard | null) {
   return card?.effectIds.map(id => config.effects[id]).find((effect): effect is AttackEffect =>
@@ -35,7 +42,7 @@ export function estimateAttack(effect: AttackEffect, target: AttackTarget) {
 }
 
 interface Combatant { holder: Holder; ledger: DayLedger; id: string; name: string; start: number }
-interface Strike { from: Combatant; to: Combatant; effect: AttackEffect; slot: number; factor: number }
+interface Strike { from: Combatant; to: Combatant; effect: AttackEffect; slot: number; factor: number; itemId: string }
 
 function transferCash(from: Combatant, to: Combatant, amount: number, reflection = false) {
   from.holder.account.cash -= amount;
@@ -52,20 +59,25 @@ function loseStock(target: Combatant, amount: number, id: string, name: string) 
 }
 
 /** 先依鎖定後的資產挑出有效攻擊，再套用反擊。反擊不進入直接攻擊佇列。 */
-export function resolveAttacks(strikes: Strike[], rules: FinancialConfig['settlement']): AttackRecord[] {
+export function resolveAttacks(strikes: Strike[], rules: FinancialConfig['settlement'], misses: AttackMiss[] = []): AttackRecord[] {
   const hits = new Map<string, number>();
   const losses = new Map<string, number>();
   const pairs = new Set<string>();
-  const landed = strikes.flatMap(({ from, to, effect, slot, factor }) => {
+  const landed = strikes.flatMap(({ from, to, effect, slot, factor, itemId }) => {
     const count = hits.get(to.id) ?? 0;
     const pair = from.id + ':' + to.id;
-    if (count >= rules.attacksPerTarget || pairs.has(pair)) return [];
+    const miss = (reason: MissReason) => { misses.push({ from: from.id, to: to.id, kind: effect.type, slot, itemId, reason }); return []; };
+    if (count >= rules.attacksPerTarget || pairs.has(pair)) return miss('limit');
     const account = to.holder.account;
     const estimate = estimateAttack(effect, { id: to.id, name: to.name, rank: 0, cash: account.cash,
       stock: account.investmentValue, shields: to.holder.defenses.length });
     const ceiling = Math.max(0, Math.floor(to.start * rules.attackLossLimit) - (losses.get(to.id) ?? 0));
     const amount = Math.min(ceiling, Math.round(estimate * factor), effect.type === 'cash_raid' ? account.cash : account.investmentValue);
-    if (effect.type === 'shield_break' ? !to.holder.defenses.length : !amount) return [];
+    if (effect.type === 'shield_break' && !to.holder.defenses.length) return miss('no_shield');
+    if (effect.type !== 'shield_break' && !amount) {
+      const empty = effect.type === 'cash_raid' ? account.cash <= 0 : account.investmentValue <= 0;
+      return miss(empty ? (effect.type === 'cash_raid' ? 'no_cash' : 'no_stock') : 'capped');
+    }
     pairs.add(pair);
     losses.set(to.id, (losses.get(to.id) ?? 0) + amount);
     hits.set(to.id, count + 1);
@@ -80,7 +92,7 @@ export function resolveAttacks(strikes: Strike[], rules: FinancialConfig['settle
       to.holder.account.cash -= amount;
       // 暫扣現金直到直接攻擊全部鎖定，避免同一筆錢被連環轉走。
     } else loseStock(to, amount, from.id, from.name + '打擊股票');
-    return [{ from, to, effect, amount, mirror, slot }];
+    return [{ from, to, effect, amount, mirror, slot, factor, itemId }];
   });
 
   for (const { from, to, effect, amount } of landed) {
@@ -89,7 +101,7 @@ export function resolveAttacks(strikes: Strike[], rules: FinancialConfig['settle
     transferCash(to, from, amount);
   }
 
-  return landed.map(({ from, to, effect, amount, mirror, slot }) => {
+  return landed.map(({ from, to, effect, amount, mirror, slot, factor, itemId }) => {
     const proposed = mirror === null ? 0 : Math.min(rules.reflectionCap, Math.round(amount * mirror));
     const reflected = effect.type === 'attack' ? Math.min(proposed, from.holder.account.investmentValue) : proposed;
     if (reflected > 0) {
@@ -98,6 +110,6 @@ export function resolveAttacks(strikes: Strike[], rules: FinancialConfig['settle
         to.ledger.attackLoss -= reflected;
       } else loseStock(from, reflected, to.id, '反擊鏡');
     }
-    return { from: from.id, to: to.id, kind: effect.type, amount, reflected, slot };
+    return { from: from.id, to: to.id, kind: effect.type, amount, reflected, slot, itemId, factor };
   });
 }

@@ -311,7 +311,9 @@ describe('道具', () => {
     expect(attacker.items[0].id).toBe('snipe');
     expect(target.memory.mirror).toBe(0.5);
     playDay(run, view => view.characterId === target.character.id ? { allocation: 'all', item: null } : strike(view, seededRandom(1)));
-    expect(run.reports[1].attacks).toEqual([{ from: attacker.character.id, to: target.character.id, kind: 'attack', amount: 1000, reflected: 500, slot: 0 }]);
+    expect(run.reports[0].misses).toEqual([{ from: attacker.character.id, to: target.character.id, kind: 'attack', slot: 0, itemId: 'snipe', reason: 'no_stock' }]);
+    expect(run.reports[1].attacks).toEqual([{ from: attacker.character.id, to: target.character.id, kind: 'attack', amount: 1000, reflected: 500, slot: 0, itemId: 'snipe', factor: 1 }]);
+    expect(run.reports[1].misses).toEqual([]);
     expect(attacker.account.investmentValue).toBe(9500);
     expect(target.account.investmentValue).toBe(9000);
     expect(attacker.memory.mirror).toBe(0.5);

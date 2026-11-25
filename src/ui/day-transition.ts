@@ -4,12 +4,14 @@ export class DayTransition {
 
   constructor(private readonly root: HTMLElement) {}
 
-  play(day: number) {
+  /** `after` pushes the banner back so it never covers the arena while a hit show is still playing. */
+  play(day: number, after = 0) {
     this.close();
     if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     const overlay = document.createElement('div');
     overlay.className = 'day-transition';
     overlay.setAttribute('aria-hidden', 'true');
+    if (after) overlay.style.animationDelay = `${420 + after}ms`;
     const label = document.createElement('strong');
     label.textContent = `DAY ${String(day).padStart(2, '0')}`;
     const subtitle = document.createElement('span');

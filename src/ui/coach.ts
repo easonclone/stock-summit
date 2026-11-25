@@ -5,9 +5,9 @@ import { marketTone } from '../core/settlement';
 export type TipId = 'allocation' | 'jokers' | 'items' | 'shop' | 'cash_safe' | 'shield' | 'bankruptcy';
 
 const tips: Record<TipId, string> = {
-  allocation: '先選今天買多少股票。股票會跟著市場漲跌，現金不會。',
+  allocation: '用現金買道具，或留著收盤買王牌。買股票可能大賺，也可能大跌。',
   jokers: '王牌會每天自動幫你，不用按。賺錢時看結算，就知道是哪張王牌發威。',
-  items: '道具一天最多用一張，也可以留著以後用。',
+  items: '⚡ 點了立刻用。🛡 點了先部署。⚔ 可選兩張，開始交易才出手。',
   shop: '今天收盤後商店開門。王牌要用現金買，全部買股就沒錢逛商店。',
   cash_safe: '股票跌的時候，留在手上的現金一毛都不會少。',
   shield: '護盾放著就好，下次股票賠錢時會自動擋下，擋一次就用掉。',

@@ -2,7 +2,9 @@
   "turns": 15,
   "eventEvery": 3,
   "jokerSlots": 5,
-  "itemSlots": 4,
+  "itemSlots": 5,
+  "actionLimit": 2,
+  "itemPlayLimit": 6,
   "startItems": 3,
   "openingItems": {
     "income": ["gift", "trend", "dividend"],

@@ -22,7 +22,10 @@ export function shopDiscount(config: FinancialConfig, holder: Holder) {
   return Math.min(0.9, total);
 }
 
-export const shopPrice = (config: FinancialConfig, holder: Holder, slot: ShopSlot) => Math.round(slot.base * (1 - shopDiscount(config, holder)));
+export function shopPrice(config: FinancialConfig, holder: Holder, slot: ShopSlot) {
+  const floor = slot.kind === 'joker' ? sellPrice(config, slot.card) + 1 : 1;
+  return Math.max(floor, Math.round(slot.base * (1 - shopDiscount(config, holder))) - holder.memory.voucher);
+}
 
 /** Cash returned for a joker given up to make room. Always below the cheapest discounted price (checked at startup). */
 export const sellPrice = (config: FinancialConfig, card: GameCard) => Math.floor(listPrice(config, 'joker', card) * config.shop.sellRate);
@@ -62,5 +65,6 @@ export function buy(config: FinancialConfig, holder: Holder, shop: Shop, index: 
     holder.account.cash += refund;
   } else owned.push(slot.card);
   slot.sold = true;
+  holder.memory.voucher = 0;
   return { day: shop.day, kind: slot.kind, card: slot.card, price: check.price, replaced, refund };
 }

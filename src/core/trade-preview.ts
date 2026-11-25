@@ -6,7 +6,8 @@ import {
 } from './settlement';
 
 /** Locked before any market result is known: today's stock ratio and at most one item (slot in the holder's items). */
-export interface TradeChoice { allocation?: string; item: number | null; targetId?: string }
+export interface ActionChoice { slot: number; targetId?: string }
+export interface TradeChoice { allocation?: string; actions?: ActionChoice[]; item?: number | null; targetId?: string }
 
 /** Everything one investor may know when deciding: public standings, their own cards, and their own intel. */
 export interface DecisionView {
@@ -20,6 +21,7 @@ export interface DecisionView {
   gap: number;
   /** 只包含對手已公開的資產、排名與護盾。 */
   rivals: AttackTarget[];
+  actionsLeft: number;
   eventToday: boolean;
   nextNewsDay: number | null;
   /** Direction of today's news if this investor learned it earlier with an item. */
@@ -49,7 +51,7 @@ export function scenarios(view: DecisionView): Scenario[] {
   return moves.flatMap(move => news.map(item => ({ marketRate: move.marketRate, newsRate: item.rate, tone: item.tone, weight: move.weight * item.weight })));
 }
 
-function simulate(view: DecisionView, allocation: AllocationOption, item: GameCard | null, scenario: Scenario) {
+function simulate(view: DecisionView, allocation: AllocationOption, items: GameCard[], scenario: Scenario) {
   const holder = copyHolder(view.holder);
   const before = netWorth(holder.account);
   const context = viewContext(view, allocation);
@@ -57,8 +59,8 @@ function simulate(view: DecisionView, allocation: AllocationOption, item: GameCa
   // Only the rate matters to a forecast; the event's topic (and so 護國神山) is unknown until the news airs.
   const placeholder = { ...view.config.events[0], category: 'flows' as const };
   context.news = view.eventToday && scenario.newsRate ? { event: placeholder, rate: scenario.newsRate, applies: true } : null;
-  const ledger = tradeDay(holder, item, context);
-  closeDay(holder, context, ledger, false);
+  const ledger = tradeDay(holder, items, context);
+  closeDay(holder, context, ledger);
   return { holder, ledger, delta: netWorth(holder.account) - before };
 }
 
@@ -77,24 +79,25 @@ export interface Forecast {
   boost: number;
   shielded: number;
   targets: AttackTarget[];
-  attack: { target: AttackTarget; amount: number; kind: 'attack' | 'cash_raid' | 'shield_break' } | null;
+  attack: { target: AttackTarget; amount: number; kind: 'attack' | 'cash_raid' | 'shield_break' | 'area_attack' } | null;
   ledger: DayLedger;
 }
 
 /** The same settlement the run uses, applied to copies under a few market scenarios. Never changes the real state. */
 export function attackTargets(view: DecisionView, item: GameCard | null) {
   const effect = attackOf(view.config, item);
-  return effect ? view.rivals.filter(rival => effect.type !== 'shield_break' || rival.shields > 0) : [];
+  return effect && effect.type !== 'area_attack' ? view.rivals.filter(rival => effect.type !== 'shield_break' || rival.shields > 0) : [];
 }
 
-export function forecastTrade(view: DecisionView, allocationId: string | undefined, slot: number | null, targetId?: string): Forecast {
+export function forecastTrade(view: DecisionView, allocationId: string | undefined, slot: number | null, targetId?: string, actions?: ActionChoice[]): Forecast {
   const allocation = allocationOption(view.config, allocationId ?? view.allocation);
   const item = slot === null ? null : view.holder.items[slot] ?? null;
   const targets = attackTargets(view, item);
   const target = targets.find(rival => rival.id === targetId);
   const block = item ? itemBlock(view.holder, item, { ...viewContext(view, allocation), hasTarget: targets.length > 0 }) : null;
   const used = block ? null : item;
-  const runs = scenarios(view).map(scenario => ({ scenario, result: simulate(view, allocation, used, scenario) }));
+  const selected = actions ? actions.map(choice => view.holder.items[choice.slot]).filter(Boolean) : used ? [used] : [];
+  const runs = scenarios(view).map(scenario => ({ scenario, result: simulate(view, allocation, selected, scenario) }));
   const deltas = runs.map(run => run.result.delta);
   const expected = runs.reduce((sum, run) => sum + run.result.delta * run.scenario.weight, 0);
   const middle = runs.reduce((best, run) => run.scenario.weight > best.scenario.weight ? run : best, runs[0]).result;

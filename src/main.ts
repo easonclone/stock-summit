@@ -1,6 +1,7 @@
 import './style.css';
 import { readFinancialConfig, type FinancialConfig, type PixelIcon, type TradingDifficulty } from './config/financial-settings';
 import { TradingRun, type DayOutcome, type DayReport } from './core/trading-run';
+import { itemTiming } from './core/item-timing';
 import { marketTone } from './core/settlement';
 import { CardAudio } from './ui/audio';
 import { DayTransition } from './ui/day-transition';
@@ -179,17 +180,17 @@ class TerminalApp {
       case 'personal': this.personal = true; this.closeDialog(false); this.render('[data-act="spectate"]'); window.scrollTo(0, 0); break;
       case 'spectate': this.personal = false; this.render('[data-act="trade"]'); window.scrollTo(0, 0); break;
       case 'alloc': this.pickAllocation(button.dataset.value ?? ''); break;
-      case 'item':
-        this.selection.item = value === this.selection.item ? null : value;
-        this.selection.targetId = undefined;
-        this.render(`[data-act="item"][data-value="${value}"]`);
-        if (this.screen.querySelector('[data-act="target"]') && matchMedia('(max-width: 760px)').matches) {
-          this.screen.querySelector('.arena')?.scrollIntoView({ block: 'start' });
-        }
-        break;
+      case 'item': this.pickItem(value); break;
+      case 'focus-action': this.focusAction(value); break;
+      case 'daily-buy': this.buyDaily(value); break;
+      case 'daily-buy-replace': this.buyDaily(this.selection.dailyPick, value); break;
+      case 'daily-buy-cancel': this.selection.dailyPick = undefined; this.render('[data-act="daily-buy"]'); break;
       case 'target': {
         const id = button.dataset.value!;
-        this.selection.targetId = this.selection.targetId === id ? undefined : id;
+        const action = this.selection.actions?.find(choice => choice.slot === this.selection.item);
+        if (!action) break;
+        action.targetId = action.targetId === id ? undefined : id;
+        this.selection.targetId = action.targetId;
         this.render(`[data-act="target"][data-value="${id}"]`);
         break;
       }
@@ -242,6 +243,72 @@ class TerminalApp {
     this.selection.allocation = null;
     this.selection.item = null;
     this.selection.targetId = undefined;
+    this.selection.actions = [];
+    this.selection.dailyPick = undefined;
+    this.selection.feedback = undefined;
+  }
+
+  private focusAction(slot: number) {
+    const action = this.selection.actions?.find(pick => pick.slot === slot);
+    this.selection.item = action?.slot ?? null;
+    this.selection.targetId = action?.targetId;
+    this.render(action ? `[data-act="item"][data-value="${slot}"]` : undefined);
+    const target = this.screen.querySelector<HTMLElement>('[data-act="target"]');
+    if (!target) return;
+    if (matchMedia('(max-width: 760px)').matches) this.screen.querySelector('.arena')?.scrollIntoView({ block: 'start' });
+    target.focus({ preventScroll: true });
+  }
+
+  private pickItem(slot: number) {
+    const run = this.run;
+    const card = run?.player.items[slot];
+    if (!run || !card || run.offer) return;
+    const actions = this.selection.actions ??= [];
+    const timing = itemTiming(this.config, card);
+    if (timing === 'action') {
+      const selected = actions.findIndex(choice => choice.slot === slot);
+      if (selected >= 0) {
+        actions.splice(selected, 1);
+        this.focusAction(actions.at(-1)?.slot ?? -1);
+      } else if (actions.length < this.config.gameplay.actionLimit && actions.length < run.openingCardsLeft) {
+        actions.push({ slot });
+        this.focusAction(slot);
+      }
+      return;
+    }
+    const result = run.useOpeningItem(slot);
+    if (!result) return;
+    for (const action of actions) if (action.slot > slot) action.slot--;
+    if (actions.length > run.openingCardsLeft) actions.pop();
+    this.selection.item = actions.at(-1)?.slot ?? null;
+    this.selection.targetId = actions.at(-1)?.targetId;
+    this.selection.feedback = (timing === 'defense' ? '已部署 ' : '已使用 ') + result.card.name + (result.amount ? ' ' + signedMoney(result.amount) : '');
+    this.audio.play(timing === 'defense' ? 'shield' : 'page');
+    this.render('[data-act="item"]');
+    this.showOffer();
+  }
+
+  private buyDaily(index?: number, replace: number | null = null) {
+    const run = this.run;
+    if (!run || index === undefined || run.offer) return;
+    if (replace === null && run.dailyShopCheck(index).block === 'full') {
+      this.selection.dailyPick = index;
+      this.render('[data-act="daily-buy-replace"]');
+      return;
+    }
+    const purchase = run.buyDaily(index, replace);
+    if (!purchase) return;
+    this.selection.dailyPick = undefined;
+    if (replace !== null) this.removeSelection(replace);
+    this.selection.feedback = '買下 ' + purchase.card.name + ' ' + money(-purchase.price);
+    this.audio.play('page');
+    this.render('[data-act="daily-buy"]:not(:disabled)');
+  }
+
+  private removeSelection(slot: number) {
+    this.selection.actions = (this.selection.actions ?? []).filter(action => action.slot !== slot);
+    this.selection.item = this.selection.actions.at(-1)?.slot ?? null;
+    this.selection.targetId = this.selection.actions.at(-1)?.targetId;
   }
 
   private pickAllocation(id: string) {
@@ -253,7 +320,7 @@ class TerminalApp {
   private trade() {
     const run = this.run;
     if (!run || run.closed || this.dialog.open || this.locked) return;
-    const action = run.player.account.eliminated ? null : { item: this.selection.item, targetId: this.selection.targetId, allocation: this.selection.allocation ?? run.player.allocation };
+    const action = run.player.account.eliminated ? null : { actions: this.selection.actions ?? [], allocation: this.selection.allocation ?? run.player.allocation };
     this.audio.unlock();
     if (!run.confirm(action)) return;
     this.dayTransition.close();
@@ -398,12 +465,8 @@ class TerminalApp {
   }
 
   private takeOffer(card: number | null, replace: number | null) {
-    const daily = this.run?.offer?.source === 'daily';
     if (!this.run?.chooseOffer(card, replace)) return;
-    if (daily) {
-      this.selection.item = null;
-      this.selection.targetId = undefined;
-    }
+    if (card !== null && replace !== null) this.removeSelection(replace);
     this.closeDialog(false);
     this.render('[data-act="trade"]');
     this.showOffer();
@@ -524,6 +587,13 @@ class TerminalApp {
     if (this.stage) return;
     if (!this.run || this.run.closed || this.dialog.open || this.personal || this.locked || event.altKey || event.ctrlKey || event.metaKey ||
       (event.target as Element).closest('input, select, textarea')) return;
+    if (event.code === 'Escape' && this.selection.targetId) {
+      const action = this.selection.actions?.find(pick => pick.slot === this.selection.item);
+      if (action) action.targetId = undefined;
+      this.selection.targetId = undefined;
+      this.render('[data-act="target"]');
+      return;
+    }
     const target = (event.target as Element).closest<HTMLButtonElement>('[data-act="trade"]');
     if (target && !target.disabled && ['Enter', 'NumpadEnter', 'Space'].includes(event.code)) {
       event.preventDefault();

@@ -1,8 +1,9 @@
 import type { FinanceEffect, GameCard, TradingDifficulty } from '../config/financial-settings';
 import { attackOf, estimateAttack, type AttackEffect } from './attacks';
+import { itemTiming } from './item-timing';
 import { netWorth } from './economy';
 import type { Random } from './random';
-import { attackTargets, forecastTrade, type DecisionView, type TradeChoice } from './trade-preview';
+import { attackTargets, forecastTrade, type ActionChoice, type DecisionView, type TradeChoice } from './trade-preview';
 import { copyHolder, type Holder } from './settlement';
 import { checkBuy, sellPrice, type Shop } from './shop';
 
@@ -47,7 +48,12 @@ function effectValue(effect: FinanceEffect, holder: Holder | null): number {
     case 'intel': return 200;
     case 'item_pack': return 300;
     case 'attack': return 250;
-    case 'cash_raid': return effect.amount * 0.8;
+    case 'cash_raid': return 850;
+    case 'random_cash': return (effect.min + effect.max) / 2;
+    case 'generate': return effect.choose ? 450 : effect.count * 350;
+    case 'voucher': return effect.amount * 0.65;
+    case 'strike_boost': return 650;
+    case 'area_attack': return 1400;
     case 'shield_break': return 160;
     case 'mirror': return 180;
     case 'stock_cash': return 350;
@@ -128,6 +134,7 @@ export function planShop(real: Shop, own: Holder, config: DecisionView['config']
     const slot = shop.slots[index];
     const owned = slot.kind === 'joker' ? holder.jokers : holder.items;
     holder.account.cash -= checkBuy(config, holder, slot, replace).price;
+    holder.memory.voucher = 0;
     if (replace !== null) { holder.account.cash += slot.kind === 'joker' ? sellPrice(config, owned[replace]) : 0; owned[replace] = slot.card; }
     else owned.push(slot.card);
     slot.sold = true;
@@ -163,7 +170,7 @@ function attackValue(kind: AttackEffect['type'], amount: number) {
 
 function chooseAttackTarget(view: DecisionView, card: GameCard | null) {
   const effect = attackOf(view.config, card);
-  if (!effect) return undefined;
+  if (!effect || effect.type === 'area_attack') return undefined;
   const score = (target: DecisionView['rivals'][number]) => {
     const value = attackValue(effect.type, estimateAttack(effect, target));
     const rankWeight = (target.rank <= view.rank ? 1.15 : 0.75) / (1 + 0.12 * Math.abs(target.rank - view.rank));
@@ -175,13 +182,15 @@ function chooseAttackTarget(view: DecisionView, card: GameCard | null) {
 export function chooseTrade(view: DecisionView, random: Random, strategy: Strategy = 'mixed', difficulty: TradingDifficulty = 'normal'): TradeChoice {
   const { config } = view;
   const allocations = config.allocation.options.map(option => option.id);
+  const actionSlots = view.holder.items.flatMap((card, slot) => itemTiming(config, card) === 'action' ? [slot] : []);
   if (strategy === 'random') {
     const allocation = allocations[Math.floor(random() * allocations.length)];
-    const usable = view.holder.items.map((_, slot) => slot).filter(slot => !forecastTrade(view, allocation, slot).itemBlock);
+    const usable = actionSlots.filter(slot => !view.holder.items[slot].effectIds.some(id => config.effects[id].type === 'strike_boost') &&
+      !forecastTrade(view, allocation, slot).itemBlock && (attackOf(config, view.holder.items[slot])?.type !== 'area_attack' || view.rivals.length));
     const item = usable.length && random() < 0.4 ? usable[Math.floor(random() * usable.length)] : null;
     const card = item === null ? null : view.holder.items[item];
     const target = chooseAttackTarget(view, card);
-    return target ? { allocation, item, targetId: target.id } : { allocation, item };
+    return { allocation, actions: item === null || !view.actionsLeft ? [] : [{ slot: item, targetId: target?.id }] };
   }
   const choices = fixed[strategy] ? [fixed[strategy]!] : allocations;
   const { npc } = config;
@@ -189,21 +198,37 @@ export function chooseTrade(view: DecisionView, random: Random, strategy: Strate
   const remaining = config.gameplay.turns - view.day;
   const behind = Math.max(0, view.gap) / (worth + Math.max(0, view.gap));
   const noise = npc.noise[difficulty] * worth * 0.01;
-  let best: TradeChoice = { allocation: choices[0], item: null };
+  let best: TradeChoice = { allocation: choices[0], actions: [] };
   let top = -Infinity;
   for (const allocation of choices) {
-    for (const slot of [null, ...view.holder.items.map((_, index) => index)]) {
-      const item = slot === null ? null : view.holder.items[slot];
-      const target = chooseAttackTarget(view, item);
+    const available = actionSlots.flatMap(slot => {
+      const card = view.holder.items[slot];
+      const effect = attackOf(config, card);
+      const boost = card.effectIds.map(id => config.effects[id]).find(effect => effect.type === 'strike_boost');
+      const target = chooseAttackTarget(view, card);
       const forecast = forecastTrade(view, allocation, slot, target?.id);
-      if (slot !== null && forecast.itemBlock) continue;
+      if (forecast.itemBlock || (effect && effect.type !== 'area_attack' && !target) || (effect?.type === 'area_attack' && !view.rivals.length)) return [];
+      const value = effect?.type === 'area_attack' ? view.rivals.reduce((sum, rival) => sum + estimateAttack(effect, rival), 0) * 0.65
+        : forecast.attack ? attackValue(forecast.attack.kind, forecast.attack.amount) : 0;
+      return [{ choice: { slot, targetId: target?.id }, effect, boost, value, forecast }];
+    });
+    const plans = [[], ...(view.actionsLeft ? available.filter(card => !card.boost).map(card => [card]) : [])];
+    if (view.actionsLeft >= 2) for (const [i, first] of available.entries()) for (const second of available.slice(i + 1)) {
+      const pair = first.boost ? [first, second] : second.boost ? [second, first] : [first, second];
+      if (pair[1].boost || (pair[0].boost && !pair[1].effect)) continue;
+      if (pair.every(card => card.effect) && (pair[0].choice.targetId === pair[1].choice.targetId ||
+          pair.some(card => card.effect?.type === 'area_attack'))) continue;
+      plans.push(pair);
+    }
+    for (const plan of plans) {
+      const actions: ActionChoice[] = plan.map(card => card.choice);
+      const forecast = plan.length === 1 ? plan[0].forecast : forecastTrade(view, allocation, null, undefined, actions);
       const risk = config.npc.riskAversion * Math.max(0, -forecast.low) * (1 - behind);
-      const reserve = item && remaining > 0 ? npc.itemReserve : 0;
-      const extra = item ? delayedValue(view, item, forecast.stock) + (forecast.attack ? attackValue(forecast.attack.kind, forecast.attack.amount) * (0.6 + behind) : 0) : 0;
-      // Cash kept through a shop day can buy jokers tonight; stock cannot.
+      const reserve = remaining > 0 ? npc.itemReserve * plan.length : 0;
+      const extra = plan.reduce((sum, card) => sum + card.value, 0) * (plan[0]?.boost?.factor ?? 1) * (0.6 + behind);
       const shopping = view.shopToday ? npc.shopCashValue * Math.min(forecast.cash, npc.shopBudget) : 0;
       const score = forecast.expected - risk - reserve + extra + shopping + random() * noise;
-      if (score > top) { top = score; best = { allocation, item: slot, targetId: target?.id }; }
+      if (score > top) { top = score; best = { allocation, actions }; }
     }
   }
   return best;

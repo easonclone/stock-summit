@@ -13,7 +13,7 @@ function effectBadge(effect: FinanceEffect): string {
     case 'cash_yield': case 'stock_yield': return `每天 ${percent(effect.rate)}`;
     case 'stock_cash': return `領 ${percent(effect.rate)}`;
     case 'defense': return effect.mode === 'cut' ? `少賠 ${percent(effect.amount)}` : effect.mode === 'absorb' ? `擋 ${money(effect.amount)}` : '跌變賺';
-    case 'cash_grant': case 'bear_bonus': case 'item_bonus': case 'attack_bonus': case 'hold_bonus': case 'climb_bonus': case 'relief':
+    case 'cash_grant': case 'bear_bonus': case 'item_bonus': case 'hold_bonus': case 'climb_bonus': case 'relief':
       return `+${money(effect.amount)}`;
     case 'news_item': case 'item_grant': return '+道具';
     case 'shop_discount': return `${Math.round((1 - effect.rate) * 10)} 折`;
@@ -22,6 +22,12 @@ function effectBadge(effect: FinanceEffect): string {
     case 'attack': return `對手 −${percent(effect.amount)}`;
     case 'cash_raid': return `最多 ${money(effect.amount)}`;
     case 'shield_break': return '破 1 盾';
+    case 'attack_bonus': return percent(effect.rate);
+    case 'random_cash': return money(effect.min) + '～' + money(effect.max);
+    case 'generate': return effect.choose ? effect.count + ' 選 1' : '+' + effect.count + ' 張';
+    case 'voucher': return '折 ' + money(effect.amount);
+    case 'strike_boost': return '攻擊 ×' + effect.factor;
+    case 'area_attack': return '全體 −' + percent(effect.amount);
     case 'mirror': return `反擊 ${percent(effect.amount)}`;
     case 'price': return '';
   }

@@ -368,14 +368,24 @@ summary { cursor: pointer; min-height: 39px; display: list-item; padding: 8px 0;
 .morning-item summary { min-height: 36px; align-content: center; cursor: pointer; }
 .morning-choices { display: flex; flex-wrap: wrap; gap: 6px; }
 .morning-choices button { min-height: 44px; }
-.morning-arrival { animation: morning-arrival 300ms 1180ms ease-out both; }
+.daily-shelves { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin: 7px 0; }
+.daily-shelves button { display: grid; text-align: left; gap: 3px; min-width: 0; }
+.daily-shelves small { color: var(--muted); }
+.daily-shelves b, .opening-feedback { color: var(--gold); }
+.opening-feedback { margin: 6px 0; animation: opening-pop 300ms ease-out both; }
+@keyframes opening-pop { 40% { transform: translateY(-3px); filter: brightness(1.5); } }
+.action-lineup { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0; }
+.action-lineup button { min-height: 44px; }
+.action-lineup span, .item-phase { color: var(--muted); font-size: .72rem; }
+@media (max-width: 470px) { .item-row { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.morning-arrival { animation: morning-arrival 300ms 1580ms ease-out both; }
 @keyframes morning-arrival {
   from { transform: translateY(-6px) scale(.98); }
   45% { box-shadow: 0 0 0 1px var(--gold), 0 0 12px #ebc56d66; }
   to { transform: none; box-shadow: none; }
 }
 .day-transition { position: fixed; inset: 0; z-index: 80; pointer-events: none; display: grid; place-content: center; text-align: center;
-  background: #090e19db; color: var(--gold); animation: open-day 1000ms 420ms linear both; }
+  background: #090e19db; color: var(--gold); animation: open-day 1400ms 420ms linear both; }
 .day-transition strong { font: 900 clamp(3rem, 13vw, 7rem)/1 var(--number); letter-spacing: .09em; text-shadow: 0 4px #694711; }
 .day-transition span { margin-top: 12px; color: var(--text); letter-spacing: .24em; }
 @keyframes open-day {

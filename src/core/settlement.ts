@@ -18,6 +18,7 @@ export interface Memory {
   holdPaid: boolean;
   climbPaid: boolean;
   reliefUsed: boolean;
+  voucher: number;
   mirror: number | null;
 }
 
@@ -31,7 +32,7 @@ export interface Holder {
   memory: Memory;
 }
 
-export type StepSource = 'market' | 'news' | 'joker' | 'item' | 'defense' | 'attack' | 'event' | 'cap';
+export type StepSource = 'shop' | 'market' | 'news' | 'joker' | 'item' | 'defense' | 'attack' | 'event' | 'cap';
 export type StepKind = 'base' | 'add' | 'mult' | 'cut' | 'cash' | 'cap';
 
 /**
@@ -40,7 +41,7 @@ export type StepKind = 'base' | 'add' | 'mult' | 'cut' | 'cash' | 'cap';
  */
 export interface ChainStep { source: StepSource; id: string; name: string; kind: StepKind; value?: number; amount: number }
 
-export type ItemBlock = 'no_stock' | 'full_defense' | 'no_news' | 'known_news' | 'no_target' | 'mirror_ready' | 'not_low' | 'used' | 'last_day';
+export type ItemBlock = 'no_stock' | 'full_defense' | 'no_news' | 'known_news' | 'no_target' | 'mirror_ready' | 'not_low' | 'used' | 'last_day' | 'play_limit' | 'defense_today' | 'voucher_ready';
 
 export interface DayContext {
   config: FinancialConfig;
@@ -74,7 +75,7 @@ export interface DayLedger {
   /** Joker and item boosts that fired today, for combo feedback. */
   combos: number;
   capped: boolean;
-  itemUsed: boolean;
+  itemCount: number;
   defenseUsed: Defense | null;
   requests: { intel: boolean; pack: number; items: number };
   attackLoss: number;
@@ -89,7 +90,7 @@ function jokerEffects(holder: Holder, config: FinancialConfig) {
 }
 
 export function newMemory(): Memory {
-  return { lastRate: null, lastStockPnl: 0, winStreak: 0, holdDays: 0, holdPaid: false, climbPaid: false, reliefUsed: false, mirror: null };
+  return { lastRate: null, lastStockPnl: 0, winStreak: 0, holdDays: 0, holdPaid: false, climbPaid: false, reliefUsed: false, voucher: 0, mirror: null };
 }
 
 export function copyHolder(holder: Holder): Holder {
@@ -119,7 +120,7 @@ export function rateFrom(effect: { floor: number; ceiling: number }, draw: numbe
 function newLedger(): DayLedger {
   return {
     rebalance: null, steps: [], exposure: { stock: 0, cash: 0 }, rate: 0, marketPnl: 0, newsPnl: 0, stockBase: 0, stockFinal: 0,
-    shielded: 0, combos: 0, capped: false, itemUsed: false, defenseUsed: null,
+    shielded: 0, combos: 0, capped: false, itemCount: 0, defenseUsed: null,
     requests: { intel: false, pack: 0, items: 0 }, attackLoss: 0
   };
 }
@@ -143,7 +144,7 @@ export function itemBlock(holder: Holder, item: GameCard, context: DayContext): 
         if (plannedStock <= 0) return 'no_stock';
         break;
       case 'defense':
-        if (holder.defenses.length >= context.config.financial.maxDefenses) return 'full_defense';
+        if (holder.defenses.length + Number(holder.memory.mirror !== null) >= context.config.financial.maxDefenses) return 'full_defense';
         break;
       case 'intel':
         if (context.nextNewsDay === null) return 'no_news';
@@ -154,13 +155,14 @@ export function itemBlock(holder: Holder, item: GameCard, context: DayContext): 
         break;
       case 'mirror':
         if (holder.memory.mirror !== null) return 'mirror_ready';
+        if (holder.defenses.length >= context.config.financial.maxDefenses) return 'full_defense';
         break;
       case 'relief':
         if (holder.memory.reliefUsed) return 'used';
         if (worth >= effect.below) return 'not_low';
         break;
-      case 'item_pack':
-        if (context.day >= context.config.gameplay.turns) return 'last_day';
+      case 'voucher':
+        if (holder.memory.voucher) return 'voucher_ready';
         break;
       default:
         break;
@@ -184,6 +186,7 @@ function applyItem(holder: Holder, item: GameCard, effect: FinanceEffect, ledger
     case 'intel': ledger.requests.intel = true; break;
     case 'item_pack': ledger.requests.pack = effect.count; break;
     case 'mirror': holder.memory.mirror = effect.amount; break;
+    case 'voucher': holder.memory.voucher = effect.amount; break;
     default: break;
   }
 }
@@ -193,14 +196,25 @@ function applyItem(holder: Holder, item: GameCard, effect: FinanceEffect, ledger
  * rebalance → instant item → shared market and news → joker/item boosts on the stock result → defenses.
  * 角色攻擊與固定現金收益在股價結算後處理。
  */
-export function tradeDay(holder: Holder, item: GameCard | null, context: DayContext): DayLedger {
+export function playOpeningItem(holder: Holder, item: GameCard, config: FinancialConfig, random: () => number) {
+  const ledger = newLedger();
+  for (const effect of effectsOf(config, item)) {
+    if (effect.type === 'random_cash') {
+      const amount = effect.min + Math.floor(random() * (effect.max - effect.min + 1));
+      addCash(holder, ledger, { source: 'item', id: item.id, name: item.name }, amount);
+    } else applyItem(holder, item, effect, ledger, { add: [], mult: [] });
+  }
+  return ledger;
+}
+
+export function tradeDay(holder: Holder, items: GameCard[], context: DayContext): DayLedger {
   const { config } = context;
   const { account } = holder;
   const ledger = newLedger();
   ledger.rebalance = rebalance(account, context.allocation.ratio);
   const boosts = { add: [] as Mod[], mult: [] as Mod[] };
-  if (item) {
-    ledger.itemUsed = true;
+  ledger.itemCount = items.length;
+  for (const item of items) {
     for (const effect of effectsOf(config, item)) applyItem(holder, item, effect, ledger, boosts);
   }
   if (context.news?.applies) {
@@ -313,14 +327,14 @@ export function tradeDay(holder: Holder, item: GameCard | null, context: DayCont
 }
 
 /** Flat cash from jokers, settled last and never multiplied; then the holder's memory moves to tomorrow. */
-export function closeDay(holder: Holder, context: DayContext, ledger: DayLedger, attackLanded = false) {
+export function closeDay(holder: Holder, context: DayContext, ledger: DayLedger, attackDamage = 0) {
   const { config } = context;
   const { account } = holder;
   const memory = holder.memory;
   memory.holdDays = account.investmentValue > 0 ? memory.holdDays + 1 : 0;
   const jokers = jokerEffects(holder, config);
   const boost = jokers.reduce((product, { effect }) => effect.type === 'yield_boost' ? product * effect.factor : product, 1);
-  const booster = jokers.find(({ effect }) => effect.type === 'yield_boost')?.joker;
+  const booster = jokers.find(entry => entry.effect.type === 'yield_boost');
   for (const { joker, effect } of jokers) {
     const source = { source: 'joker' as const, id: joker.id, name: joker.name };
     switch (effect.type) {
@@ -328,7 +342,10 @@ export function closeDay(holder: Holder, context: DayContext, ledger: DayLedger,
         if (netWorth(account) <= 0) break;
         const income = Math.min(effect.cap, Math.round(account.cash * effect.rate));
         addCash(holder, ledger, { ...source, value: effect.rate }, income);
-        if (booster && income) addCash(holder, ledger, { source: 'joker', id: booster.id, name: booster.name, kind: 'mult', value: boost }, Math.round(income * (boost - 1)));
+        if (booster?.effect.type === 'yield_boost' && income) {
+          const bonus = Math.max(0, Math.min(booster.effect.cap - income, Math.round(income * (boost - 1))));
+          addCash(holder, ledger, { source: 'joker', id: booster.joker.id, name: booster.joker.name, kind: 'mult', value: boost }, bonus);
+        }
         break;
       }
       case 'stock_yield':
@@ -338,14 +355,14 @@ export function closeDay(holder: Holder, context: DayContext, ledger: DayLedger,
         if (ledger.exposure.stock <= 0 && ledger.rate < 0) addCash(holder, ledger, source, effect.amount);
         break;
       case 'item_bonus':
-        if (ledger.itemUsed) addCash(holder, ledger, source, effect.amount);
+        addCash(holder, ledger, source, Math.min(effect.cap, ledger.itemCount * effect.amount));
         break;
       case 'attack_bonus':
-        if (attackLanded) addCash(holder, ledger, source, effect.amount);
+        addCash(holder, ledger, source, Math.round(attackDamage * effect.rate));
         break;
       case 'hold_bonus':
-        if (!memory.holdPaid && memory.holdDays >= effect.days) {
-          memory.holdPaid = true;
+        if (memory.holdDays >= effect.days) {
+          memory.holdDays = 0;
           addCash(holder, ledger, source, effect.amount);
         }
         break;

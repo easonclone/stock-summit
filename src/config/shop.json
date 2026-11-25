@@ -1,17 +1,18 @@
 {
   "enabled": true,
+  "dailyItems": 2,
   "jokers": 3,
   "items": 2,
   "price": {
     "joker": {
-      "common": 500,
-      "rare": 900,
-      "legendary": 1400
+      "common": 1000,
+      "rare": 1800,
+      "legendary": 3000
     },
     "item": {
-      "common": 150,
-      "rare": 250,
-      "legendary": 400
+      "common": 600,
+      "rare": 1050,
+      "legendary": 1800
     }
   },
   "sellRate": 0.25

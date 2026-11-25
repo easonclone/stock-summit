@@ -138,9 +138,9 @@ describe('王牌連鎖', () => {
     playDay(run, view => view.characterId === run.player.character.id ? { allocation: 'all', item: 0 } : { allocation: 'cash', item: null });
     const { ledger, close } = outcomeOf(run, run.player);
     expect(ledger.steps.map(step => [step.id, step.kind, step.amount])).toEqual([
-      ['market', 'base', 1000], ['diamond', 'add', 250], ['trend', 'add', 500], ['gambler', 'mult', 1750], ['dividend_king', 'cash', 135]
+      ['market', 'base', 1000], ['diamond', 'add', 500], ['trend', 'add', 1000], ['gambler', 'mult', 2500], ['dividend_king', 'cash', 450]
     ]);
-    expect(close).toBe(10000 + 1000 + 250 + 500 + 1750 + 135);
+    expect(close).toBe(10000 + 1000 + 500 + 1000 + 2500 + 450);
     expect(ledger.combos).toBe(3);
   });
 
@@ -161,7 +161,7 @@ describe('王牌連鎖', () => {
     playDay(run, view => view.characterId === run.player.character.id ? { allocation: 'all', item: 0 } : { allocation: 'cash', item: null });
     const { ledger } = outcomeOf(run, run.player);
     expect(ledger.stockBase).toBe(-1000);
-    expect(ledger.steps.map(step => [step.id, step.amount])).toEqual([['market', -1000], ['gambler', -1000], ['vest', 400], ['bell', 1200]]);
+    expect(ledger.steps.map(step => [step.id, step.amount])).toEqual([['market', -1000], ['gambler', -1000], ['vest', 700], ['bell', 900]]);
     expect(ledger.stockFinal).toBe(-400);
     expect(run.player.defenses).toEqual([]);
     const crash = calmMarket(readFinancialConfig(), -0.6);
@@ -177,7 +177,7 @@ describe('王牌連鎖', () => {
     const run = start(config);
     equip(run, run.player, ['cash_cow', 'bank', 'bear']);
     playDay(run, view => view.characterId === run.player.character.id ? { allocation: 'cash', item: null } : { allocation: 'all', item: null });
-    expect(outcomeOf(run, run.player).ledger.steps.map(step => [step.id, step.amount])).toEqual([['cash_cow', 200], ['bank', 200], ['bear', 300]]);
+    expect(outcomeOf(run, run.player).ledger.steps.map(step => [step.id, step.amount])).toEqual([['cash_cow', 200], ['bank', 200], ['bear', 800]]);
   });
 
   it('連勝王、複利怪獸與長期持有讀取前幾天的紀錄', () => {
@@ -191,8 +191,8 @@ describe('王牌連鎖', () => {
     expect(outcomeOf(run, run.player).ledger.steps.map(step => step.id)).toEqual(['market', 'streak', 'compound']);
     playDay(run, all);
     const third = outcomeOf(run, run.player).ledger.steps;
-    expect(third.find(step => step.id === 'streak')!.value).toBeCloseTo(0.1);
-    expect(third.find(step => step.id === 'holder')!.amount).toBe(500);
+    expect(third.find(step => step.id === 'streak')!.value).toBeCloseTo(0.3);
+    expect(third.find(step => step.id === 'holder')!.amount).toBe(1000);
     playDay(run, all);
     expect(outcomeOf(run, run.player).ledger.steps.some(step => step.id === 'holder')).toBe(false);
   });
@@ -251,11 +251,11 @@ describe('道具', () => {
     expect(hit(first).attackedBy).toEqual([second.character.name]);
     expect(hit(second).attackedBy).toEqual([third.character.name]);
     expect(hit(third).attackedBy).toEqual([fourth.character.name]);
-    expect(hit(second).ledger.steps.find(step => step.id === 'wolf')!.amount).toBe(200);
-    expect(hit(first).ledger.attackLoss).toBe(Math.round(12000 * 0.05));
+    expect(hit(second).ledger.steps.find(step => step.id === 'wolf')!.amount).toBe(360);
+    expect(hit(first).ledger.attackLoss).toBe(Math.round(12000 * 0.1));
   });
 
-  it('同一名對手只承受一次直接攻擊，失敗不耗牌也不觸發印鈔機', () => {
+  it('單日直接攻擊傷害不超過開盤身家四分之一，失敗不耗牌', () => {
     const simulate = () => {
       const run = start(calmMarket(readFinancialConfig(), 0), 9);
       const [target, ...rivals] = run.investors;
@@ -265,10 +265,11 @@ describe('道具', () => {
       expect(run.reports).toHaveLength(0);
       playDay(run, view => view.characterId === targetId ? { allocation: 'all', item: null } : { allocation: 'all', item: 0, targetId });
       const report = run.reports[0];
-      expect(report.attacks).toHaveLength(1);
-      expect(report.attacks[0]).toMatchObject({ to: targetId, amount: 800 });
+      expect(report.attacks).toHaveLength(2);
+      expect(report.attacks.map(attack => attack.to)).toEqual([targetId, targetId]);
+      expect(report.attacks.reduce((sum, attack) => sum + attack.amount, 0)).toBe(2500);
       const failed = report.outcomes.filter(outcome => outcome.attackBlocked);
-      expect(failed).toHaveLength(2);
+      expect(failed).toHaveLength(1);
       for (const outcome of failed) {
         expect(outcome.item).toBeNull();
         expect(outcome.investor.items.map(card => card.id)).toEqual(['rush']);
@@ -286,15 +287,15 @@ describe('道具', () => {
     equip(run, victim, [], ['mirror']);
     victim.account.cash = 210;
     const forecast = run.preview('cash', 0, victim.character.id);
-    expect(forecast?.attack?.amount).toBe(210);
+    expect(forecast?.attack?.amount).toBe(21);
     playDay(run, view => view.characterId === thief.character.id ? { allocation: 'cash', item: 0, targetId: victim.character.id }
       : { allocation: 'cash', item: view.characterId === victim.character.id ? 0 : null });
-    expect(thief.account.cash).toBe(10105);
-    expect(victim.account.cash).toBe(105);
+    expect(thief.account.cash).toBe(10010);
+    expect(victim.account.cash).toBe(200);
     expect(thief.account.cash + victim.account.cash).toBe(10210);
     expect(victim.memory.mirror).toBeNull();
-    expect(run.reports[0].attacks[0]).toMatchObject({ kind: 'cash_raid', amount: 210, reflected: 105 });
-    expect(sumSteps(outcomeOf(run, thief).ledger.steps)).toBe(105);
+    expect(run.reports[0].attacks[0]).toMatchObject({ kind: 'cash_raid', amount: 21, reflected: 11 });
+    expect(sumSteps(outcomeOf(run, thief).ledger)).toBe(10);
   });
 
   it('鎖單後沒有股票就打不中；股票反擊不會再引發反擊', () => {
@@ -310,9 +311,9 @@ describe('道具', () => {
     expect(attacker.items[0].id).toBe('snipe');
     expect(target.memory.mirror).toBe(0.5);
     playDay(run, view => view.characterId === target.character.id ? { allocation: 'all', item: null } : strike(view, seededRandom(1)));
-    expect(run.reports[1].attacks).toEqual([{ from: attacker.character.id, to: target.character.id, kind: 'attack', amount: 500, reflected: 250 }]);
-    expect(attacker.account.investmentValue).toBe(9750);
-    expect(target.account.investmentValue).toBe(9500);
+    expect(run.reports[1].attacks).toEqual([{ from: attacker.character.id, to: target.character.id, kind: 'attack', amount: 1000, reflected: 500, slot: 0 }]);
+    expect(attacker.account.investmentValue).toBe(9500);
+    expect(target.account.investmentValue).toBe(9000);
     expect(attacker.memory.mirror).toBe(0.5);
   });
 
@@ -336,12 +337,74 @@ describe('道具', () => {
     const run = start(config);
     equip(run, run.player, [], ['pack', 'comeback']);
     expect(run.preview('half', 1)!.itemBlock).toBe('not_low');
-    expect(run.confirm({ allocation: 'half', item: 0 })).toBe(true);
+    expect(run.useOpeningItem(0)).not.toBeNull();
     expect(run.offer).toMatchObject({ kind: 'item', source: 'pack' });
     expect(run.offer!.cards).toHaveLength(3);
     expect(run.offer!.cards.some(card => card.id === 'pack')).toBe(false);
     expect(run.chooseOffer(1)).toBe(true);
     expect(run.player.items).toHaveLength(2);
+  });
+});
+
+describe('開盤操作與自由出牌', () => {
+  it('立即卡扣牌、每天只部署一次，兩張行動牌都在收盤同一份帳本', () => {
+    const run = start(calmMarket(readFinancialConfig(), 0.05));
+    const player = run.player;
+    equip(run, player, ['printer'], ['gift', 'guard', 'bell', 'trend', 'dividend']);
+    expect(run.useOpeningItem(0)?.amount).toBe(800);
+    expect(player.account.cash).toBe(10800);
+    expect(run.useOpeningItem(0)?.card.id).toBe('guard');
+    expect(run.openingBlock(0)).toBe('defense_today');
+    expect(run.useOpeningItem(0)).toBeNull();
+    const actions = [{ slot: 1 }, { slot: 2 }];
+    expect(run.canLock({ allocation: 'all', actions })).toBe(true);
+    expect(run.canLock({ allocation: 'all', actions: [...actions, actions[0]] })).toBe(false);
+    expect(run.confirm({ allocation: 'all', actions }, hold('cash'))).toBe(true);
+    const result = outcomeOf(run, player);
+    expect(result.items.map(card => card.id)).toEqual(['gift', 'guard', 'trend', 'dividend']);
+    expect(result.ledger.steps.find(step => step.id === 'printer')?.amount).toBe(600);
+    expect(result.ledger.stockFinal).toBe(1080);
+    expect(result.close - result.start).toBe(sumSteps(result.ledger));
+  });
+
+  it('兩張攻擊可選不同目標；同一對手的第二張與空打的雙重打擊都保留', () => {
+    const run = start(calmMarket(readFinancialConfig(), 0));
+    const [player, rival, other] = run.investors;
+    const targetId = rival.character.id;
+    equip(run, player, [], ['strike_boost', 'rush', 'snipe']);
+    expect(run.confirm({ allocation: 'all', actions: [{ slot: 0 }] }, hold('all'))).toBe(false);
+    expect(run.confirm({ allocation: 'all', actions: [{ slot: 0 }, { slot: 1, targetId }] }, hold('cash'))).toBe(true);
+    expect(player.items.map(card => card.id)).toEqual(['strike_boost', 'rush', 'snipe']);
+    expect(run.confirm({ allocation: 'all', actions: [{ slot: 0 }, { slot: 1, targetId }] }, hold('all'))).toBe(true);
+    expect(run.reports[1].attacks).toMatchObject([{ to: targetId, amount: 2500 }]);
+    expect(player.items.map(card => card.id)).toEqual(['snipe']);
+    player.items.push(item(run.config, 'rush'), item(run.config, 'rush'));
+    expect(run.confirm({ allocation: 'all', actions: [{ slot: 0, targetId }, { slot: 1, targetId }] }, hold('all'))).toBe(true);
+    expect(run.reports[2].attacks).toHaveLength(1);
+    expect(run.confirm({ allocation: 'all', actions: [{ slot: 0, targetId }, { slot: 1, targetId: other.character.id }] }, hold('all'))).toBe(true);
+    expect(run.reports[3].attacks).toHaveLength(2);
+  });
+
+  it('開盤店只收現金，折價券只折一次，回合結算不重複扣款', () => {
+    const run = start(calmMarket(readFinancialConfig(), 0));
+    const player = run.player;
+    equip(run, player, [], ['ticket']);
+    const base = run.dailyShopCheck(0).price;
+    expect(run.dailyShop?.slots).toHaveLength(2);
+    expect(run.useOpeningItem(0)).not.toBeNull();
+    expect(player.memory.voucher).toBe(800);
+    const purchase = run.buyDaily(0)!;
+    expect(purchase.price).toBe(Math.max(1, base - 800));
+    expect(player.memory.voucher).toBe(0);
+    expect(run.buyDaily(0)).toBeNull();
+    const cash = player.account.cash;
+    player.account.cash = 0;
+    expect(run.buyDaily(1)).toBeNull();
+    player.account.cash = cash;
+    expect(run.confirm({ allocation: 'all', actions: [] }, hold('cash'))).toBe(true);
+    const result = outcomeOf(run, player);
+    expect(result.close - result.start).toBe(-purchase.price);
+    expect(result.ledger.steps.find(step => step.source === 'shop')?.amount).toBe(-purchase.price);
   });
 });
 
@@ -373,6 +436,7 @@ describe('取得卡片', () => {
     expect(run.offer).toBeNull();
     expect(run.investors.every(investor => investor.items.length === 4)).toBe(true);
     expect(run.player.items[3]).toBe(run.playerOpeningItem);
+    run.player.items.push(item(config, 'gift'));
     const before = [...run.player.items];
     expect(run.resolveControlled(hold('cash'))).toBe(true);
     expect(run.offer?.source).toBe('daily');
@@ -424,7 +488,7 @@ describe('取得卡片', () => {
     }
     expect(inShop).toBe(true);
     expect(readFinancialConfig().jokers).toHaveLength(18);
-    expect(readFinancialConfig().items).toHaveLength(16);
+    expect(readFinancialConfig().items).toHaveLength(24);
   });
 });
 
@@ -511,15 +575,15 @@ describe('商店', () => {
     expect(run.shopCheck(1, 0).block).toBe('owned');
   });
 
-  it('精打細算打八折；回收價高於折扣價的設定在啟動時被拒絕，不能低買高賣', () => {
+  it('精打細算打七折；回收價高於折扣價的設定在啟動時被拒絕，不能低買高賣', () => {
     const config = readFinancialConfig();
     const run = toShop(config);
     run.player.account.cash = 5000;
     const full = run.shopCheck(0).price;
     run.player.jokers = [joker(config, 'thrifty')];
-    expect(run.shopCheck(0).price).toBe(Math.round(full * 0.8));
+    expect(run.shopCheck(0).price).toBe(Math.round(full * 0.7));
     for (const card of config.jokers) {
-      expect(Math.floor(config.shop.price.joker[card.rarity] * config.shop.sellRate)).toBeLessThan(Math.round(config.shop.price.joker[card.rarity] * 0.8));
+      expect(Math.floor(config.shop.price.joker[card.rarity] * config.shop.sellRate)).toBeLessThan(Math.round(config.shop.price.joker[card.rarity] * 0.7));
     }
     const raw = structuredClone(financialInput);
     raw.shop.sellRate = 0.85;

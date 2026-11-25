@@ -1,5 +1,7 @@
 {
   "maxGainMultiplier": 5,
   "maxLossCut": 0.8,
-  "attacksPerTarget": 1
+  "attacksPerTarget": 3,
+  "attackLossLimit": 0.25,
+  "reflectionCap": 1500
 }

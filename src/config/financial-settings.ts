@@ -43,12 +43,12 @@ const effect = z.discriminatedUnion('type', [
   z.object({ type: z.literal('swing_mult'), factor }),
   z.object({ type: z.literal('loss_cut'), amount: rate }),
   z.object({ type: z.literal('cash_yield'), rate, cap: money.positive() }),
-  z.object({ type: z.literal('yield_boost'), factor }),
+  z.object({ type: z.literal('yield_boost'), factor, cap: money.positive() }),
   z.object({ type: z.literal('stock_yield'), rate, cap: money.positive() }),
   z.object({ type: z.literal('bear_bonus'), amount: money.positive() }),
-  z.object({ type: z.literal('item_bonus'), amount: money.positive() }),
-  z.object({ type: z.literal('attack_bonus'), amount: money.positive() }),
-  z.object({ type: z.literal('news_item'), count: z.number().int().min(1).max(2) }),
+  z.object({ type: z.literal('item_bonus'), amount: money.positive(), cap: money.positive() }),
+  z.object({ type: z.literal('attack_bonus'), rate }),
+  z.object({ type: z.literal('news_item'), count: z.number().int().min(1).max(3) }),
   z.object({ type: z.literal('hold_bonus'), days: day, amount: money.positive() }),
   z.object({ type: z.literal('climb_bonus'), amount: money.positive() }),
   z.object({ type: z.literal('shop_discount'), rate }),
@@ -59,16 +59,21 @@ const effect = z.discriminatedUnion('type', [
   z.object({ type: z.literal('intel') }),
   z.object({ type: z.literal('item_pack'), count: z.number().int().min(2).max(4) }),
   z.object({ type: z.literal('attack'), amount: rate }),
-  z.object({ type: z.literal('cash_raid'), amount: money.positive() }),
-  z.object({ type: z.literal('shield_break') }),
+  z.object({ type: z.literal('cash_raid'), rate, amount: money.positive() }),
+  z.object({ type: z.literal('shield_break'), amount: money }),
   z.object({ type: z.literal('mirror'), amount: rate }),
+  z.object({ type: z.literal('random_cash'), min: money.positive(), max: money.positive() }),
+  z.object({ type: z.literal('generate'), count: z.number().int().min(1).max(3), pool: z.enum(['all', 'attack', 'defense']), choose: z.boolean() }),
+  z.object({ type: z.literal('voucher'), amount: money.positive() }),
+  z.object({ type: z.literal('strike_boost'), factor }),
+  z.object({ type: z.literal('area_attack'), amount: rate }),
   z.object({ type: z.literal('stock_cash'), rate }),
   z.object({ type: z.literal('relief'), amount: money.positive(), below: money.positive() })
 ]);
 
 const jokerTypes = ['gain_add', 'streak_add', 'rebound_add', 'joker_add', 'news_mult', 'repeat_mult', 'swing_mult', 'loss_cut', 'cash_yield',
   'yield_boost', 'stock_yield', 'bear_bonus', 'item_bonus', 'attack_bonus', 'news_item', 'hold_bonus', 'climb_bonus', 'shop_discount'];
-const itemTypes = ['cash_grant', 'today_add', 'today_mult', 'defense', 'intel', 'item_pack', 'attack', 'cash_raid', 'shield_break', 'mirror', 'stock_cash', 'relief'];
+const itemTypes = ['cash_grant', 'today_add', 'today_mult', 'defense', 'intel', 'item_pack', 'attack', 'cash_raid', 'shield_break', 'mirror', 'random_cash', 'generate', 'voucher', 'strike_boost', 'area_attack', 'stock_cash', 'relief'];
 const eventTypes = ['price', 'cash_grant', 'item_grant'];
 
 const references = z.array(id).min(1).refine(items => new Set(items).size === items.length, '效果引用不得重複');
@@ -91,13 +96,14 @@ const schema = z.object({
     startItems: z.number().int().min(0).max(3), jokerChoices: z.number().int().min(1).max(4), stageDays: z.array(day),
     openingItems: z.object({ income: z.array(z.string()).min(1), defense: z.array(z.string()).min(1), other: z.array(z.string()).min(1) }),
     dailyItemStart: day.min(2).nullable(),
+    actionLimit: z.number().int().min(1).max(2), itemPlayLimit: z.number().int().min(2).max(8),
     rarity: z.object({ common: positive, rare: positive, legendary: positive })
   }),
   shop: z.object({
-    enabled: z.boolean(), jokers: z.number().int().min(0).max(5), items: z.number().int().min(0).max(5),
+    enabled: z.boolean(), dailyItems: z.number().int().min(0).max(2), jokers: z.number().int().min(0).max(5), items: z.number().int().min(0).max(5),
     price: z.object({ joker: rarityPrice, item: rarityPrice }), sellRate: rate
   }),
-  settlement: z.object({ maxGainMultiplier: factor, maxLossCut: rate, attacksPerTarget: z.number().int().min(1).max(3) }),
+  settlement: z.object({ maxGainMultiplier: factor, maxLossCut: rate, attacksPerTarget: z.number().int().min(1).max(3), attackLossLimit: rate, reflectionCap: money.positive() }),
   npc: z.object({
     noise: z.object({ easy: z.number().nonnegative(), normal: z.number().nonnegative(), hard: z.number().nonnegative() }),
     itemReserve: z.number().nonnegative(), riskAversion: rate, defenseValue: rate, intelValue: z.number().nonnegative(),
@@ -161,8 +167,12 @@ export function readFinancialConfig(raw: unknown = financialInput): FinancialCon
     }
   }
   for (const item of config.items) {
-    const direct = item.effectIds.filter(id => ['attack', 'cash_raid', 'shield_break'].includes(config.effects[id].type));
-    assert(!direct.length || item.effectIds.length === 1, '指定對手的攻擊道具只能有一個效果');
+    const direct = item.effectIds.filter(id => ['attack', 'cash_raid', 'shield_break', 'area_attack'].includes(config.effects[id].type));
+    assert(!direct.length || item.effectIds.length === 1, '攻擊道具只能有一個效果');
+    assert(item.effectIds.every(id => {
+      const effect = config.effects[id];
+      return effect.type !== 'random_cash' || effect.min <= effect.max;
+    }), '隨機現金的最低金額不得大於最高金額');
   }
   for (const event of config.events) {
     assert(event.effectIds.filter(key => config.effects[key].type === 'price').length <= 1, `${event.id} 的市場價格變動只能定義一次`);

@@ -19,7 +19,7 @@ export interface DayBreakdown {
 }
 
 const group: Record<ChainStep['source'], BreakdownLine['key']> = {
-  market: 'stock', cap: 'joker', news: 'news', joker: 'joker', item: 'item', defense: 'item', attack: 'attack', event: 'event'
+  shop: 'event', market: 'stock', cap: 'joker', news: 'news', joker: 'joker', item: 'item', defense: 'item', attack: 'attack', event: 'event'
 };
 const labels: Record<BreakdownLine['key'], string> = {
   stock: '今日股市', news: '市場新聞', joker: '王牌', item: '道具', event: '特殊事件', attack: '對手狙擊', restart: '歸零翻身'

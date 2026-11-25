@@ -17,7 +17,7 @@ function play(seed: number, onDay?: (run: TradingRun) => void) {
   while (!run.closed) {
     while (run.offer) run.chooseOfferAutomatically();
     run.shopAutomatically();
-    if (!run.resolveControlled(view => chooseTrade(view, random, strategy))) break;
+    if (!run.resolveControlled(view => chooseTrade(view, random, strategy), false)) break;
     if (run.pendingRecovery) run.acceptRecovery();
     onDay?.(run);
   }

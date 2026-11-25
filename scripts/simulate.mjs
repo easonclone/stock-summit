@@ -10,6 +10,13 @@ try {
   const { chooseTrade, strategies, holderStyle } = await server.ssrLoadModule('/src/core/npc-strategy.ts');
   const { netWorth } = await server.ssrLoadModule('/src/core/economy.ts');
   const config = readFinancialConfig();
+  const oldMarket = process.argv.includes('--old-market');
+  const strongerCash = process.argv.includes('--stronger-cash');
+  if (oldMarket) config.effects.market_day = { type: 'price', floor: -0.045, ceiling: 0.055 };
+  if (strongerCash) {
+    config.effects.cash_cow = { type: 'cash_yield', rate: 0.03, cap: 800 };
+    config.effects.bank = { type: 'yield_boost', factor: 2, cap: 1000 };
+  }
 
   const fraction = (total, count) => count ? total / count : 0;
   const round = number => Number(number.toFixed(4));
@@ -34,7 +41,7 @@ try {
       }
       if (run.closed) break;
       const accepted = run.resolveControlled((view, random) =>
-        view.characterId === playerId ? chooseTrade(view, random, strategy, 'normal') : chooseTrade(view, random));
+        view.characterId === playerId ? chooseTrade(view, random, strategy, 'normal') : chooseTrade(view, random), shopping);
       if (!accepted) throw new Error(`無法結算第 ${run.day} 日，種子 ${seed}`);
     }
     return run;
@@ -64,6 +71,7 @@ try {
     let spent = 0;
     let bought = 0;
     const allocations = {};
+    const settledBySource = {};
     for (let seed = 1; seed <= seeds; seed++) {
       const run = play(seed, strategy);
       const { player } = run;
@@ -83,6 +91,7 @@ try {
         if (!outcome) continue;
         days += 1;
         capped += Number(outcome.ledger.capped);
+        for (const step of outcome.ledger.steps) settledBySource[step.source] = (settledBySource[step.source] ?? 0) + step.amount;
         const id = player.character.id;
         attacksLanded += report.attacks.filter(attack => attack.from === id).length;
         attacksMissed += Number(outcome.attackBlocked);
@@ -98,6 +107,7 @@ try {
       itemsPerGame: round(items / seeds), combosPerDay: round(fraction(combos, days)), cappedDayRate: round(fraction(capped, days)),
       attacksLandedPerGame: round(attacksLanded / seeds), attacksMissedPerGame: round(attacksMissed / seeds), reflectionsPerGame: round(reflections / seeds),
       comebackFromThirdRate: round(comeback / seeds), shopSpentPerGame: Math.round(spent / seeds), purchasesPerGame: round(bought / seeds),
+      ledgerPerGame: Object.fromEntries(Object.entries(settledBySource).map(([source, amount]) => [source, round(amount / seeds)])),
       allocationRates: Object.fromEntries(Object.entries(allocations).sort().map(([id, total]) => [id, round(fraction(total, days))]))
     };
     leaderboard.push(entry);
@@ -156,7 +166,7 @@ try {
   }));
   const ranked = leaderboard.map(entry => entry.winRate).sort((a, b) => b - a);
   console.log(JSON.stringify({
-    seeds, startingSeed: 1,
+    seeds, startingSeed: 1, oldMarket, strongerCash,
     characterWinRates: Object.fromEntries(Object.entries(characterWins).map(([id, wins]) => [id, round(wins / seeds)])),
     gapBetweenTopStrategies: round(ranked[0] - ranked[1]),
     styleWinRates: Object.fromEntries(Object.entries(styleWins).map(([style, [count, wins]]) => [style, { seats: count, winRate: round(fraction(wins, count)) }])),

@@ -233,7 +233,7 @@ describe('道具', () => {
     }
   });
 
-  it('主力狙擊打最近的領先者；同一人一天只會被狙擊一次，被搶先的道具會留著', () => {
+  it('主力狙擊使用明確鎖定的目標，命中可觸發華爾街之狼', () => {
     const config = calmMarket(readFinancialConfig(), 0);
     const run = start(config, 5);
     const [first, second, third, fourth] = run.investors;
@@ -242,7 +242,10 @@ describe('道具', () => {
     second.account.cash = 11000;
     third.account.cash = 10500;
     fourth.account.cash = 10400;
-    playDay(run, view => view.characterId === first.character.id ? { allocation: 'all', item: null } : { allocation: 'all', item: 0 });
+    playDay(run, view => {
+      const index = run.investors.findIndex(investor => investor.character.id === view.characterId);
+      return index === 0 ? { allocation: 'all', item: null } : { allocation: 'all', item: 0, targetId: run.investors[index - 1].character.id };
+    });
     const outcomes = run.reports[0].outcomes;
     const hit = (investor: Investor) => outcomes.find(outcome => outcome.investor === investor)!;
     expect(hit(first).attackedBy).toEqual([second.character.name]);
@@ -250,6 +253,82 @@ describe('道具', () => {
     expect(hit(third).attackedBy).toEqual([fourth.character.name]);
     expect(hit(second).ledger.steps.find(step => step.id === 'wolf')!.amount).toBe(200);
     expect(hit(first).ledger.attackLoss).toBe(Math.round(12000 * 0.05));
+  });
+
+  it('同一名對手只承受一次直接攻擊，失敗不耗牌也不觸發印鈔機', () => {
+    const simulate = () => {
+      const run = start(calmMarket(readFinancialConfig(), 0), 9);
+      const [target, ...rivals] = run.investors;
+      for (const rival of rivals) equip(run, rival, ['printer'], ['rush']);
+      const targetId = target.character.id;
+      expect(run.confirm({ allocation: 'all', item: null }, () => ({ allocation: 'all', item: 0 }))).toBe(false);
+      expect(run.reports).toHaveLength(0);
+      playDay(run, view => view.characterId === targetId ? { allocation: 'all', item: null } : { allocation: 'all', item: 0, targetId });
+      const report = run.reports[0];
+      expect(report.attacks).toHaveLength(1);
+      expect(report.attacks[0]).toMatchObject({ to: targetId, amount: 800 });
+      const failed = report.outcomes.filter(outcome => outcome.attackBlocked);
+      expect(failed).toHaveLength(2);
+      for (const outcome of failed) {
+        expect(outcome.item).toBeNull();
+        expect(outcome.investor.items.map(card => card.id)).toEqual(['rush']);
+        expect(outcome.ledger.steps.some(step => step.id === 'printer')).toBe(false);
+      }
+      return report.attacks;
+    };
+    expect(simulate()).toEqual(simulate());
+  });
+
+  it('掠奪最多取走目標現金，反擊鏡歸還一半，總現金守恆', () => {
+    const run = start(calmMarket(readFinancialConfig(), 0));
+    const [thief, victim] = run.investors;
+    equip(run, thief, [], ['raid']);
+    equip(run, victim, [], ['mirror']);
+    victim.account.cash = 210;
+    const forecast = run.preview('cash', 0, victim.character.id);
+    expect(forecast?.attack?.amount).toBe(210);
+    playDay(run, view => view.characterId === thief.character.id ? { allocation: 'cash', item: 0, targetId: victim.character.id }
+      : { allocation: 'cash', item: view.characterId === victim.character.id ? 0 : null });
+    expect(thief.account.cash).toBe(10105);
+    expect(victim.account.cash).toBe(105);
+    expect(thief.account.cash + victim.account.cash).toBe(10210);
+    expect(victim.memory.mirror).toBeNull();
+    expect(run.reports[0].attacks[0]).toMatchObject({ kind: 'cash_raid', amount: 210, reflected: 105 });
+    expect(sumSteps(outcomeOf(run, thief).ledger.steps)).toBe(105);
+  });
+
+  it('鎖單後沒有股票就打不中；股票反擊不會再引發反擊', () => {
+    const run = start(calmMarket(readFinancialConfig(), 0));
+    const [attacker, target] = run.investors;
+    equip(run, attacker, [], ['snipe']);
+    attacker.memory.mirror = 0.5;
+    target.memory.mirror = 0.5;
+    const strike: Planner = view => view.characterId === attacker.character.id
+      ? { allocation: 'all', item: 0, targetId: target.character.id } : { allocation: 'cash', item: null };
+    playDay(run, strike);
+    expect(run.reports[0].attacks).toEqual([]);
+    expect(attacker.items[0].id).toBe('snipe');
+    expect(target.memory.mirror).toBe(0.5);
+    playDay(run, view => view.characterId === target.character.id ? { allocation: 'all', item: null } : strike(view, seededRandom(1)));
+    expect(run.reports[1].attacks).toEqual([{ from: attacker.character.id, to: target.character.id, kind: 'attack', amount: 500, reflected: 250 }]);
+    expect(attacker.account.investmentValue).toBe(9750);
+    expect(target.account.investmentValue).toBe(9500);
+    expect(attacker.memory.mirror).toBe(0.5);
+  });
+
+  it('破盾在股價結算後，護盾已擋掉市場損失時不耗牌', () => {
+    for (const market of [0, -0.1]) {
+      const run = start(calmMarket(readFinancialConfig(), market));
+      const [breaker, defender] = run.investors;
+      equip(run, breaker, [], ['shatter']);
+      defender.defenses.push({ itemId: 'guard', name: '防跌護盾', mode: 'cut', amount: 0.5 });
+      playDay(run, view => view.characterId === breaker.character.id
+        ? { allocation: 'all', item: 0, targetId: defender.character.id } : { allocation: 'all', item: null });
+      expect(defender.defenses).toHaveLength(0);
+      expect(breaker.items.some(card => card.id === 'shatter')).toBe(market < 0);
+      expect(outcomeOf(run, defender).ledger.shielded).toBe(market < 0 ? 500 : 0);
+      expect(run.reports[0].attacks).toHaveLength(market < 0 ? 0 : 1);
+    }
   });
 
   it('神秘卡包讓玩家三選一道具；東山再起要身家低於 $5,000', () => {
@@ -345,7 +424,7 @@ describe('取得卡片', () => {
     }
     expect(inShop).toBe(true);
     expect(readFinancialConfig().jokers).toHaveLength(18);
-    expect(readFinancialConfig().items).toHaveLength(12);
+    expect(readFinancialConfig().items).toHaveLength(16);
   });
 });
 

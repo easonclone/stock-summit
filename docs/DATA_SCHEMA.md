@@ -4,7 +4,7 @@
 - `src/config/allocation.json`：三種配置（比例）、預設配置與共同市場效果 id。
 - `src/config/gameplay.json`：交易日數、新聞間隔、王牌與道具上限、起始道具數與保證池（`startItems`、`openingItems`）、每日開盤道具開始日（`dailyItemStart`，`null` 可停用）、王牌選項數、商店與階段日（`stageDays`）、稀有度權重（65／30／5）。
 - `src/config/shop.json`：`enabled`、每次上架的王牌與道具數、依稀有度的 `price.joker`／`price.item`、王牌回收比例 `sellRate`。啟動時驗證回收比例低於最低折扣後售價比例。
-- `src/config/settlement.json`：倍率上限、少賠上限、每人每日被狙擊次數。
+- `src/config/settlement.json`：倍率上限、少賠上限、每人每日承受直接攻擊次數。
 - `src/config/npc.json`：決策擾動（只受難度影響）、風險厭惡、保留道具價值與道具估值、商店估值係數（`jokerShopScale`、`itemShopScale`、`shopMargin`）、商店日留現金加分（`shopCashValue`、`shopBudget`）、同流派加分 `styleSynergy`。
 - `src/data/characters.json`：四位角色的 ID、姓名、外觀描述、代表色與肖像鍵。
 - `src/data/finance.json`：所有效果（市場、王牌、道具共用）。
@@ -23,7 +23,11 @@
 | `loss_cut`、`defense` | 王牌、道具 | 少賠（`defense` 為待命護盾：`cut`／`absorb`／`reverse`） |
 | `cash_yield`、`yield_boost`、`stock_yield`、`bear_bonus`、`item_bonus`、`attack_bonus`、`hold_bonus`、`climb_bonus` | 王牌 | 收盤固定現金 |
 | `news_item`、`shop_discount` | 王牌 | 新聞後拿道具、商店折扣 |
-| `intel`、`item_pack`、`attack`、`stock_cash`、`relief` | 道具 | 偷看方向、三選一、狙擊、領股票 %、低身家救急 |
+| `intel`、`item_pack`、`stock_cash`、`relief` | 道具 | 偷看方向、三選一、領股票 %、低身家救急 |
+| `attack`、`cash_raid`、`shield_break` | 道具 | 指定對手並在市場結算後扣股票、轉移現金或破一盾，單體攻擊牌只接受單一效果 |
+| `mirror` | 道具 | 單面待命，受到造成金額變動的直接攻擊後依設定比例反擊 |
+
+`TradeChoice.targetId` 為單體攻擊的鎖定目標，`DayReport.attacks` 記錄命中者、目標、種類、實際金額和反擊金額。破盾紀錄的 `amount` 代表移除層數。
 
 新聞的方向由股價效果的正負決定；沒有股價效果的是特殊事件。新聞文案不存百分比，畫面依效果設定和當日紀錄輸出。
 

@@ -1,11 +1,12 @@
 import type { AllocationOption, FinancialConfig, GameCard } from '../config/financial-settings';
+import { attackOf, estimateAttack, type AttackTarget } from './attacks';
 import { netWorth } from './economy';
 import {
   closeDay, copyHolder, itemBlock, newsOutlook, priceEffect, tradeDay, type DayContext, type DayLedger, type Holder, type ItemBlock, type Tone
 } from './settlement';
 
 /** Locked before any market result is known: today's stock ratio and at most one item (slot in the holder's items). */
-export interface TradeChoice { allocation?: string; item: number | null }
+export interface TradeChoice { allocation?: string; item: number | null; targetId?: string }
 
 /** Everything one investor may know when deciding: public standings, their own cards, and their own intel. */
 export interface DecisionView {
@@ -17,8 +18,8 @@ export interface DecisionView {
   allocation: string;
   rank: number;
   gap: number;
-  /** Nearest rival ranked ahead at the open (主力狙擊 target), with their public total worth. */
-  target: { id: string; name: string; worth: number } | null;
+  /** 只包含對手已公開的資產、排名與護盾。 */
+  rivals: AttackTarget[];
   eventToday: boolean;
   nextNewsDay: number | null;
   /** Direction of today's news if this investor learned it earlier with an item. */
@@ -33,7 +34,7 @@ export function allocationOption(config: FinancialConfig, id: string | undefined
 }
 
 export function viewContext(view: DecisionView, allocation: AllocationOption): DayContext {
-  return { config: view.config, day: view.day, allocation, marketRate: 0, news: null, nextNewsDay: view.nextNewsDay, hasTarget: view.target !== null };
+  return { config: view.config, day: view.day, allocation, marketRate: 0, news: null, nextNewsDay: view.nextNewsDay, hasTarget: false };
 }
 
 export interface Scenario { marketRate: number; newsRate: number; tone: Tone | null; weight: number }
@@ -75,16 +76,23 @@ export interface Forecast {
   /** Expected extra gain from jokers and items over the plain stock move. */
   boost: number;
   shielded: number;
-  /** Estimated hit on the target if the item is 主力狙擊 (their stock is private, so half their worth is assumed). */
-  attack: number;
+  targets: AttackTarget[];
+  attack: { target: AttackTarget; amount: number; kind: 'attack' | 'cash_raid' | 'shield_break' } | null;
   ledger: DayLedger;
 }
 
 /** The same settlement the run uses, applied to copies under a few market scenarios. Never changes the real state. */
-export function forecastTrade(view: DecisionView, allocationId: string | undefined, slot: number | null): Forecast {
+export function attackTargets(view: DecisionView, item: GameCard | null) {
+  const effect = attackOf(view.config, item);
+  return effect ? view.rivals.filter(rival => effect.type !== 'shield_break' || rival.shields > 0) : [];
+}
+
+export function forecastTrade(view: DecisionView, allocationId: string | undefined, slot: number | null, targetId?: string): Forecast {
   const allocation = allocationOption(view.config, allocationId ?? view.allocation);
   const item = slot === null ? null : view.holder.items[slot] ?? null;
-  const block = item ? itemBlock(view.holder, item, viewContext(view, allocation)) : null;
+  const targets = attackTargets(view, item);
+  const target = targets.find(rival => rival.id === targetId);
+  const block = item ? itemBlock(view.holder, item, { ...viewContext(view, allocation), hasTarget: targets.length > 0 }) : null;
   const used = block ? null : item;
   const runs = scenarios(view).map(scenario => ({ scenario, result: simulate(view, allocation, used, scenario) }));
   const deltas = runs.map(run => run.result.delta);
@@ -95,10 +103,10 @@ export function forecastTrade(view: DecisionView, allocationId: string | undefin
   const worth = Math.max(0, netWorth(view.holder.account));
   const stock = Math.floor(worth * allocation.ratio);
   const itemCash = used ? middle.ledger.steps.filter(step => step.source === 'item' && step.kind === 'cash').reduce((sum, step) => sum + step.amount, 0) : 0;
-  const attackRate = used ? used.effectIds.map(id => view.config.effects[id]).find(effect => effect.type === 'attack') : undefined;
-  const attack = attackRate?.type === 'attack' && view.target ? Math.round(view.target.worth * 0.5 * attackRate.amount) : 0;
+  const effect = attackOf(view.config, used);
+  const attack = target && effect ? { target, amount: estimateAttack(effect, target), kind: effect.type } : null;
   return {
     allocation, cash: worth - stock, stock, low: Math.min(...deltas), high: Math.max(...deltas), expected,
-    item, itemBlock: block, itemCash, boost, shielded, attack, ledger: middle.ledger
+    item, itemBlock: block, itemCash, boost, shielded, targets, attack, ledger: middle.ledger
   };
 }

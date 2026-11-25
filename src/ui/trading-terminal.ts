@@ -6,6 +6,8 @@ import { sellPrice, type BuyBlock } from '../core/shop';
 import { marketTone, type ChainStep, type ItemBlock } from '../core/settlement';
 import { dayBreakdown } from './breakdown';
 import { cardBadge, rarityLabel } from './card-face';
+import { attackOf } from '../core/attacks';
+import type { Forecast } from '../core/trade-preview';
 import { arrow, direction, escapeHtml, money, percent, signedMoney, signedPercent } from './format';
 import { performanceChart } from './performance-chart';
 
@@ -55,17 +57,22 @@ export function moodOf(run: TradingRun, investor: Investor, outcome: DayOutcome 
 }
 
 const moodText: Record<Mood, string> = {
-  idle: '', think: '想一下…', gain: '賺啦！', loss: '唉…', shield: '護盾擋住！', hit: '被狙擊了！',
+  idle: '', think: '想一下…', gain: '賺啦！', loss: '唉…', shield: '護盾擋住！', hit: '被打中了！',
   call: '', broke: '歸零了…', recover: '重新出發！', win: '我是股神！'
 };
 
-function arenaMarkup(run: TradingRun, choosing: boolean, animate: boolean) {
+function arenaMarkup(run: TradingRun, choosing: boolean, animate: boolean, preview: Forecast | null) {
   const latest = run.reports.at(-1);
   const standings = run.standings();
   const news = run.latestNews;
   const tone = news ? marketTone(news.event, run.config) : 'neutral';
   const fresh = Boolean(news && latest?.market && news.day === latest.day);
   const next = run.nextEventDay;
+  const capital = run.config.financial.initialCapital;
+  const maxWorth = Math.max(capital, ...run.investors.map(investor => netWorth(investor.account)), ...(latest?.outcomes.map(outcome => outcome.start) ?? []));
+  const step = capital / 2;
+  const scale = step * (1 + Math.floor(maxWorth / step));
+  const fill = (value: number) => 100 * Math.max(0, value) / scale;
   const fighters = run.investors.map(investor => {
     const outcome = latest?.outcomes.find(item => item.investor === investor);
     const standing = standings.find(item => item.investor === investor)!;
@@ -75,17 +82,28 @@ function arenaMarkup(run: TradingRun, choosing: boolean, animate: boolean) {
     const delta = outcome ? outcome.close - outcome.start : 0;
     const isPlayer = investor === run.player;
     const value = netWorth(investor.account);
+    const id = investor.character.id;
+    const selectable = preview?.targets.find(target => target.id === id);
+    const selected = preview?.attack?.target.id === id;
+    const sent = latest?.attacks.find(hit => hit.from === id);
+    const received = latest?.attacks.find(hit => hit.to === id);
+    const strike = received && received.kind !== 'shield_break' ? received.amount - (received.kind === 'cash_raid' ? received.reflected : 0) : 0;
+    const rebound = sent?.reflected ?? 0;
     const bubble = moodText[mood] && (animate || mood === 'think' || mood === 'win' || mood === 'broke') ? moodText[mood] : '';
-    return `<article class="fighter mood-${mood} ${isPlayer ? 'is-player' : ''} ${animate && climb > 0 ? 'rank-up' : ''}" style="--ink:${investor.character.color}"
+    return `<article class="fighter mood-${mood} ${isPlayer ? 'is-player' : ''} ${animate && climb > 0 ? 'rank-up' : ''} ${selectable ? 'can-target' : ''} ${selected ? 'is-target' : ''} ${animate && sent ? 'striking' : ''} ${animate && (received || rebound) ? 'struck' : ''} ${animate && received?.reflected ? 'reflecting' : ''}" style="--ink:${investor.character.color}"
       aria-label="${escapeHtml(investor.character.name)}，${standing.rank ? `第 ${standing.rank} 名` : '出局'}，總身家 ${money(value)}">
       ${bubble ? `<span class="bubble">${bubble}</span>` : ''}
       ${animate && delta ? `<span class="float ${direction(delta)}">${signedMoney(delta)}</span>` : ''}
+      ${animate && (received || rebound) ? `<span class="strike-flash">✦ ${received?.kind === 'shield_break' ? '破盾' : [strike ? money(-strike) : '', rebound ? '反擊 ' + money(-rebound) : ''].filter(Boolean).join(' · ')}</span>` : ''}
       ${animate && outcome?.ledger.shielded ? `<span class="shield-pop">◆ 擋下 ${money(outcome.ledger.shielded)}</span>` : ''}
       <canvas class="sprite" width="48" height="54" data-sprite="${investor.character.id}" data-mood="${mood}" aria-hidden="true"></canvas>
-      <div class="plate"><b class="rank">${standing.rank ? `#${standing.rank}` : '出局'}${climb ? `<small class="${direction(climb)}">${arrow(climb)}</small>` : ''}</b>
+
+      <div class="plate"><b class="rank">${standing.rank === 1 ? '♛ ' : ''}${standing.rank ? `#${standing.rank}` : '出局'}${climb ? `<small class="${direction(climb)}">${arrow(climb)}</small>` : ''}</b>
         <strong>${escapeHtml(investor.character.name)}${isPlayer ? '<em>你</em>' : ''}</strong>
         <span class="worth">${money(value)}</span>
-        <span class="ret ${direction(returnRate(investor.account))}">${signedPercent(returnRate(investor.account))}</span></div>
+        <span class="wealth-track ${animate ? 'wealth-moving' : ''}" aria-hidden="true" style="--start:${fill(outcome?.start ?? value)}%;--end:${fill(value)}%;--capital:${fill(capital)}%"><i></i><b></b><small></small></span>
+        ${investor.defenses.length || investor.memory.mirror !== null ? `<small class="fighter-status" aria-label="護盾 ${investor.defenses.length}，${investor.memory.mirror === null ? '' : '反擊鏡待命'}">${investor.defenses.length ? '🛡' + investor.defenses.length : ''}${investor.memory.mirror !== null ? ' ◈' : ''}</small>` : ''}</div>
+      ${selectable ? `<button type="button" class="target-seat" data-act="target" data-value="${id}" aria-pressed="${Boolean(selected)}" aria-label="指定 ${escapeHtml(investor.character.name)}，現金 ${money(selectable.cash)}，股票 ${money(selectable.stock)}，護盾 ${selectable.shields}"><span aria-hidden="true">⌖</span></button>` : ''}
     </article>`;
   }).join('');
   return `<section class="arena tone-${tone} ${fresh ? `fresh-news sev-${news!.event.severity}` : ''} ${animate ? 'arena-animate' : ''}" aria-label="四人交易競技場">
@@ -139,7 +157,7 @@ const stepIcon: Record<ChainStep['source'], string> = {
 function stepLabel(step: ChainStep) {
   const value = step.value === undefined ? '' : step.kind === 'mult' ? ` ×${step.value}` : step.kind === 'add' ? ` +${percent(step.value)}`
     : step.kind === 'cap' ? ` ${step.value} 倍` : '';
-  const verb = step.kind === 'cut' ? '少賠' : step.source === 'attack' ? '狙擊' : '';
+  const verb = step.kind === 'cut' ? '少賠' : '';
   return `${escapeHtml(step.name)}${verb ? ` ${verb}` : ''}${value}`;
 }
 
@@ -155,7 +173,11 @@ function resultMarkup(run: TradingRun, animate: boolean) {
   const restart = view.lines.find(line => line.key === 'restart');
   const notes = [
     outcome.item ? `用了「${escapeHtml(outcome.item.name)}」` : '',
-    outcome.attackBlocked ? '對手今天已被狙擊過，道具保留' : '',
+    outcome.attackBlocked ? '攻擊沒打中，道具留下了' : '',
+    ...last.attacks.filter(hit => hit.from === run.player.character.id).map(hit => {
+      const target = run.investors.find(investor => investor.character.id === hit.to)!;
+      return `打中 ${escapeHtml(target.character.name)} ${hit.kind === 'shield_break' ? '（破盾）' : money(-hit.amount)}${hit.reflected ? ' · 遭到反擊 ' + money(hit.reflected) : ''}`;
+    }),
     outcome.received.length ? `拿到 ${outcome.received.map(card => `「${escapeHtml(card.name)}」`).join('')}` : '',
     view.chain.length ? '' : '今天沒有股票，也沒有王牌發動'
   ].filter(Boolean);
@@ -174,13 +196,15 @@ function resultMarkup(run: TradingRun, animate: boolean) {
 
 export const itemBlockCopy: Record<ItemBlock, string> = {
   no_stock: '今天沒有股票，用了不會多賺', full_defense: '護盾已經放滿兩個', no_news: '後面沒有新聞了',
-  known_news: '已經知道下一則新聞', no_target: '你是第一名，沒有人可以狙擊', not_low: '身家要低於 $5,000 才能用',
+  known_news: '已經知道下一則新聞', no_target: '目前沒有符合條件的對手', mirror_ready: '已經有一面反擊鏡在等了', not_low: '身家要低於 $5,000 才能用',
   used: '這局已經用過', last_day: '最後一天用了也來不及'
 };
 
 /** A joker or item face: name, pixel art, one sentence, rarity. Details open in a dialog. */
 export function cardMarkup(config: FinancialConfig, card: GameCard, kind: 'joker' | 'item', attrs = '', status = '') {
-  return `<span class="game-card ${kind} rarity-${card.rarity}" style="--ink:${card.color}" ${attrs}>
+  const effect = card.effectIds.map(id => config.effects[id]);
+  const role = attackOf(config, card) ? ' card-attack' : effect.some(item => item.type === 'defense' || item.type === 'mirror') ? ' card-defense' : '';
+  return `<span class="game-card ${kind}${role} rarity-${card.rarity}" style="--ink:${card.color}" ${attrs}>
     <span class="card-top">${iconMarkup(card.icon, card.color)}<b class="card-value">${escapeHtml(cardBadge(config, card))}</b></span>
     <strong>${escapeHtml(card.name)}</strong><span class="card-line">${escapeHtml(card.line)}</span>
     ${status ? `<span class="card-status">${status}</span>` : ''}</span>`;
@@ -208,7 +232,7 @@ function itemMarkup(run: TradingRun, allocation: string, slot: number | null) {
   const cards = run.player.items.map((item, index) => {
     const forecast = run.preview(allocation, index);
     const block = forecast?.itemBlock ?? null;
-    const status = block ? itemBlockCopy[block] : slot === index ? '今天使用' : '可以用';
+    const status = block ? itemBlockCopy[block] : forecast?.targets.length ? '選對手' : slot === index ? '今天使用' : '可以用';
     return `<button type="button" class="card-button ${block ? 'blocked' : ''}" data-act="item" data-value="${index}" data-card-id="${item.id}" aria-pressed="${slot === index}"
       aria-label="道具 ${escapeHtml(item.name)}：${escapeHtml(item.line)}，${status}">${cardMarkup(run.config, item, 'item', '', escapeHtml(status))}</button>`;
   });
@@ -241,7 +265,7 @@ function selectedNote(run: TradingRun, allocation: string, slot: number) {
   const item = run.player.items[slot];
   if (!forecast || forecast.itemBlock) return `：今天用不了，${itemBlockCopy[forecast?.itemBlock ?? 'used']}。`;
   if (forecast.itemCash) return `：今天用，馬上拿到 ${money(forecast.itemCash)}。`;
-  if (forecast.attack) return `：估計讓 ${escapeHtml(run.decisionView(run.player).target?.name ?? '對手')}少約 ${money(forecast.attack)}。`;
+  if (forecast.targets.length) return '：點上方角色選對手。';
   return `：${escapeHtml(item.line)}`;
 }
 
@@ -273,7 +297,6 @@ function allocationMarkup(run: TradingRun, allocation: string, slot: number | nu
       <p>現金 <b class="cash-ink">${money(preview.cash)}</b> · 股票 <b class="stock-ink">${money(preview.stock)}</b></p>
       <p>${escapeHtml(chosen.detail)}${gain || loss ? ` 今天大約 ${gain ? `<b class="gain">+${money(gain)}</b>` : ''}${gain && loss ? ' ～ ' : ''}${loss ? `<b class="loss">−${money(-loss)}</b>` : ''}（估計，含王牌）` : ''}</p>
       ${run.eventToday() ? `<p class="preview-warning">▲ 今天有新聞${preview.ledger && run.intelFor(run.player)?.day === run.day ? '，你已經知道方向' : '，可能大漲也可能大跌'}</p>` : ''}
-      ${preview.attack ? `<p class="preview-warning">🎯 會狙擊 ${escapeHtml(run.decisionView(run.player).target?.name ?? '')}</p>` : ''}
     </div>` : ''}
   </section>`;
 }
@@ -365,28 +388,31 @@ export function shopMarkup(run: TradingRun, picked: number | null, replace: numb
 }
 
 export interface TerminalSelection {
-  allocation: string | null; item: number | null; animate: boolean
+  allocation: string | null; item: number | null; targetId?: string; animate: boolean
 }
 
 export function tradingMarkup(run: TradingRun, ui: TerminalSelection, coach: string) {
   const { item, animate } = ui;
   const allocation = ui.allocation ?? run.player.allocation;
   const eliminated = run.player.account.eliminated;
-  const preview = eliminated ? null : run.preview(allocation, item);
+  const preview = eliminated ? null : run.preview(allocation, item, ui.targetId);
   const choosing = ui.allocation !== null || item !== null;
+  const target = preview?.attack;
+  const targetHint = preview?.targets.length ? `<p class="target-hint" data-target-hint aria-live="polite">⌖ ${target ?
+    escapeHtml(target.target.name) + (target.kind === 'shield_break' ? ' · 預計打掉 1 個護盾' : ' · 依目前' + (target.kind === 'cash_raid' ? '現金' : '股票') + '估計 ' + money(target.amount)) + '。點同一人可取消。' : '點競技場上的對手選擇目標。'}</p>` : '';
   const shop = run.nextShopDay;
   const shopNotice = shop === null ? '本局商店已結束' : shop !== run.day ? `下次商店：第 ${shop} 日收盤後`
     : `${run.eventToday() ? '今天有市場新聞 · ' : ''}收盤後商店開門`;
   return `<main class="trading" id="market" aria-label="交易畫面">
     <div class="play-layout">
-      <div class="stage-column">${arenaMarkup(run, choosing, animate)}${heroMarkup(run)}${resultMarkup(run, animate)}</div>
+      <div class="stage-column">${arenaMarkup(run, choosing, animate, preview)}${heroMarkup(run)}${resultMarkup(run, animate)}</div>
       <div class="decision-column"><p class="shop-notice" data-shop-notice>${shopNotice}</p>${coach}
         ${eliminated ? '<section class="panel spectator"><h2>本席已出局</h2><p>其他投資人會繼續結算。</p><button type="button" data-act="personal">查看個人結算</button></section>' :
-      `${allocationMarkup(run, allocation, item)}${itemMarkup(run, allocation, item)}${jokerMarkup(run, animate)}`}
+      `${allocationMarkup(run, allocation, item)}${jokerMarkup(run, animate)}${itemMarkup(run, allocation, item)}${targetHint}`}
       </div>
     </div></main>
     <div class="trade-dock"><div class="dock-inner"><div class="dock-caption"><span>${eliminated ? '觀戰模式' : `第 ${run.day} / ${run.config.gameplay.turns} 日`}${item !== null && !eliminated ? ` · ${escapeHtml(run.player.items[item].name)}` : ''}</span>
-      <strong>${eliminated ? '其餘席位繼續' : escapeHtml(allocationOption(run.config, allocation).name)}</strong></div>
-      <button type="button" class="gold-button" data-act="trade" ${run.offer?.source === 'daily' || (!eliminated && item !== null && preview?.itemBlock) ? 'disabled' : ''}>
+      <strong>${eliminated ? '其餘席位繼續' : target ? '⌖ ' + escapeHtml(target.target.name) : preview?.targets.length ? '請先選對手' : escapeHtml(allocationOption(run.config, allocation).name)}</strong></div>
+      <button type="button" class="gold-button" data-act="trade" ${run.offer?.source === 'daily' || (!eliminated && item !== null && (preview?.itemBlock || (preview?.targets.length && !target))) ? 'disabled' : ''}>
       ${eliminated ? '看下一個交易日' : run.day === run.config.gameplay.turns ? '開始交易・收盤' : '開始交易'} <span aria-hidden="true">→</span></button></div></div>`;
 }

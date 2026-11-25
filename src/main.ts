@@ -181,8 +181,18 @@ class TerminalApp {
       case 'alloc': this.pickAllocation(button.dataset.value ?? ''); break;
       case 'item':
         this.selection.item = value === this.selection.item ? null : value;
+        this.selection.targetId = undefined;
         this.render(`[data-act="item"][data-value="${value}"]`);
+        if (this.screen.querySelector('[data-act="target"]') && matchMedia('(max-width: 760px)').matches) {
+          this.screen.querySelector('.arena')?.scrollIntoView({ block: 'start' });
+        }
         break;
+      case 'target': {
+        const id = button.dataset.value!;
+        this.selection.targetId = this.selection.targetId === id ? undefined : id;
+        this.render(`[data-act="target"][data-value="${id}"]`);
+        break;
+      }
       case 'trade': this.trade(); break;
       case 'skip': this.finishAnimation(); break;
       case 'recover':
@@ -231,6 +241,7 @@ class TerminalApp {
   private clearSelection() {
     this.selection.allocation = null;
     this.selection.item = null;
+    this.selection.targetId = undefined;
   }
 
   private pickAllocation(id: string) {
@@ -242,7 +253,7 @@ class TerminalApp {
   private trade() {
     const run = this.run;
     if (!run || run.closed || this.dialog.open || this.locked) return;
-    const action = run.player.account.eliminated ? null : { item: this.selection.item, allocation: this.selection.allocation ?? run.player.allocation };
+    const action = run.player.account.eliminated ? null : { item: this.selection.item, targetId: this.selection.targetId, allocation: this.selection.allocation ?? run.player.allocation };
     this.audio.unlock();
     if (!run.confirm(action)) return;
     this.dayTransition.close();
@@ -259,7 +270,7 @@ class TerminalApp {
     const button = this.screen.querySelector<HTMLButtonElement>('[data-act="trade"]')!;
     button.dataset.act = 'skip';
     button.textContent = '下單中・點擊略過';
-    this.transitionTimer = window.setTimeout(() => this.finishAnimation(), 320);
+    this.transitionTimer = window.setTimeout(() => this.finishAnimation(), 220);
   }
 
   private finishAnimation() {
@@ -301,7 +312,8 @@ class TerminalApp {
     const climbed = ranks.length > 1 && ranks.at(-1)! < ranks.at(-2)!;
     const sound = outcome.risk.insolvent ? 'alarm'
       : report.market?.severity === 'extreme' ? 'impact'
-      : outcome.ledger.shielded ? 'shield'
+      : report.attacks.some(attack => attack.reflected > 0) || outcome.ledger.shielded ? 'shield'
+      : report.attacks.length ? 'impact'
       : outcome.ledger.combos >= 2 ? 'combo'
       : climbed ? 'rank'
       : report.market ? marketTone(report.market, this.config) === 'negative' ? 'fall' : 'rise'
@@ -388,7 +400,10 @@ class TerminalApp {
   private takeOffer(card: number | null, replace: number | null) {
     const daily = this.run?.offer?.source === 'daily';
     if (!this.run?.chooseOffer(card, replace)) return;
-    if (daily) this.selection.item = null;
+    if (daily) {
+      this.selection.item = null;
+      this.selection.targetId = undefined;
+    }
     this.closeDialog(false);
     this.render('[data-act="trade"]');
     this.showOffer();

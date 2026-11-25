@@ -20,6 +20,9 @@ function effectBadge(effect: FinanceEffect): string {
     case 'intel': return '偷看';
     case 'item_pack': return `${effect.count} 選 1`;
     case 'attack': return `對手 −${percent(effect.amount)}`;
+    case 'cash_raid': return `最多 ${money(effect.amount)}`;
+    case 'shield_break': return '破 1 盾';
+    case 'mirror': return `反擊 ${percent(effect.amount)}`;
     case 'price': return '';
   }
 }

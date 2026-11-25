@@ -57,6 +57,9 @@ try {
     let items = 0;
     let combos = 0;
     let capped = 0;
+    let attacksLanded = 0;
+    let attacksMissed = 0;
+    let reflections = 0;
     let comeback = 0;
     let spent = 0;
     let bought = 0;
@@ -80,6 +83,10 @@ try {
         if (!outcome) continue;
         days += 1;
         capped += Number(outcome.ledger.capped);
+        const id = player.character.id;
+        attacksLanded += report.attacks.filter(attack => attack.from === id).length;
+        attacksMissed += Number(outcome.attackBlocked);
+        reflections += report.attacks.filter(attack => attack.to === id && attack.reflected > 0).length;
         allocations[outcome.allocation] = (allocations[outcome.allocation] ?? 0) + 1;
       }
       comeback += Number(win > 0 && player.ranks.slice(1, -1).some(rank => rank !== null && rank >= 3));
@@ -89,6 +96,7 @@ try {
       drawdownP10P50P90: distribution(drawdowns), bestDayP10P50P90: distribution(bestDays),
       bankruptcyRate: round(bankruptcies / seeds), eliminationRate: round(eliminated / seeds),
       itemsPerGame: round(items / seeds), combosPerDay: round(fraction(combos, days)), cappedDayRate: round(fraction(capped, days)),
+      attacksLandedPerGame: round(attacksLanded / seeds), attacksMissedPerGame: round(attacksMissed / seeds), reflectionsPerGame: round(reflections / seeds),
       comebackFromThirdRate: round(comeback / seeds), shopSpentPerGame: Math.round(spent / seeds), purchasesPerGame: round(bought / seeds),
       allocationRates: Object.fromEntries(Object.entries(allocations).sort().map(([id, total]) => [id, round(fraction(total, days))]))
     };

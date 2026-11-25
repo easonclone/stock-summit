@@ -272,7 +272,7 @@ try {
     assert.match(await js('document.querySelector("[data-morning-item]").textContent'), /今日抽到/);
     if (!mobile) {
       assert.match(await js('document.querySelector(".day-transition strong")?.textContent ?? ""'), /DAY 02/);
-      await delay(300);
+      await delay(680);
       await screenshot('day-transition-desktop');
     }
     await action('chart');

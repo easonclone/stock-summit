@@ -59,13 +59,16 @@ const effect = z.discriminatedUnion('type', [
   z.object({ type: z.literal('intel') }),
   z.object({ type: z.literal('item_pack'), count: z.number().int().min(2).max(4) }),
   z.object({ type: z.literal('attack'), amount: rate }),
+  z.object({ type: z.literal('cash_raid'), amount: money.positive() }),
+  z.object({ type: z.literal('shield_break') }),
+  z.object({ type: z.literal('mirror'), amount: rate }),
   z.object({ type: z.literal('stock_cash'), rate }),
   z.object({ type: z.literal('relief'), amount: money.positive(), below: money.positive() })
 ]);
 
 const jokerTypes = ['gain_add', 'streak_add', 'rebound_add', 'joker_add', 'news_mult', 'repeat_mult', 'swing_mult', 'loss_cut', 'cash_yield',
   'yield_boost', 'stock_yield', 'bear_bonus', 'item_bonus', 'attack_bonus', 'news_item', 'hold_bonus', 'climb_bonus', 'shop_discount'];
-const itemTypes = ['cash_grant', 'today_add', 'today_mult', 'defense', 'intel', 'item_pack', 'attack', 'stock_cash', 'relief'];
+const itemTypes = ['cash_grant', 'today_add', 'today_mult', 'defense', 'intel', 'item_pack', 'attack', 'cash_raid', 'shield_break', 'mirror', 'stock_cash', 'relief'];
 const eventTypes = ['price', 'cash_grant', 'item_grant'];
 
 const references = z.array(id).min(1).refine(items => new Set(items).size === items.length, '效果引用不得重複');
@@ -156,6 +159,10 @@ export function readFinancialConfig(raw: unknown = financialInput): FinancialCon
       const wrong = item.effectIds.filter(key => !(allowed as readonly string[]).includes(config.effects[key].type));
       assert(!wrong.length, `${kind} ${item.id} 含不支援的效果：${wrong.join('、')}`);
     }
+  }
+  for (const item of config.items) {
+    const direct = item.effectIds.filter(id => ['attack', 'cash_raid', 'shield_break'].includes(config.effects[id].type));
+    assert(!direct.length || item.effectIds.length === 1, '指定對手的攻擊道具只能有一個效果');
   }
   for (const event of config.events) {
     assert(event.effectIds.filter(key => config.effects[key].type === 'price').length <= 1, `${event.id} 的市場價格變動只能定義一次`);

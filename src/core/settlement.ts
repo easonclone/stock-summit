@@ -18,6 +18,7 @@ export interface Memory {
   holdPaid: boolean;
   climbPaid: boolean;
   reliefUsed: boolean;
+  mirror: number | null;
 }
 
 export interface Holder {
@@ -39,7 +40,7 @@ export type StepKind = 'base' | 'add' | 'mult' | 'cut' | 'cash' | 'cap';
  */
 export interface ChainStep { source: StepSource; id: string; name: string; kind: StepKind; value?: number; amount: number }
 
-export type ItemBlock = 'no_stock' | 'full_defense' | 'no_news' | 'known_news' | 'no_target' | 'not_low' | 'used' | 'last_day';
+export type ItemBlock = 'no_stock' | 'full_defense' | 'no_news' | 'known_news' | 'no_target' | 'mirror_ready' | 'not_low' | 'used' | 'last_day';
 
 export interface DayContext {
   config: FinancialConfig;
@@ -51,7 +52,7 @@ export interface DayContext {
   news: { event: TradingEvent; rate: number; applies: boolean } | null;
   /** Next news day after today: the one 小道消息 would reveal. Null when no news is left. */
   nextNewsDay: number | null;
-  /** Whether a rival ranks ahead at the open, i.e. 主力狙擊 has a target. */
+  /** 道具可指定的有效對手是否存在。 */
   hasTarget: boolean;
 }
 
@@ -75,7 +76,7 @@ export interface DayLedger {
   capped: boolean;
   itemUsed: boolean;
   defenseUsed: Defense | null;
-  requests: { intel: boolean; pack: number; attack: number; items: number };
+  requests: { intel: boolean; pack: number; items: number };
   attackLoss: number;
 }
 
@@ -88,7 +89,7 @@ function jokerEffects(holder: Holder, config: FinancialConfig) {
 }
 
 export function newMemory(): Memory {
-  return { lastRate: null, lastStockPnl: 0, winStreak: 0, holdDays: 0, holdPaid: false, climbPaid: false, reliefUsed: false };
+  return { lastRate: null, lastStockPnl: 0, winStreak: 0, holdDays: 0, holdPaid: false, climbPaid: false, reliefUsed: false, mirror: null };
 }
 
 export function copyHolder(holder: Holder): Holder {
@@ -119,7 +120,7 @@ function newLedger(): DayLedger {
   return {
     rebalance: null, steps: [], exposure: { stock: 0, cash: 0 }, rate: 0, marketPnl: 0, newsPnl: 0, stockBase: 0, stockFinal: 0,
     shielded: 0, combos: 0, capped: false, itemUsed: false, defenseUsed: null,
-    requests: { intel: false, pack: 0, attack: 0, items: 0 }, attackLoss: 0
+    requests: { intel: false, pack: 0, items: 0 }, attackLoss: 0
   };
 }
 
@@ -148,8 +149,11 @@ export function itemBlock(holder: Holder, item: GameCard, context: DayContext): 
         if (context.nextNewsDay === null) return 'no_news';
         if (holder.intel?.day === context.nextNewsDay) return 'known_news';
         break;
-      case 'attack':
+      case 'attack': case 'cash_raid': case 'shield_break':
         if (!context.hasTarget) return 'no_target';
+        break;
+      case 'mirror':
+        if (holder.memory.mirror !== null) return 'mirror_ready';
         break;
       case 'relief':
         if (holder.memory.reliefUsed) return 'used';
@@ -179,7 +183,7 @@ function applyItem(holder: Holder, item: GameCard, effect: FinanceEffect, ledger
     case 'defense': holder.defenses.push({ itemId: item.id, name: item.name, mode: effect.mode, amount: effect.amount }); break;
     case 'intel': ledger.requests.intel = true; break;
     case 'item_pack': ledger.requests.pack = effect.count; break;
-    case 'attack': ledger.requests.attack = effect.amount; break;
+    case 'mirror': holder.memory.mirror = effect.amount; break;
     default: break;
   }
 }
@@ -187,7 +191,7 @@ function applyItem(holder: Holder, item: GameCard, effect: FinanceEffect, ledger
 /**
  * Today's locked action for one investor, in rule order:
  * rebalance → instant item → shared market and news → joker/item boosts on the stock result → defenses.
- * Rival attacks and flat cash income follow in {@link applyAttack} and {@link closeDay}.
+ * 角色攻擊與固定現金收益在股價結算後處理。
  */
 export function tradeDay(holder: Holder, item: GameCard | null, context: DayContext): DayLedger {
   const { config } = context;
@@ -306,17 +310,6 @@ export function tradeDay(holder: Holder, item: GameCard | null, context: DayCont
   account.stats.investmentPnl += value;
   ledger.stockFinal = value;
   return ledger;
-}
-
-/** A rival's 主力狙擊: the target's stock falls by `rate`. Not amplified or shielded. Returns the loss. */
-export function applyAttack(holder: Holder, rate: number, from: { id: string; name: string }, ledger: DayLedger) {
-  const loss = Math.round(holder.account.investmentValue * rate);
-  if (!loss) return 0;
-  holder.account.investmentValue -= loss;
-  holder.account.stats.investmentPnl -= loss;
-  ledger.attackLoss += loss;
-  ledger.steps.push({ source: 'attack', id: from.id, name: from.name, kind: 'base', value: rate, amount: -loss });
-  return loss;
 }
 
 /** Flat cash from jokers, settled last and never multiplied; then the holder's memory moves to tomorrow. */

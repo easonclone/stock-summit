@@ -6,12 +6,13 @@ import { buildMarketSchedule } from './market-events';
 import { chooseCard, chooseTrade, planShop, type Planner } from './npc-strategy';
 import { seededRandom, weighted, type Random } from './random';
 import {
-  applyAttack, climbBonus, closeDay, copyHolder, itemBlock, marketTone, newMemory, priceEffect, rateFrom, tradeDay,
+  climbBonus, closeDay, copyHolder, itemBlock, marketTone, newMemory, priceEffect, rateFrom, tradeDay,
   type DayContext, type DayLedger, type Holder, type Tone
 } from './settlement';
 import { buy, checkBuy, listPrice, type Purchase, type Shop } from './shop';
 import { marketTargets } from './targets';
-import { allocationOption, forecastTrade, type DecisionView, type TradeChoice } from './trade-preview';
+import { attackOf, resolveAttacks, type AttackRecord } from './attacks';
+import { allocationOption, attackTargets, forecastTrade, type DecisionView, type TradeChoice } from './trade-preview';
 
 export interface TradingOptions { playerId: string; seed: number; difficulty: TradingDifficulty }
 
@@ -63,7 +64,7 @@ export interface DayOutcome {
   attackedBy: string[];
   /** Rival this investor's 主力狙擊 hit, or null. */
   attacked: string | null;
-  /** The item was kept because the target had already been hit today. */
+  /** 攻擊未生效，道具已保留。 */
   attackBlocked: boolean;
   /** Cards that arrived automatically after the close (events and 消息靈通). */
   received: GameCard[];
@@ -71,7 +72,7 @@ export interface DayOutcome {
   exposure: { stock: number; cash: number };
 }
 
-export interface DayReport { day: number; market: TradingEvent | null; outcomes: DayOutcome[] }
+export interface DayReport { day: number; market: TradingEvent | null; outcomes: DayOutcome[]; attacks: AttackRecord[] }
 export interface Standing { investor: Investor; rank: number | null }
 
 function localSeed(seed: number, text: string) {
@@ -152,22 +153,24 @@ export class TradingRun {
   decisionView(investor: Investor, standings = this.standings()): DecisionView {
     const leader = standings.find(item => item.rank === 1)?.investor;
     const rank = standings.find(item => item.investor === investor)?.rank ?? this.investors.length;
-    const ahead = standings.filter(item => item.rank !== null && item.rank < rank);
-    const nearest = ahead.at(-1)?.investor;
+    const rivals = standings.flatMap(({ investor: rival, rank: position }) => rival !== investor && position !== null ? [{
+      id: rival.character.id, name: rival.character.name, rank: position,
+      cash: rival.account.cash, stock: rival.account.investmentValue, shields: rival.defenses.length
+    }] : []);
     const intel = this.intelFor(investor);
     return {
       config: this.config, characterId: investor.character.id, day: this.day, holder: copyHolder(investor), allocation: investor.allocation,
       rank, gap: leader ? netWorth(leader.account) - netWorth(investor.account) : 0,
-      target: nearest ? { id: nearest.character.id, name: nearest.character.name, worth: netWorth(nearest.account) } : null,
+      rivals,
       eventToday: this.eventToday(), nextNewsDay: this.eventAtOrAfter(this.day + 1),
       knownTone: intel && intel.day === this.day ? intel.tone : null,
       shopToday: this.shopOpensAfter(this.day)
     };
   }
 
-  preview(allocation = this.player.allocation, item: number | null = null) {
+  preview(allocation = this.player.allocation, item: number | null = null, targetId?: string) {
     if (this.player.account.eliminated) return null;
-    return forecastTrade(this.decisionView(this.player), allocation, item);
+    return forecastTrade(this.decisionView(this.player), allocation, item, targetId);
   }
 
   chooseOffer(index: number | null, replace: number | null = null) {
@@ -257,10 +260,13 @@ export class TradingRun {
       if (pick.allocation !== undefined && allocation.id !== pick.allocation) return null;
       const item = pick.item === null ? null : investor.items[pick.item];
       if (pick.item !== null && !item) return null;
+      const attack = attackOf(this.config, item ?? null);
+      const targetId = pick.targetId;
+      const hasTarget = Boolean(attack && attackTargets(view, item ?? null).some(target => target.id === targetId));
       const context: DayContext = { config: this.config, day: this.day, allocation, marketRate: 0, news: null,
-        nextNewsDay: view.nextNewsDay, hasTarget: view.target !== null };
+        nextNewsDay: view.nextNewsDay, hasTarget };
       if (item && itemBlock(investor, item, context)) return null;
-      return { investor, view, allocation, item, slot: pick.item, context };
+      return { investor, allocation, item, slot: pick.item, context, attack, targetId };
     });
     if (choices.some(choice => !choice)) return false;
 
@@ -285,21 +291,22 @@ export class TradingRun {
       return { ...choice!, allocationBefore, start, ledger, attackedBy: [] as string[], attacked: null as string | null, attackBlocked: false };
     });
 
-    // Rival attacks, in opening rank order; each target takes at most `attacksPerTarget` per day.
-    const hits = new Map<string, number>();
-    for (const trade of [...trades].sort((a, b) => ranked.indexOf(a.investor) - ranked.indexOf(b.investor))) {
-      if (!trade.ledger.requests.attack || !trade.view.target) continue;
-      const target = trades.find(other => other.investor.character.id === trade.view.target!.id);
-      const count = hits.get(trade.view.target.id) ?? 0;
-      if (!target || count >= this.config.settlement.attacksPerTarget) {
-        trade.attackBlocked = true;
-        trade.ledger.itemUsed = false;
-        continue;
-      }
-      hits.set(trade.view.target.id, count + 1);
-      const loss = applyAttack(target.investor, trade.ledger.requests.attack, { id: trade.investor.character.id, name: trade.investor.character.name }, target.ledger);
-      target.attackedBy.push(trade.investor.character.name);
-      if (loss > 0) trade.attacked = target.investor.character.name;
+    // 同一目標的競爭依獨立種子排列，先後不受席位或玩家身分影響。
+    const priority = seededRandom(localSeed(this.options.seed, `attack order ${this.day}`));
+    const combatants = trades.map(trade => ({ holder: trade.investor, ledger: trade.ledger,
+      id: trade.investor.character.id, name: trade.investor.character.name }));
+    const strikes = trades.flatMap((trade, index) => {
+      const target = combatants.find(other => other.id === trade.targetId);
+      return trade.attack && target ? [{ from: combatants[index], to: target, effect: trade.attack, order: priority() }] : [];
+    }).sort((first, second) => first.order - second.order);
+    const attacks = resolveAttacks(strikes, this.config.settlement.attacksPerTarget);
+    for (const trade of trades) {
+      const id = trade.investor.character.id;
+      const sent = attacks.find(attack => attack.from === id);
+      trade.attackBlocked = Boolean(trade.attack && !sent);
+      if (trade.attackBlocked) trade.ledger.itemUsed = false;
+      if (sent && sent.kind !== 'shield_break') trade.attacked = combatants.find(other => other.id === sent.to)!.name;
+      trade.attackedBy = attacks.filter(attack => attack.to === id).map(attack => combatants.find(other => other.id === attack.from)!.name);
     }
 
     const outcomes: DayOutcome[] = trades.map(trade => {
@@ -330,7 +337,7 @@ export class TradingRun {
         clearedItems: 0, attackedBy: trade.attackedBy, attacked: trade.attacked, attackBlocked: trade.attackBlocked, received, exposure: ledger.exposure
       };
     });
-    const report: DayReport = { day: this.day, market, outcomes };
+    const report: DayReport = { day: this.day, market, outcomes, attacks };
     if (market) this.latestNews = { day: this.day, event: market };
     if (outcomes.some(outcome => outcome.investor === this.player && this.eligibleForRecovery(outcome))) this.pendingRecovery = report;
     else this.finishDay(report);
@@ -348,6 +355,7 @@ export class TradingRun {
       const eligible = this.eligibleForRecovery(outcome);
       declareBankruptcy(investor.account);
       investor.defenses = [];
+      investor.memory.mirror = null;
       investor.intel = null;
       if (eligible) {
         // Jokers stay so a restart is still a real game; items and defenses are lost so zeroing out never pays.

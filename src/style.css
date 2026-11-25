@@ -252,9 +252,9 @@ summary { cursor: pointer; min-height: 39px; display: list-item; padding: 8px 0;
 .fighter:nth-child(3) .sprite { animation-delay: .8s; }
 .fighter:nth-child(4) .sprite { animation-delay: 1.2s; }
 .fighter.is-player .sprite { filter: drop-shadow(0 0 4px color-mix(in srgb, var(--ink) 70%, transparent)); }
-.mood-gain .sprite, .mood-win .sprite { animation: hop 520ms steps(3, end) 3; }
-.mood-loss .sprite { animation: sag 700ms ease-out both; }
-.mood-hit .sprite, .mood-call .sprite { animation: shake 300ms steps(4, end) 3; }
+.arena-animate .mood-gain .sprite, .mood-win .sprite { animation: hop 360ms steps(3, end) both; }
+.arena-animate .mood-loss .sprite { animation: sag 380ms ease-out both; }
+.arena-animate .mood-hit .sprite, .arena-animate .mood-call .sprite { animation: shake 300ms steps(4, end); }
 .mood-broke .sprite { opacity: .6; transform: rotate(-8deg) translateY(4px); animation: none; }
 .mood-recover .sprite { animation: rise 700ms steps(4, end) both; }
 .mood-think .sprite { animation: idle 900ms steps(2, end) infinite; }
@@ -266,7 +266,31 @@ summary { cursor: pointer; min-height: 39px; display: list-item; padding: 8px 0;
 .plate .rank { color: var(--gold); font: 800 .78rem var(--number); }
 .plate .rank small { margin-left: 2px; font-size: .62rem; }
 .plate .worth { font: 750 clamp(.66rem, 3vw, .9rem) var(--number); letter-spacing: -.04em; white-space: nowrap; }
-.plate .ret { font: 700 .64rem var(--number); }
+.fighter:nth-child(odd) { margin-bottom: 10px; }
+.fighter.is-player .plate { outline: 1px solid var(--ink); background: #182d3b; }
+.wealth-track { display: block; position: relative; width: 88%; height: 9px; margin: 4px 0; overflow: hidden; border: 1px solid #637386; background: #09111b; }
+.wealth-track i, .wealth-track b { position: absolute; inset: 0 auto 0 0; width: var(--end); }
+.wealth-track i { background: #f3a177; }
+.wealth-track b { background: var(--ink); }
+.wealth-track small { position: absolute; inset: 0 auto 0 var(--capital); border-left: 1px solid #fffa; }
+.wealth-moving i { animation: wealth-change 400ms 80ms both; }
+.wealth-moving b { animation: wealth-change 380ms both; }
+@keyframes wealth-change { from { width: var(--start); } to { width: var(--end); } }
+.fighter-status { color: var(--ice); font-size: .7rem; }
+.target-seat { position: absolute; inset: 0; width: 100%; border: 1px dashed #f4ae84; padding: 3px; background: transparent; text-align: right; color: #ffe2a8; align-content: start; }
+.target-seat span { display: block; font-size: 1.25rem; line-height: 1; }
+.is-target .target-seat { border: 2px solid var(--gold); box-shadow: inset 0 0 10px #eec67566; }
+.target-hint { color: var(--gold); font-size: .85rem; }
+.game-card.card-attack { border-top-style: solid; }
+.game-card.card-defense { border-top-style: double; }
+.arena-animate .fighter.striking .sprite { animation: strike-dart 360ms steps(4, end) both; }
+.arena-animate .fighter.struck .sprite { animation: strike-back 380ms steps(5, end) both; }
+.arena-animate .fighter.reflecting .sprite { filter: drop-shadow(0 0 7px #a9eefa); }
+.strike-flash { z-index: 3; pointer-events: none; position: absolute; top: 25%; color: #ffe2a8; font: 800 clamp(.65rem, 2.7vw, .85rem) var(--number); text-shadow: 0 1px 4px #090e19, 0 1px 4px #090e19; animation: strike-pop 420ms ease-out both; }
+@keyframes strike-dart { 35% { transform: translate(8px, -5px); } }
+@keyframes strike-back { 30% { transform: translate(-6px, -3px); filter: brightness(1.6); } }
+@keyframes strike-pop { 0%, 85% { opacity: 1; } 100% { opacity: 0; transform: translateY(-10px); } }
+.reduced-motion .strike-flash { display: none; }
 .fighter.mood-broke .plate { border-top-color: var(--danger); opacity: .75; }
 .bubble { position: absolute; top: -18px; z-index: 2; padding: 1px 5px; background: var(--text); color: #101521; font-size: .62rem; font-weight: 900; white-space: nowrap; }
 .bubble::after { content: ""; position: absolute; left: 50%; bottom: -4px; border: 4px solid transparent; border-bottom: 0; border-top-color: var(--text); transform: translateX(-50%); }
@@ -275,7 +299,7 @@ summary { cursor: pointer; min-height: 39px; display: list-item; padding: 8px 0;
 .mood-win .bubble { background: var(--gold); }
 .float { position: absolute; top: 18%; z-index: 2; font: 900 .74rem var(--number); text-shadow: 0 1px 0 #000, 0 0 4px #000; animation: float-up 1.6s ease-out both; pointer-events: none; }
 .shield-pop { position: absolute; bottom: 58px; z-index: 2; padding: 0 4px; background: #0b151ee6; border: 1px solid var(--ice); color: var(--ice); font-size: .58rem; font-weight: 900; white-space: nowrap; animation: float-up 1.8s ease-out .3s both; }
-.rank-up .plate .rank { animation: rank-pop 600ms steps(3, end) 2; }
+.rank-up .plate .rank { animation: rank-pop 220ms steps(3, end); }
 
 /* C+D: hero summary */
 .hero { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 12px; padding: 12px; border: 1px solid var(--outline); background: var(--panel); box-shadow: inset 0 3px var(--gold); }
@@ -344,14 +368,14 @@ summary { cursor: pointer; min-height: 39px; display: list-item; padding: 8px 0;
 .morning-item summary { min-height: 36px; align-content: center; cursor: pointer; }
 .morning-choices { display: flex; flex-wrap: wrap; gap: 6px; }
 .morning-choices button { min-height: 44px; }
-.morning-arrival { animation: morning-arrival 420ms 1100ms ease-out both; }
+.morning-arrival { animation: morning-arrival 300ms 1180ms ease-out both; }
 @keyframes morning-arrival {
   from { transform: translateY(-6px) scale(.98); }
   45% { box-shadow: 0 0 0 1px var(--gold), 0 0 12px #ebc56d66; }
   to { transform: none; box-shadow: none; }
 }
 .day-transition { position: fixed; inset: 0; z-index: 80; pointer-events: none; display: grid; place-content: center; text-align: center;
-  background: #090e19db; color: var(--gold); animation: open-day 1400ms linear both; }
+  background: #090e19db; color: var(--gold); animation: open-day 1000ms 420ms linear both; }
 .day-transition strong { font: 900 clamp(3rem, 13vw, 7rem)/1 var(--number); letter-spacing: .09em; text-shadow: 0 4px #694711; }
 .day-transition span { margin-top: 12px; color: var(--text); letter-spacing: .24em; }
 @keyframes open-day {
@@ -382,7 +406,7 @@ summary { cursor: pointer; min-height: 39px; display: list-item; padding: 8px 0;
 .card-slot { display: grid; place-items: center; min-height: 112px; border: 1px dashed var(--line); color: var(--muted); font-size: .68rem; opacity: .55; }
 .card-slot.item { min-height: 124px; }
 .joker-section .card-line { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-.card-button.fired .game-card { animation: card-fire 640ms ease-out both; animation-delay: calc(var(--i) * 160ms + 200ms); }
+.card-button.fired .game-card { animation: card-fire 210ms ease-out both; animation-delay: calc(var(--i) * 24ms); }
 @keyframes card-fire { 0% { transform: none; } 35% { transform: scale(1.08); box-shadow: 0 0 0 2px var(--gold), 0 0 18px #ebc56d99; } 100% { transform: none; box-shadow: none; } }
 .item-note { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 8px 10px; border: 1px solid var(--line); background: var(--panel-deep); color: var(--muted); font-size: .76rem; }
 .item-note strong { color: var(--text); }

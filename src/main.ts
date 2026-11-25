@@ -17,12 +17,13 @@ import { escapeHtml, money, signedMoney } from './ui/format';
 import { iconMarkup } from './ui/pixels';
 import { paintCanvases } from './ui/paint';
 import { settlementMarkup, shareText } from './ui/settlement';
-import { cardDetailMarkup, chartDialogMarkup, dailyShopMarkup, newsMarkup, offerHeading, offerMarkup, openingMarkup, shopMarkup, tradingMarkup, type TerminalSelection } from './ui/trading-terminal';
-import { timelineDetail } from './ui/timeline';
+import { auditMarkup, statusMarkup, cardDetailMarkup, chartDialogMarkup, dailyShopMarkup, newsMarkup, offerHeading, offerMarkup, openingMarkup, shopMarkup, tradingMarkup, type TerminalSelection } from './ui/trading-terminal';
+import { nextNode, scheduleMarkup, timelineMarkup } from './ui/timeline';
+import { drawCard, flyCard, shatterCard, snapshotCard, type CardSnapshot } from './ui/card-motion';
 import { playGuideMarkup } from './ui/coach';
 import { MarketTheater, preloadNewsArt, type TheaterMode } from './ui/theater';
 
-type DialogKind = 'crisis' | 'recovery' | 'offer' | 'shop' | 'daily-shop' | 'settings' | 'share' | 'chart' | 'news' | 'timeline' | 'card-detail' | 'help';
+type DialogKind = 'crisis' | 'recovery' | 'offer' | 'shop' | 'daily-shop' | 'settings' | 'share' | 'chart' | 'audit' | 'news' | 'schedule' | 'status' | 'card-detail' | 'help';
 const freshSeed = () => crypto.getRandomValues(new Uint32Array(1))[0];
 
 class TerminalApp {
@@ -34,6 +35,8 @@ class TerminalApp {
   private readonly arenaFx: ArenaFx;
   /** How long the hit show still runs, so the next day's banner waits for it. */
   private showUntil = 0;
+  /** Cards that were in the hand at the last render; new ones slide in from the deck. */
+  private handSeen: string[] = [];
   private readonly feedback: FeedbackConfig = readFeedbackConfig();
   private presentedDay = 1;
   private shoppingDay = 0;
@@ -58,7 +61,6 @@ class TerminalApp {
   private theaterMode: TheaterMode = 'full';
   private theaterDay = 0;
   private stage: MarketTheater | null = null;
-  private timelineDay = 1;
   private detail: { kind: 'joker' | 'item' | 'daily'; slot: number } = { kind: 'joker', slot: 0 };
 
   constructor(private readonly root: HTMLElement, private readonly config: FinancialConfig) {
@@ -88,6 +90,7 @@ class TerminalApp {
     root.addEventListener('click', event => {
       const button = (event.target as Element).closest<HTMLButtonElement>('button[data-act]');
       if (button) this.activate(button);
+      else this.dropPickedCard(event.target as Element);
     });
     root.addEventListener('change', event => this.change(event.target as HTMLInputElement));
     document.addEventListener('keydown', this.keyDown);
@@ -113,13 +116,20 @@ class TerminalApp {
     const handOffset = previousHand?.dataset.handDay === String(run?.day) ? previousHand?.scrollLeft ?? 0 : 0;
     const status = run ? `<div class="session-counter"><span>${run.closed ? '已結算' : '交易日'}</span>
       <strong>${String(run.closed ? run.reports.length : run.day).padStart(2, '0')} <small>／ ${run.config.gameplay.turns}</small></strong></div>` : '';
-    this.screen.innerHTML = `<header class="masthead"><div class="brand-lockup"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+    const tools = `<button class="help-trigger" type="button" data-act="help" aria-label="玩法說明" aria-haspopup="dialog" title="玩法說明">${iconMarkup('help', '#a3cff3')}<span>玩法說明</span></button>
+      <button class="gear" type="button" data-act="settings" aria-label="畫面與音效" title="畫面與音效">${iconMarkup('settings', '#b5c7e0')}</button>`;
+    // During a game the top bar is one row: day, the 15-segment track, then help and settings.
+    const upcoming = run && !complete ? nextNode(run) : null;
+    const header = run && !complete ? `<header class="masthead run-bar"><div class="session-counter"><strong>DAY ${String(run.day).padStart(2, '0')}<small> / ${run.config.gameplay.turns}</small></strong>
+      ${upcoming ? `<span class="next-node">下站 ${upcoming.kind}</span>` : ''}</div>
+      ${timelineMarkup(run)}<div class="masthead-tools">${tools}</div></header>` : '';
+    this.screen.innerHTML = header ? `${header}${tradingMarkup(run!, this.selection)}` : `<header class="masthead"><div class="brand-lockup"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
       <div><b>STOCK SUMMIT</b><small>股市攻頂戰 · Market Showdown</small></div></div><div class="masthead-tools">${status}
-      <button class="help-trigger" type="button" data-act="help" aria-label="玩法說明" aria-haspopup="dialog" title="玩法說明">${iconMarkup('help', '#a3cff3')}<span>玩法說明</span></button>
-      <button class="gear" type="button" data-act="settings" aria-label="畫面與音效" title="畫面與音效">${iconMarkup('settings', '#b5c7e0')}</button></div></header>
+      ${tools}</div></header>
       ${run ? complete ? settlementMarkup(run, this.personal) : tradingMarkup(run, this.selection)
         : `<main>${openingMarkup(this.config, this.selectedCharacter, this.difficulty)}</main>`}`;
     this.paint(this.screen);
+    this.animateDraws();
     const hand = this.screen.querySelector<HTMLElement>('[data-hand-day]');
     if (hand && handOffset) hand.scrollLeft = handOffset;
     this.selection.animate = false;
@@ -166,12 +176,11 @@ class TerminalApp {
       case 'replay': this.start(this.run!.options.seed); break;
       case 'new': this.start(freshSeed()); break;
       case 'settings': this.dialogTrigger = button; this.openDialog('settings'); break;
-      case 'help': case 'chart': case 'news': this.dialogTrigger = button; this.openDialog(act); break;
-      case 'timeline':
-        if (!this.run || value < 1 || value > this.run.config.gameplay.turns) break;
-        this.timelineDay = value;
+      case 'help': case 'chart': case 'audit': case 'status': case 'news': this.dialogTrigger = button; this.openDialog(act); break;
+      case 'schedule':
+        if (!this.run) break;
         this.dialogTrigger = button;
-        this.openDialog('timeline');
+        this.openDialog('schedule');
         break;
       case 'open-daily-shop':
         if (!this.run?.dailyShop || this.run.offer) break;
@@ -200,7 +209,6 @@ class TerminalApp {
       case 'alloc': this.pickAllocation(button.dataset.value ?? ''); break;
       case 'item': this.pickItem(value); break;
       case 'use-item': this.useItem(value, button.dataset.cardId); break;
-      case 'focus-action': this.focusAction(value); break;
       case 'daily-buy': this.buyDaily(value); break;
       case 'daily-buy-replace': this.buyDaily(this.selection.dailyPick, value); break;
       case 'daily-buy-cancel': this.selection.dailyPick = undefined; this.openDialog('daily-shop', '[data-act="daily-buy"]'); break;
@@ -247,6 +255,7 @@ class TerminalApp {
     this.lastCrisis = null;
     this.theaterDay = 0;
     this.arenaFx.playedDay = 0;
+    this.handSeen = [];
     this.stage?.close();
     this.clearSelection();
     this.audio.unlock();
@@ -274,7 +283,9 @@ class TerminalApp {
     this.render(action ? `[data-act="item"][data-value="${slot}"]` : undefined);
     const target = this.screen.querySelector<HTMLElement>('[data-act="target"]');
     if (!target) return;
-    if (matchMedia('(max-width: 760px)').matches) this.screen.querySelector('.arena')?.scrollIntoView({ block: 'start' });
+    // Only scroll when the fighters are actually off screen; otherwise the thumb stays where it is.
+    const arena = this.screen.querySelector<HTMLElement>('.stage')?.getBoundingClientRect();
+    if (arena && (arena.bottom < 60 || arena.top > innerHeight - 60)) this.screen.querySelector('.arena')?.scrollIntoView({ block: 'start' });
     target.focus({ preventScroll: true });
   }
 
@@ -287,7 +298,8 @@ class TerminalApp {
     if (timing === 'action') {
       this.selection.inspectItem = undefined;
       const selected = actions.findIndex(choice => choice.slot === slot);
-      if (selected >= 0) {
+      if (selected >= 0 && this.selection.item !== slot) this.focusAction(slot);
+      else if (selected >= 0) {
         actions.splice(selected, 1);
         this.focusAction(actions.at(-1)?.slot ?? -1);
       } else if (actions.length < run.actionLimit && actions.length < run.openingCardsLeft) {
@@ -297,7 +309,58 @@ class TerminalApp {
       return;
     }
     this.selection.inspectItem = this.selection.inspectItem === slot ? undefined : slot;
-    this.render(this.selection.inspectItem === slot && !run.openingBlock(slot) ? '[data-act="use-item"]' : `[data-act="item"][data-value="${slot}"]`);
+    this.render(`[data-act="item"][data-value="${slot}"]`);
+  }
+
+  private handCards() {
+    return [...this.screen.querySelectorAll<HTMLElement>('.joker-row [data-joker-id], .item-row [data-act="item"]')]
+      .map(element => ({ element, key: element.dataset.jokerId ? 'joker:' + element.dataset.jokerId : 'item:' + element.dataset.cardId }));
+  }
+
+  /** Cards that were not in the hand before this render fly in from the deck (opening hand, daily draw, shop, rewards). */
+  private animateDraws() {
+    const cards = this.handCards();
+    if (!this.screen.querySelector('main.trading')) return;
+    const left = new Map<string, number>();
+    for (const key of this.handSeen) left.set(key, (left.get(key) ?? 0) + 1);
+    let order = 0;
+    for (const { element, key } of cards) {
+      const count = left.get(key) ?? 0;
+      if (count > 0) left.set(key, count - 1);
+      else if (!this.reduced) drawCard(element.closest('.hand-slot') ?? element, order++);
+    }
+    this.handSeen = cards.map(card => card.key);
+  }
+
+  private snapshotSlot(kind: 'joker' | 'item', slot: number) {
+    if (this.reduced) return null;
+    return snapshotCard(kind === 'item' ? this.screen.querySelector(`.item-row [data-act="item"][data-value="${slot}"]`)
+      : this.screen.querySelectorAll('.joker-row [data-joker-id]')[slot] ?? null);
+  }
+
+  private fighterEl(id: string) {
+    return this.screen.querySelector(`[data-fighter="${id}"] .sprite`) ?? this.screen.querySelector(`[data-fighter="${id}"]`);
+  }
+
+  /** A tap outside the hand puts a picked-up instant or defense card back down. */
+  private dropPickedCard(target: Element) {
+    if (this.selection.inspectItem === undefined || this.dialog.open || target.closest('.hand-slot, dialog')) return;
+    const slot = this.selection.inspectItem;
+    this.selection.inspectItem = undefined;
+    this.render(`[data-act="item"][data-value="${slot}"]`);
+  }
+
+  /** Short float over the hand when a card is spent; no confirmation step. */
+  private spentFloat(text: string, tone: 'instant' | 'defense') {
+    const hand = this.screen.querySelector<HTMLElement>('.battle-hand');
+    if (!hand) return;
+    const node = document.createElement('span');
+    node.className = `use-float ${tone} ${this.reduced ? 'still' : ''}`;
+    node.setAttribute('aria-hidden', 'true');
+    node.textContent = text;
+    hand.append(node);
+    if (this.reduced) window.setTimeout(() => node.remove(), 1400);
+    else node.addEventListener('animationend', () => node.remove(), { once: true });
   }
 
   private useItem(slot: number, cardId?: string) {
@@ -306,6 +369,7 @@ class TerminalApp {
     if (!run || !card || card.id !== cardId || slot !== this.selection.inspectItem || run.offer) return;
     const timing = itemTiming(this.config, card);
     const actions = this.selection.actions ??= [];
+    const ghost = this.snapshotSlot('item', slot);
     const result = run.useOpeningItem(slot);
     if (!result) return;
     this.selection.inspectItem = undefined;
@@ -313,9 +377,13 @@ class TerminalApp {
     if (actions.length > run.openingCardsLeft) actions.pop();
     this.selection.item = actions.at(-1)?.slot ?? null;
     this.selection.targetId = actions.at(-1)?.targetId;
-    this.selection.feedback = (timing === 'defense' ? '已部署 ' : '已使用 ') + result.card.name + (result.amount ? ' ' + signedMoney(result.amount) : '');
-    this.audio.play(timing === 'defense' ? 'shield' : 'page');
+    const spent = (timing === 'defense' ? '已部署 ' : '已使用 ') + result.card.name + (result.amount ? ' ' + signedMoney(result.amount) : '');
+    this.selection.feedback = undefined;
+    this.audio.play(timing === 'defense' ? 'shield' : result.amount > 0 ? 'coin' : 'page');
     this.render('[data-act="item"]');
+    flyCard(ghost, this.fighterEl(run.player.character.id));
+    this.spentFloat(spent, timing === 'defense' ? 'defense' : 'instant');
+    this.announce(spent);
     this.showOffer();
   }
 
@@ -327,8 +395,10 @@ class TerminalApp {
       this.openDialog('daily-shop', '[data-act="daily-buy-replace"]');
       return;
     }
+    const ghost = replace !== null && run.dailyShop?.slots[index]?.kind === 'item' ? this.snapshotSlot('item', replace) : null;
     const purchase = run.buyDaily(index, replace);
     if (!purchase) return;
+    shatterCard(ghost);
     this.selection.dailyPick = undefined;
     if (replace !== null && purchase.kind === 'item') this.removeSelection(replace);
     this.selection.feedback = '買下 ' + purchase.card.name + ' ' + money(-purchase.price);
@@ -357,7 +427,17 @@ class TerminalApp {
     if (run.dailyShop && !run.player.account.eliminated && this.shoppingDay !== run.day) return;
     const action = run.player.account.eliminated ? null : { actions: this.selection.actions ?? [], allocation: this.selection.allocation ?? run.player.allocation };
     this.audio.unlock();
+    const launches: { ghost: CardSnapshot | null; target: Element | null }[] = (action?.actions ?? []).map(choice => {
+      const card = run.player.items[choice.slot];
+      const area = card?.effectIds.some(id => run.config.effects[id].type === 'area_attack');
+      return {
+        ghost: this.snapshotSlot('item', choice.slot),
+        target: choice.targetId ? this.fighterEl(choice.targetId) : area ? this.screen.querySelector('.stage') : this.fighterEl(run.player.character.id)
+      };
+    });
     if (!run.confirm(action)) return;
+    launches.forEach((launch, index) => flyCard(launch.ghost, launch.target, index * 120));
+    for (const choice of action?.actions ?? []) this.screen.querySelector<HTMLElement>(`.item-row [data-act="item"][data-value="${choice.slot}"]`)?.style.setProperty('visibility', 'hidden');
     this.dayTransition.close();
     this.clearSelection();
     if (this.reduced) this.afterTrade();
@@ -492,7 +572,9 @@ class TerminalApp {
   }
 
   private takeOffer(card: number | null, replace: number | null) {
+    const ghost = card !== null && replace !== null && this.run?.offer ? this.snapshotSlot(this.run.offer.kind, replace) : null;
     if (!this.run?.chooseOffer(card, replace)) return;
+    shatterCard(ghost);
     if (card !== null && replace !== null) this.removeSelection(replace);
     this.closeDialog(false);
     this.render('[data-act="trade"]');
@@ -557,6 +639,11 @@ class TerminalApp {
         heading = '玩法說明';
         content = playGuideMarkup(this.config);
         break;
+      case 'audit':
+        heading = '財務明細';
+        content = auditMarkup(run, run.player.account.eliminated ? null
+          : run.preview(this.selection.allocation ?? run.player.allocation, this.selection.item, this.selection.targetId, this.selection.actions ?? []));
+        break;
       case 'chart':
         heading = '總身家走勢';
         content = chartDialogMarkup(run);
@@ -565,9 +652,13 @@ class TerminalApp {
         heading = '市場快訊';
         content = newsMarkup(run);
         break;
-      case 'timeline':
-        heading = `第 ${this.timelineDay} 日`;
-        content = timelineDetail(run, this.timelineDay);
+      case 'status':
+        heading = '目前狀態';
+        content = statusMarkup(run);
+        break;
+      case 'schedule':
+        heading = `${run.config.gameplay.turns} 日行程`;
+        content = scheduleMarkup(run);
         break;
       case 'card-detail': {
         const kind = this.detail.kind === 'daily' ? run.dailyShop?.slots[this.detail.slot]?.kind ?? 'item' : this.detail.kind;

@@ -13,6 +13,8 @@
 | `src/main.ts`、`src/ui` | DOM 互動、SVG 績效、像素圖示、視窗與音效；市場快報讀取已結算的新聞資料 |
 | `src/ui/fx-events.ts` | 純函式 `buildFxPlan`：只讀已結算的 `DayReport`（攻擊紀錄、未命中、結算連鎖），產生有時間的演出事件與每席財富影格；影格最後必等於收盤，不重算卡片、不碰亂數 |
 | `src/ui/arena-fx.ts` | 在競技場 DOM 播放演出計畫：命中閃光、浮字、粒子、震動、延遲傷害條、王牌連鎖與音效；重繪時全部清除，同一日不重播；減少動態只留靜態數字與財富條 |
+| `src/ui/card-motion.ts` | 卡牌實體移動：重繪前拍下卡片快照（含畫布），在固定圖層上飛向目標、碎裂或從牌堆滑入；不碰遊戲狀態 |
+| `src/ui/timeline.ts` | 頂部 15 節點路線、下一站類型與 15 日行程視窗，只讀已公開的新聞、商店與結算資訊 |
 | `src/ui/paint.ts` | 繪製肖像、角色、城市背景、卡圖與圖示的畫布 |
 | `src/config/feedback-settings.ts` | 讀取並驗證 `feedback.json`（命中分級門檻須遞增、節奏毫秒數） |
 | `fx-lab.html`、`src/dev/fx-lab.ts`、`scripts/capture-fx.mjs` | 開發用演出實驗室（不進正式建置）：以真實結算跑 12 種攻防情境，截圖並檢查浮字等於紀錄、未命中不顯示傷害 |

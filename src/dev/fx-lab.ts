@@ -2,6 +2,7 @@
 // 不進正式建置（vite build 只打包 index.html）。情境只設定手牌、護盾與持股，所有數字都由結算引擎產生。
 import '../style.css';
 import '../polish.css';
+import '../battle.css';
 import { readFinancialConfig, type FinancialConfig } from '../config/financial-settings';
 import { readFeedbackConfig } from '../config/feedback-settings';
 import { TradingRun, type Investor } from '../core/trading-run';

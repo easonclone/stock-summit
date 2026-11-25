@@ -160,11 +160,11 @@ async function openMarket(width, height, mobile, seed, reduced) {
   await action('close-dialog');
   assert.equal(await js('document.querySelectorAll(".joker-row .card-button").length'), 1, '王牌列顯示一張王牌');
   await layout(width, height, true);
-  await click('.battle-audit > summary');
-  await action('chart');
-  assert.equal(await js('document.querySelectorAll("dialog[open] .chart polyline").length'), 4);
+  await action('audit');
+  assert.equal(await js('document.querySelectorAll("dialog[open] .chart polyline").length'), 4, '財務明細對話框含總身家走勢');
+  assert(await has('dialog[open] .hero'), '財務明細含資產分項');
   await action('close-dialog');
-  await click('.battle-audit > summary');
+  assert(await js('document.activeElement.dataset.act === "audit"'), '關閉財務明細回到原按鈕');
   for (const hidden of ['無融資', '交易正常', '正常交易', '無避險', '融資', '借款', '利息', '追繳', '定存', '欠款', '路線', '手牌', '行動力']) assert(!(await js('document.querySelector("main").innerText')).includes(hidden), '主畫面不顯示 ' + hidden);
   assert.equal(await js('document.querySelectorAll(\'[data-act="alloc"]\').length'), 3, '三個配置按鈕');
   assert.equal(await js('document.querySelector(\'[data-act="alloc"][aria-pressed="true"]\').dataset.value'), 'half', '預設一半買股');
@@ -311,7 +311,8 @@ try {
       assert.equal(await js('document.querySelector('+JSON.stringify(pressed('alloc'))+')?.dataset.value'), 'all', '方向鍵切換配置');
     } else await click(on('alloc') + '[data-value="all"]');
     const card = await js('document.querySelector('+JSON.stringify(pressed('item'))+')?.dataset.value');
-    assert.match(await js('document.querySelector(".alloc-section .preview").innerText'), /現金 \$0 · 股票 \$10,000/, '全部買股預覽');
+    assert.match(await js('document.querySelector(".plate-assets").getAttribute("aria-label")'), /現金 \$0，股票 \$10,000/, '全部買股後玩家席顯示現金與股票');
+    assert(!(await has('.trade-dock .preview')), '底部不再常駐預估損益');
     if (width === 390) {
       await resize(844, 390, true);
       await layout(844, 390);
@@ -319,9 +320,10 @@ try {
     }
     assert.equal(await js('document.querySelector('+JSON.stringify(pressed('item'))+')?.dataset.value'), card);
     if (hasItem) {
-      assert(await has('[data-item-status]'), '選道具後顯示今天的效果');
+      assert(await has('.hand-slot.is-up .play-order') && await has('.hand-slot .card-info'), '行動牌顯示出牌順序與說明鈕');
+      assert(!(await has('.action-lineup, .quick-detail')), '手牌下方沒有重複的行動清單');
       if (width === 390) {
-        await js('document.querySelector("[data-item-status]").scrollIntoView({block:"center"})');
+        await js('document.querySelector(".card-tray").scrollIntoView({block:"center"})');
         await screenshot('item-feedback-390');
       }
       await click(pressed('item'));
@@ -341,11 +343,11 @@ try {
     assert.match(await js('document.querySelector(".session-counter strong").textContent'), /02/);
     assert.match(await js('document.querySelector("[data-morning-item]").textContent'), /今日抽到/);
     assert.equal(await js('document.querySelector(".battle-market-board canvas").dataset.marketRates.split(",").filter(Boolean).length'), 1, '開盤只繪製已結算的一根 K 棒');
-    await action('chart');
+    await action('audit');
     assert(!(await has('.day-transition')), '開盤後可直接查看走勢');
     assert.equal(await js('document.querySelector("dialog[open] .chart polyline").getAttribute("points").split(" ").length'), 2);
+    assert(await has('dialog[open] .day-result'), '每日結算分項');
     await action('close-dialog');
-    assert(await has('.day-result'), '每日結算分項');
     await layout(width, height, true);
 
     if (width === 320 || !mobile) {
@@ -387,7 +389,7 @@ try {
         await openMarket(width, height, false, 23, true);
       }
     } else {
-      await js('scrollTo(0, document.querySelector(".alloc-section").offsetTop - 15)');
+      await js('scrollTo(0, document.querySelector(".trade-dock").offsetTop - 15)');
       await layout(width, height, true);
       if (width === 390) { await screenshot('trading-390'); await js('scrollTo(0,0)'); await screenshot('market-390'); }
     }
@@ -404,16 +406,17 @@ try {
     await trustedClick(on('trade'), false, false);
     await clearDialogs();
     assert(!(await has('.day-transition')), '減少動態時略過換日畫面');
+    await action('audit');
     const chain = await js(`(() => {
       const parse = text => Number(text.replace(/[^0-9−+-]/g, '').replace('−', '-'));
       const steps = [...document.querySelectorAll('.chain li b')].map(el => parse(el.textContent));
       return { sum: steps.reduce((a, b) => a + b, 0), net: parse(document.querySelector('.day-result header strong').textContent) };
     })()`);
     assert.equal(chain.sum, chain.net, '結算連鎖加總等於當日變化，第 ' + day + ' 日');
+    if (day < 3) await action('close-dialog');
   }
-  await js('scrollTo(0,0)');
-  await js('document.querySelector(".battle-audit").open = true');
   await screenshot('chain-desktop');
+  await action('close-dialog');
   await layout(1440, 900, true);
 
   {

@@ -11,18 +11,49 @@ function dayInfo(run: TradingRun, day: number) {
   return { news, shop, final, completed, current };
 }
 
+const marks = (news: boolean, shop: boolean, final: boolean) =>
+  `${final ? iconMarkup('crown', '#ffdb8e') : shop ? iconMarkup('shop', '#f8ca76') : news ? iconMarkup('news', '#a9d2f4') : ''}`;
+
+/** What kind of stop a day is on the map, using only what the timeline already discloses. */
+export function nodeKind(run: TradingRun, day: number) {
+  const { news, shop, final } = dayInfo(run, day);
+  return final ? '最終決戰' : shop ? '收盤商店' : news ? '新聞日' : '交易日';
+}
+
+/** The next stop after today, for the "下站" preview. */
+export function nextNode(run: TradingRun) {
+  const day = run.day + 1;
+  return run.closed || day > run.config.gameplay.turns ? null : { day, kind: nodeKind(run, day) };
+}
+
+/**
+ * The run as a roguelike route: 15 nodes on one path, done / today / ahead in solid colours, small pixel marks for the
+ * shop, news days and the final, and the next node outlined. Height stays within 24px.
+ */
 export function timelineMarkup(run: TradingRun) {
-  const cells = Array.from({ length: run.config.gameplay.turns }, (_, index) => {
+  const turns = run.config.gameplay.turns;
+  const next = nextNode(run);
+  const segments = Array.from({ length: turns }, (_, index) => {
     const day = index + 1;
     const { news, shop, final, completed, current } = dayInfo(run, day);
-    const labels = ['第 ' + day + ' 日', current ? '今天' : completed ? '已完成' : '未開始',
-      news ? '市場新聞' : '', shop ? '王牌商店' : '', final ? '最終決戰' : ''];
-    return `<button class="timeline-day${completed ? ' completed' : ''}" type="button" data-act="timeline" data-value="${day}"
-      ${news ? 'data-news' : ''} ${shop ? 'data-shop' : ''} ${final ? 'data-final' : ''} ${current ? 'aria-current="step"' : ''}
-      aria-label="${labels.filter(Boolean).join('，')}"><strong>${String(day).padStart(2, '0')}</strong>
-      <span aria-hidden="true">${news ? iconMarkup('news', '#a9d2f4') : ''}${shop ? iconMarkup('shop', '#f8ca76') : ''}${final ? iconMarkup('crown', '#ffdb8e') : ''}</span></button>`;
-  });
-  return `<nav class="timeline" aria-label="交易日進度" style="--days:${run.config.gameplay.turns}">${cells.join('')}</nav>`;
+    const kind = final ? 'final' : shop ? 'shop' : news ? 'news' : 'plain';
+    return `<span class="track-day ${completed ? 'done' : current ? 'now' : 'ahead'} node-${kind} ${next?.day === day ? 'next' : ''}">
+      <span class="track-mark">${marks(news, shop, final)}</span><i></i></span>`;
+  }).join('');
+  return `<button type="button" class="day-track" data-act="schedule" aria-haspopup="dialog" style="--days:${turns}"
+    aria-label="路線：第 ${run.closed ? run.reports.length : run.day} / ${turns} 日${next ? `，下站第 ${next.day} 日 ${next.kind}` : ''}。點開看 ${turns} 日行程">${segments}</button>`;
+}
+
+/** The whole schedule in one list, with the same disclosure limits as the single-day view. */
+export function scheduleMarkup(run: TradingRun) {
+  const rows = Array.from({ length: run.config.gameplay.turns }, (_, index) => {
+    const day = index + 1;
+    const { news, shop, final, completed, current } = dayInfo(run, day);
+    return `<li class="${completed ? 'done' : current ? 'now' : 'ahead'}" ${current ? 'aria-current="step"' : ''}>
+      <b class="schedule-day">DAY ${String(day).padStart(2, '0')}<small>${nodeKind(run, day)}</small></b><span class="schedule-mark" aria-hidden="true">${marks(news, shop, final)}</span>
+      ${timelineDetail(run, day)}</li>`;
+  }).join('');
+  return `<ol class="schedule">${rows}</ol>`;
 }
 
 /** 只讀已公開的結算與玩家取得的情報，日期表只表示何時有新聞。 */

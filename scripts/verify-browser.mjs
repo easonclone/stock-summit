@@ -6,7 +6,8 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { once } from 'node:events';
 
-const artifacts = resolve('test-results/v2');
+const artifacts = resolve(process.env.STOCK_SUMMIT_SHOTS ?? 'test-results/v2');
+const build = resolve(process.env.STOCK_SUMMIT_BUILD ?? 'dist');
 await mkdir(artifacts, { recursive: true });
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost').pathname;
@@ -14,8 +15,8 @@ const server = createServer(async (req, res) => {
   if (!url.startsWith('/stock-summit/')) { res.writeHead(404).end(); return; }
   const path = url === '/stock-summit/' ? 'index.html' : url.slice('/stock-summit/'.length);
   try {
-    res.setHeader('Content-Type', path.endsWith('.js') ? 'text/javascript' : path.endsWith('.css') ? 'text/css' : 'text/html');
-    res.end(await readFile(join('dist', path)));
+    res.setHeader('Content-Type', path.endsWith('.js') ? 'text/javascript' : path.endsWith('.css') ? 'text/css' : path.endsWith('.png') ? 'image/png' : 'text/html');
+    res.end(await readFile(join(build, path)));
   } catch {
     res.writeHead(404).end();
   }
@@ -237,9 +238,11 @@ try {
     await openMarket(width, height, mobile, width === 320 ? 2 : 23, mobile);
     assert.equal(await js('document.querySelectorAll(".item-row button").length'), 3, '開局三張道具');
     assert(!(await has('[data-morning-item]')), '第 1 日不額外抽牌');
-    assert.match(await js('document.querySelector("[data-shop-notice]").textContent'), /第 3 日/);
-    const hasItem = await has(on('item'));
-    if (hasItem) await action('item');
+    assert.equal(await js('document.querySelectorAll(".timeline-day").length'), 15);
+    assert.equal(await js('document.querySelectorAll(".timeline-day[data-shop]").length'), 4);
+    const actionCard = on('item') + '[data-timing="action"]';
+    const hasItem = await has(actionCard);
+    if (hasItem) await click(actionCard);
     if (!mobile) {
       await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'ArrowRight', code: 'ArrowRight' });
       await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'ArrowRight', code: 'ArrowRight' });

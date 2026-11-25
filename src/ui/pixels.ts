@@ -1,4 +1,6 @@
 import type { FinancialConfig, InvestorCharacter } from '../config/financial-settings';
+import { drawInvestorArt } from './investor-art';
+import { drawInvestorPortrait, drawInvestorSprite } from './investor-sprites';
 
 type PixelIcon = FinancialConfig['jokers'][number]['icon'];
 
@@ -11,67 +13,24 @@ export function mixColor(first: string, second: string, weight: number) {
   return '#' + channels.map(channel => channel.toString(16).padStart(2, '0')).join('');
 }
 
-/** Shared 12×15 investor body. `step` and `flipped` come from the climbing version's walking racer. */
-export function drawInvestor(pixel: Pixel, character: InvestorCharacter, x: number, y: number, scale: number, step = 0, flipped = false) {
-  const draw = (color: string, left: number, top: number, width: number, height: number) =>
-    pixel(color, x + (flipped ? 12 - left - width : left) * scale, y + top * scale, width * scale, height * scale);
-  const dark = '#101521';
-  const skin = '#f3c29b';
-  const shade = '#bd826e';
-  const jacket = character.color;
-  const pants = mixColor(jacket, dark, 0.78);
-  const senior = character.spriteKey === 'uncle';
-  const strong = character.spriteKey === 'pan';
-  const cap = character.spriteKey === 'you';
-  const ponytail = character.spriteKey === 'ting';
-  const hair = senior ? '#d4d8da' : (ponytail ? '#36283d' : '#27303b');
-
-  draw(dark, 3, 0, 6, 1);
-  draw(dark, 2, 1, 8, 6);
-  draw(skin, 3, 3, 6, 4);
-  draw(shade, 3, 5, 1, 2);
-  draw('#ffe0b2', 6, 5, 3, 1);
-  draw(hair, 3, 1, 6, 2);
-  draw(hair, 2, 2, 2, 2);
-  draw(dark, 7, 4, 1, 1);
-  if (senior) {
-    draw('#4b4a58', 5, 4, 5, 1);
-    draw('#f3efe1', 6, 4, 1, 1);
-    draw('#e9e4d5', 4, 6, 3, 1);
-  }
-  if (cap) {
-    draw('#f3cb62', 2, 1, 7, 2);
-    draw('#c18c3d', 7, 2, 4, 1);
-  }
-  if (ponytail) {
-    draw(hair, 1, 3, 2, 5);
-    draw('#e98dc7', 1, 4, 1, 1);
-  }
-
-  const shoulder = strong ? 1 : 2;
-  draw(dark, shoulder, 7, 12 - shoulder * 2, 5);
-  draw(jacket, shoulder + 1, 7, 10 - shoulder * 2, 4);
-  draw(mixColor(jacket, '#ffffff', 0.45), 4, 7, 4, 1);
-  draw(mixColor(jacket, dark, 0.44), 3, 10, 6, 1);
-  draw(skin, shoulder, 9 + (step === 1 ? 1 : 0), 1, 2);
-  draw(skin, 11 - shoulder, 9 + (step === -1 ? 1 : 0), 1, 2);
-  draw(pants, 3, 11, 2, 3 + (step === 1 ? -1 : 0));
-  draw(pants, 7, 11, 2, 3 + (step === -1 ? -1 : 0));
-  draw(dark, 3 - (step === -1 ? 1 : 0), step === 1 ? 13 : 14, 3, 1);
-  draw(dark, 7, step === -1 ? 13 : 14, 3, 1);
-}
-
+/** 裁出臉部與上身，劇場和排行榜也能看清角色特徵。 */
 export function portrait(canvas: HTMLCanvasElement, character: InvestorCharacter) {
-  canvas.width = 32;
-  canvas.height = 32;
+  const size = 64;
+  canvas.width = size;
+  canvas.height = size;
   const ctx = canvas.getContext('2d')!;
-  ctx.fillStyle = mixColor(character.color, '#131925', 0.85);
-  ctx.fillRect(0, 0, 32, 32);
-  ctx.fillStyle = 'rgba(255,255,255,.055)';
-  for (let x = 0; x < 32; x += 4) ctx.fillRect(x, 0, 1, 32);
-  ctx.fillStyle = '#202b37';
-  ctx.fillRect(3, 29, 26, 2);
-  drawInvestor((color, x, y, w, h) => { ctx.fillStyle = color; ctx.fillRect(x, y, w, h); }, character, 4, 2, 2);
+  ctx.fillStyle = mixColor(character.color, '#131925', .8);
+  ctx.fillRect(0, 0, size, size);
+  ctx.fillStyle = '#0b152663';
+  ctx.fillRect(0, size - 10, size, 10);
+  ctx.fillStyle = mixColor(character.color, '#131925', .72);
+  ctx.fillRect(0, 4, size, 1);
+  if (!drawInvestorPortrait(ctx, character.spriteKey, canvas.width)) {
+    drawInvestorArt((color, x, y, w, h) => {
+      ctx.fillStyle = color;
+      ctx.fillRect(Math.floor(((character.spriteKey === 'uncle' ? 48 - x - w : x) - 6) * 1.75), Math.floor((y + 1) * 1.75), Math.ceil(w * 1.75), Math.ceil(h * 1.75));
+    }, character.spriteKey);
+  }
 }
 
 const icons: Record<PixelIcon, string[]> = {
@@ -109,66 +68,109 @@ export function drawIcon(canvas: HTMLCanvasElement, icon: PixelIcon, color: stri
   });
 }
 
-export type SpriteMood = 'idle' | 'think' | 'gain' | 'loss' | 'shield' | 'hit' | 'call' | 'broke' | 'recover' | 'win';
+export type SpriteMood = 'strike' | 'idle' | 'think' | 'gain' | 'loss' | 'shield' | 'hit' | 'call' | 'broke' | 'recover' | 'win';
 
-/**
- * Full-body arena sprite (24×30 at 2× scale inside a 28×34 canvas) with a mood face and prop.
- * Motion itself (bounce, shake, slump) is CSS on the canvas so it stays skippable and reduced-motion safe.
- */
+/** 同一組角色像素稿供競技場和新聞劇場使用，表情或動作覆疊在外側版位。 */
 export function sprite(canvas: HTMLCanvasElement, character: InvestorCharacter, mood: SpriteMood) {
-  canvas.width = 28;
-  canvas.height = 34;
+  canvas.width = 72;
+  canvas.height = 96;
   const ctx = canvas.getContext('2d')!;
-  ctx.clearRect(0, 0, 28, 34);
-  const fill = (color: string, x: number, y: number, w: number, h: number) => { ctx.fillStyle = color; ctx.fillRect(x, y, w, h); };
-  const ox = 2;
-  const oy = 3;
-  const at = (color: string, x: number, y: number, w = 1, h = 1) => fill(color, ox + x * 2, oy + y * 2, w * 2, h * 2);
-  fill('#0006', 5, 32, 18, 2);
-  drawInvestor(fill, character, ox, oy, 2);
-  const dark = '#101521';
-  const skin = '#f3c29b';
-  // Face: eye at (7,4), mouth row 6.
-  if (mood === 'broke') {
-    at(skin, 7, 4); fill(dark, ox + 14, oy + 8, 1, 1); fill(dark, ox + 15, oy + 9, 1, 1); fill(dark, ox + 15, oy + 8, 1, 1); fill(dark, ox + 14, oy + 9, 1, 1);
-    at(dark, 6, 6, 2, 1);
-  } else if (mood === 'gain' || mood === 'win' || mood === 'recover') {
-    at('#ffe0b2', 6, 5, 3, 1); at(dark, 6, 6, 3, 1); fill('#d65a5a', ox + 14, oy + 13, 2, 1);
-  } else if (mood === 'loss' || mood === 'hit') {
-    at(dark, 6, 6, 2, 1); fill('#7fd0ff', ox + 4, oy + 6, 2, 3);
-  } else if (mood === 'call') {
-    at(dark, 7, 5, 1, 2); fill('#ffffff', ox + 14, oy + 8, 1, 1);
-  } else if (mood === 'think') {
-    fill(dark, ox + 12, oy + 13, 4, 1);
+  const paint: Pixel = (color, x, y, w, h) => { ctx.fillStyle = color; ctx.fillRect(x, y, w, h); };
+  const scale = (value: number) => Math.round(value * 2.25);
+  const fill: Pixel = (color, x, y, w, h) => paint(color, scale(x), scale(y) + 2, scale(w), scale(h));
+  paint('#0c1122b0', 9, 91, 54, 3);
+  const lean = mood === 'hit' ? -1 : mood === 'strike' ? 1 : 0;
+  const slump = mood === 'loss' || mood === 'broke' ? 1 : 0;
+  if (!drawInvestorSprite(ctx, character.spriteKey, lean * 2, slump * 2)) {
+    const fallback = (x: number) => Math.round(x * 1.5);
+    drawInvestorArt((color, x, y, w, h) => {
+      const left = character.spriteKey === 'uncle' ? 48 - x - w : x;
+      paint(color, fallback(left + lean), fallback(y + slump), fallback(left + w) - fallback(left), fallback(y + h) - fallback(y));
+    }, character.spriteKey);
   }
-  // Props drawn in canvas space.
-  if (mood === 'gain' || mood === 'win') {
-    // arms up
-    at(skin, 0, 5, 1, 3); at(skin, 11, 5, 1, 3);
-    fill('#f3cb62', 0, 0, 4, 4); fill('#c18c3d', 1, 1, 2, 2);
+  if (mood === 'strike') {
+    fill('#f6a481', 25, 15, 6, 2); fill('#fff2b8', 27, 12, 5, 1); fill('#ffcd7d', 29, 18, 3, 1);
   }
-  if (mood === 'win') {
-    fill('#f3cb62', ox + 6, 0, 12, 3); fill('#f3cb62', ox + 6, 0, 2, 1); fill('#ffe58a', ox + 11, 0, 2, 1);
-    fill('#c18c3d', ox + 6, 2, 12, 1);
+  if (mood === 'hit' || mood === 'call') {
+    fill('#ff9e8a', 27, 3, 1, 5); fill('#fff0a6', 25, 5, 5, 1);
+  }
+  if (mood === 'gain' || mood === 'recover' || mood === 'win') {
+    fill('#f3c775', 27, 3, 1, 5); fill('#ffedaa', 25, 5, 5, 1);
+    fill('#f3c775', 4, 9, 1, 3); fill('#ffedaa', 3, 10, 3, 1);
   }
   if (mood === 'shield') {
-    ctx.strokeStyle = '#a4d2ec';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(0.5, 0.5, 27, 31);
-    fill('#a4d2ec', 22, 14, 5, 7); fill('#e8f6ff', 23, 15, 3, 1);
-  }
-  if (mood === 'call') {
-    fill('#ffa995', 24, 2, 2, 7); fill('#ffa995', 24, 11, 2, 2);
-  }
-  if (mood === 'hit') {
-    fill('#ffa995', 22, 4, 4, 1); fill('#ffa995', 23, 2, 1, 5); fill('#ffa995', 25, 7, 2, 1);
+    fill('#acdfff', 26, 21, 5, 1); fill('#a9dfff', 25, 20, 1, 10); fill('#acdfff', 26, 29, 5, 1);
+    fill('#4585a5', 27, 23, 4, 4);
   }
   if (mood === 'think') {
-    fill('#a4d2ec', 22, 1, 2, 2); fill('#a4d2ec', 24, 4, 3, 3);
+    fill('#a4d2ec', 28, 5, 2, 2); fill('#a4d2ec', 30, 2, 2, 2);
   }
   if (mood === 'broke') {
     ctx.globalCompositeOperation = 'source-atop';
-    fill('#2a3140aa', 0, 0, 28, 34);
-    ctx.globalCompositeOperation = 'source-over';
+    fill('#273243a0', 0, 0, 32, 40);
+  }
+}
+
+const cardAccents: Record<string, [number, number][]> = {
+  diamond: [[3, 5], [19, 14]], cash_cow: [[2, 11], [19, 13]], dividend_king: [[2, 15], [6, 17], [18, 13]],
+  compound: [[2, 13], [7, 15], [18, 7]], god: [[2, 6], [18, 11], [9, 2]],
+  pack: [[3, 3], [5, 16]], snipe: [[3, 8], [19, 8]], rush: [[3, 13], [19, 11]],
+  gift: [[3, 12], [17, 15]], mirror: [[4, 4], [17, 14], [16, 17]]
+};
+
+/** 將既有功能圖示延伸成三色像素牌面。 */
+export function drawCardArt(canvas: HTMLCanvasElement, icon: PixelIcon, color: string, design = '') {
+  const ctx = canvas.getContext('2d')!;
+  const fill: Pixel = (paint, x, y, w, h) => { ctx.fillStyle = paint; ctx.fillRect(x, y, w, h); };
+  ctx.clearRect(0, 0, 24, 20);
+  fill('#0d1523', 3, 3, 18, 14);
+  fill('#0d1523', 6, 1, 12, 18);
+  fill(mixColor(color, '#131b2c', .68), 4, 4, 16, 12);
+  fill(mixColor(color, '#131b2c', .78), 6, 2, 12, 16);
+  const shadow = mixColor(color, '#101620', .49);
+  const light = mixColor(color, '#ffffff', .54);
+  if (icon === 'cash' || icon === 'bills' || icon === 'gift') {
+    fill(shadow, 4, 13, 5, 3); fill(light, 5, 12, 3, 1);
+    fill(shadow, 16, 14, 4, 3); fill(light, 17, 13, 3, 1);
+  }
+  icons[icon].forEach((row, y) => [...row].forEach((cell, x) => {
+    if (cell !== '1') return;
+    fill(shadow, 6 + x * 2, 5 + y * 2, 2, 2);
+    fill(color, 5 + x * 2, 4 + y * 2, 2, 2);
+    if (y === 0 || row[x - 1] !== '1') fill(light, 5 + x * 2, 4 + y * 2, 1, 1);
+  }));
+  fill(light, 20, 3, 1, 3); fill(light, 19, 4, 3, 1);
+  for (const [x, y] of cardAccents[design] ?? []) {
+    fill(shadow, x, y + 1, 3, 2);
+    fill(light, x, y, 2, 1);
+  }
+}
+
+/** 都市天際線只用座標畫圖，不讀取遊戲亂數。 */
+export function drawCity(canvas: HTMLCanvasElement) {
+  canvas.width = 288;
+  canvas.height = 126;
+  const ctx = canvas.getContext('2d')!;
+  const fill: Pixel = (color, x, y, w, h) => { ctx.fillStyle = color; ctx.fillRect(x, y, w, h); };
+  fill('#11172b', 0, 0, 288, 126);
+  fill('#192438', 0, 33, 288, 40);
+  fill('#243247', 178, 11, 19, 14); fill('#c39070', 180, 9, 15, 15);
+  fill('#c39070', 177, 12, 21, 9); fill('#734f56', 177, 20, 21, 2);
+  for (let i = 0; i < 18; i++) {
+    const left = 16 * i;
+    const roof = 23 + ((i * 19 + 11) % 37);
+    fill(i % 3 ? '#182236' : '#202f44', left, roof, 14, 90 - roof);
+    fill('#111827', left, roof + 2, 2, 90 - roof);
+    for (let row = roof + 5; row < 79; row += 6) for (let col = 3; col < 13; col += 4) {
+      const lit = (row + col * 5 + i * 7) % 13;
+      fill(lit < 4 ? '#765a4e' : lit < 8 ? '#365268' : '#263749', left + col, row, 2, 2);
+    }
+  }
+  fill('#0d1422', 0, 82, 288, 44);
+  fill('#273549', 0, 84, 288, 2);
+  for (const row of [91, 100, 112, 124]) fill('#273245', 0, row, 288, 1);
+  ctx.strokeStyle = '#253244';
+  for (let col = -96; col <= 384; col += 24) {
+    ctx.beginPath(); ctx.moveTo(144 + (col - 144) * .25, 85); ctx.lineTo(col, 126); ctx.stroke();
   }
 }

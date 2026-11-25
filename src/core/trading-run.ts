@@ -146,8 +146,12 @@ export class TradingRun {
     return this.eventAtOrAfter(this.day);
   }
 
+  hasNewsOn(day: number) {
+    return this.schedule.has(day);
+  }
+
   eventToday() {
-    return this.schedule.has(this.day);
+    return this.hasNewsOn(this.day);
   }
 
   /** Direction of upcoming news this investor learned with an item; the exact event stays hidden. */

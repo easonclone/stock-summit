@@ -7,7 +7,7 @@ export type TipId = 'allocation' | 'jokers' | 'items' | 'shop' | 'cash_safe' | '
 const tips: Record<TipId, string> = {
   allocation: '用現金買道具，或留著收盤買王牌。買股票可能大賺，也可能大跌。',
   jokers: '王牌會每天自動幫你，不用按。賺錢時看結算，就知道是哪張王牌發威。',
-  items: '⚡ 點了立刻用。🛡 點了先部署。⚔ 可選兩張，開始交易才出手。',
+  items: '⚡ 立即牌和 ◆ 防禦牌先看效果，再按使用或部署。⌖ 行動牌留到下單。',
   shop: '今天收盤後商店開門。王牌要用現金買，全部買股就沒錢逛商店。',
   cash_safe: '股票跌的時候，留在手上的現金一毛都不會少。',
   shield: '護盾放著就好，下次股票賠錢時會自動擋下，擋一次就用掉。',

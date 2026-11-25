@@ -8,7 +8,7 @@
 - `src/config/npc.json`：決策擾動（只受難度影響）、風險厭惡、保留道具價值與道具估值、商店估值係數（`jokerShopScale`、`itemShopScale`、`shopMargin`）、商店日留現金加分（`shopCashValue`、`shopBudget`）、同流派加分 `styleSynergy`。
 - `src/data/characters.json`：四位角色的 ID、姓名、外觀描述、代表色與肖像鍵。
 - `src/data/finance.json`：所有效果（市場、王牌、道具共用）。
-- `src/data/cards.json`：`jokers` 與 `items`。欄位為 `id`、`name`、`line`（牌面一句話，最多 24 字）、`detail`、`icon`、`color`、`rarity`、`weight`、`effectIds`，可選 `shopOnly`（只在商店出現，不進開局與卡包）。
+- `src/data/cards.json`：`jokers` 與 `items`。欄位為 `id`、`name`、`icon`、`color`、`rarity`、`weight`、`effectIds`，可選 `shopOnly`（只在商店出現，不進開局與卡包）。牌面的一句話與詳情由 `src/ui/card-copy.ts` 讀取同一份效果設定產生。
 - `src/data/market-events.json`：60 則虛構新聞。
 - `src/data/market-states.json` 與 `src/config/ui-theme.json`：盤勢文字、圖示與漲跌配色。
 

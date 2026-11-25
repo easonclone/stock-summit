@@ -78,7 +78,7 @@ const eventTypes = ['price', 'cash_grant', 'item_grant'];
 
 const references = z.array(id).min(1).refine(items => new Set(items).size === items.length, '效果引用不得重複');
 const card = z.object({
-  id, name: label, line: label.max(24), detail: label, icon: z.enum(icons), color,
+  id, name: label, icon: z.enum(icons), color,
   rarity: z.enum(['common', 'rare', 'legendary']), weight: positive, effectIds: references, shopOnly: z.literal(true).optional()
 });
 const rarityPrice = z.object({ common: money.positive(), rare: money.positive(), legendary: money.positive() });

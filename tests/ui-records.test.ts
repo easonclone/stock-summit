@@ -4,7 +4,8 @@ import { chooseTrade, strategies } from '../src/core/npc-strategy';
 import { seededRandom } from '../src/core/random';
 import { TradingRun } from '../src/core/trading-run';
 import { dayBreakdown } from '../src/ui/breakdown';
-import { cardBadge } from '../src/ui/card-face';
+import { cardDescription } from '../src/ui/card-copy';
+import { timelineDetail, timelineMarkup } from '../src/ui/timeline';
 
 const config = readFinancialConfig();
 
@@ -36,12 +37,35 @@ describe('畫面取自實際結算紀錄', () => {
     expect(withCards).toBeGreaterThan(0);
   });
 
+  it('時間軸取用實際日程，未公開新聞僅顯示預定公布時間', () => {
+    const run = new TradingRun(config, { seed: 13, playerId: config.characters[0].id, difficulty: 'normal' });
+    expect(timelineMarkup(run).match(/class="timeline-day/g)).toHaveLength(config.gameplay.turns);
+    expect(timelineMarkup(run).match(/data-news/g)).toHaveLength(5);
+    expect(timelineMarkup(run).match(/data-shop/g)).toHaveLength(4);
+    expect(timelineDetail(run, 15)).toContain('最終決戰');
+    expect(timelineDetail(run, 3)).not.toContain('虛構新聞');
+    for (let day = 1; day <= 3; day++) {
+      while (run.offer) run.chooseOffer(null);
+      expect(run.resolveControlled(() => ({ allocation: 'cash', actions: [] }))).toBe(true);
+    }
+    expect(timelineDetail(run, 3)).toContain(run.latestNews?.event.title);
+    expect(timelineDetail(run, 6)).not.toContain('虛構新聞');
+  });
+
+  it('順風車的加成及反擊鏡上限從共用設定輸出', () => {
+    const card = (id: string) => config.items.find(item => item.id === id)!;
+    expect(cardDescription(config, card('trend')).line).toContain('+100%');
+    const settings = structuredClone(config);
+    settings.settlement.reflectionCap = 1234;
+    expect(cardDescription(settings, card('mirror')).line).toContain('$1,234');
+  });
+
   it('每張王牌與道具都有牌面數值與一句短說明', () => {
     for (const card of [...config.jokers, ...config.items]) {
-      expect(cardBadge(config, card), card.id).not.toBe('');
-      expect(card.line.length, card.id).toBeGreaterThan(4);
-      expect(card.line.length, card.id).toBeLessThanOrEqual(24);
-      expect(card.line.endsWith('。'), card.id).toBe(true);
+      const { line } = cardDescription(config, card);
+      expect(line.length, card.id).toBeGreaterThan(4);
+      expect(line.length, card.id).toBeLessThanOrEqual(34);
+      expect(line, card.id).not.toBe(card.name);
     }
   });
 });

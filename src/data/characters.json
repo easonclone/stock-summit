@@ -1,6 +1,6 @@
 [
-  {"id":"pan","name":"潘大帥","description":"壯漢造型，綠色飛行外套。","color":"#83d2a0","spriteKey":"pan","portrait":"pan"},
-  {"id":"you","name":"尤尤","description":"休閒黃衣，戴著一頂棒球帽。","color":"#f6cd64","spriteKey":"you","portrait":"you"},
-  {"id":"uncle","name":"老伯","description":"灰髮眼鏡，穿著老派背心。","color":"#d6a883","spriteKey":"uncle","portrait":"uncle"},
-  {"id":"ting","name":"張婷","description":"深色馬尾，穿著粉紫外套。","color":"#ef9ace","spriteKey":"ting","portrait":"ting"}
+  {"id":"pan","name":"潘大帥","description":"寬肩肌肉猛男，搭深紅運動褲。","color":"#83d2a0","spriteKey":"pan","portrait":"pan"},
+  {"id":"you","name":"尤尤","description":"反光墨鏡、深藍西裝與金色領帶。","color":"#f6cd64","spriteKey":"you","portrait":"you"},
+  {"id":"uncle","name":"老伯","description":"朝右的藍黃金剛鸚鵡頭，配黑色短袖人身。","color":"#d6a883","spriteKey":"uncle","portrait":"uncle"},
+  {"id":"ting","name":"張婷","description":"長馬尾的野外探險家，穿綠色短袖、工具腰帶與綁帶長靴。","color":"#ef9ace","spriteKey":"ting","portrait":"ting"}
 ]

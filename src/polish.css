@@ -1,0 +1,117 @@
+/* 交易所、卡牌與商店使用各自的材質，資訊仍沿用同一套排版。 */
+.timeline { display:grid; grid-template-columns:repeat(var(--days), minmax(0,1fr)); gap:3px; padding:4px; background:#080f19; border-bottom:2px solid #2c4055; }
+.timeline-day { display:grid; grid-template-rows:auto 13px; place-content:center; justify-items:center; min-width:0; padding:1px 0; gap:1px;
+  background:#162436; border:0; border-bottom:2px solid #2f475f; color:#b7cade; font:800 .82rem var(--number); }
+.timeline-day span { color:#a2c3de; font-size:.66rem; white-space:nowrap; }
+.timeline-day[data-shop] span { color:#f0c776; }
+.timeline-day[data-final] { border-bottom-color:var(--gold); }
+.timeline-day.completed { background:#101b28; color:#a0b1c3; }
+.timeline-day[aria-current] { background:#efc874; color:#241923; border-bottom-color:#8b5a34; box-shadow:0 0 0 1px #ffe3a3; }
+.timeline-day[aria-current] span { color:#362333; }
+.timeline-detail { display:grid; gap:8px; }
+.arena { isolation:isolate; border-color:#405970; background:#101322; }
+.stage { position:relative; isolation:isolate; padding-top:28px; }
+.city-art { position:absolute; z-index:-1; inset:0; width:100%; height:100%; image-rendering:pixelated; pointer-events:none; }
+ .fighter .sprite { width:72px; max-width:100%; height:auto; aspect-ratio:3 / 4; }
+.arena-portrait { display:none; }
+.investor-feature { display:grid; grid-template-columns:auto minmax(0,1fr); gap:clamp(10px,3vw,20px); align-items:center;
+  margin-bottom:10px; padding:8px 12px; background:radial-gradient(ellipse at 18% 80%,color-mix(in srgb,var(--ink) 23%,#111b2c),#121d2d 65%); border-bottom:2px solid var(--ink); }
+.investor-feature .sprite { width:clamp(100px,16vw,144px); height:auto; }
+.investor-feature strong { display:block; color:var(--ink); font-size:1.3rem; }
+.investor-feature p { color:var(--muted); font-size:.82rem; margin:4px 0 0; }
+.opening-seats .portrait { image-rendering:pixelated; }
+@media (max-width:480px) {
+  .arena .fighter .sprite { display:none; }
+  .arena .arena-portrait { display:block; width:min(100%,70px); image-rendering:pixelated; }
+  .arena .is-player .arena-portrait { box-shadow:0 0 0 1px var(--gold); }
+  .arena-animate .fighter.striking .arena-portrait { animation:rank-pop 220ms steps(3,end); }
+  .arena-animate .fighter.struck .arena-portrait { animation:shake 300ms steps(3,end); }
+}
+.fighter.is-player .plate { background:#172a37; outline:1px solid #cdad6c; }
+.plate .worth { font-weight:900; font-variant-numeric:tabular-nums; }
+.wealth-track { height:8px; border-color:#74869a; background:#0a0e19; }
+.wealth-track b { box-shadow:inset 0 2px #fff3; }
+.fighter-status { color:#c4e9ff; }
+.hero { background:#121e2c; border-color:#30465c; }
+.card-top { min-width:0; height:42px; align-items:center; }
+.card-top canvas { width:48px; height:40px; image-rendering:pixelated; max-width:100%; object-fit:contain; }
+.game-card { overflow-wrap:anywhere; }
+.game-card.joker { --frame:#8493ae; border:3px double var(--frame); border-radius:2px 9px 2px 9px;
+  background:linear-gradient(150deg,#30425a,#131825 60%); box-shadow:inset 0 0 0 2px #1c283a,0 2px #090e19; }
+.game-card.joker.rarity-rare { --frame:#ad93e4; clip-path:polygon(0 0,calc(100% - 9px) 0,100% 9px,100% 100%,9px 100%,0 calc(100% - 9px));
+  background:linear-gradient(122deg,#3b315a 12%,#272138 46%,#58447e 50%,#181c2b 60%); }
+.game-card.joker.rarity-legendary { --frame:#ebbe63; border-style:double; border-radius:10px 10px 2px 2px;
+  background:radial-gradient(ellipse at 48% 18%,#644b3d,#272031 65%); }
+.rarity-mark { color:var(--frame); font-size:.82rem; }
+.game-card.item { border:1px solid #354c64; border-top:3px solid #5d7895; border-radius:1px 1px 5px 5px; background:linear-gradient(145deg,#22334a,#121c2a); }
+.game-card.phase-instant { border-top-color:#eec878; }
+.game-card.phase-defense { border-top:4px double #a2d7f5; }
+.game-card.phase-action { border-top-color:#f19c87; }
+.phase-instant .item-phase { color:#ffe0a0; }
+.phase-defense .item-phase { color:#bde9ff; }
+.phase-action .item-phase { color:#ffc3b1; }
+.game-card.item::after { display:none; }
+.game-card .card-line { font-size:.7rem; color:#c8d5e1; }
+.card-button[aria-pressed="true"] .game-card { box-shadow:inset 0 0 0 2px #ffd587; background-color:#253b52; }
+.card-button[aria-pressed="true"] { transform:translateY(-3px); }
+.joker-row .card-button { position:relative; }
+.joker-payout { position:absolute; z-index:2; top:-8px; right:4px; background:#0d1622; border:1px solid var(--gold); padding:1px 4px;
+  font:900 .76rem var(--number); animation:payout-pop 420ms ease-out both; animation-delay:calc(var(--i) * 24ms); }
+.rarity-legendary .rarity-mark { text-shadow:0 0 6px #ffd58a; }
+.fired:has(.rarity-legendary) .game-card { animation-name:legendary-fire; }
+@keyframes legendary-fire { 40% { background:#735a37; box-shadow:inset 0 0 12px #ffce7a; } }
+@keyframes payout-pop { from { opacity:0; transform:translateY(4px); } 40% { opacity:1; transform:translateY(-3px); } to { opacity:1; transform:none; } }
+.quick-detail { display:grid; gap:8px; margin:7px 0; padding:9px; border-left:3px solid var(--gold); background:#192739; font-size:.78rem; }
+.quick-detail p { margin:3px 0; }
+.quick-detail .muted { color:var(--muted); }
+.quick-detail .deploy-button { color:#d9f4ff; background:#23455c; border-color:#8bb9db; }
+.blocked-copy { color:#ffbea7; }
+.purchase-feedback { color:#ffd994; }
+.daily-shop, .dialog-shop .shop { padding:8px; border:2px solid #8a5835;
+  background:repeating-linear-gradient(0deg,#2d211e 0 22px,#3d2b24 22px 24px); box-shadow:inset 0 0 0 2px #402b22; }
+.shop-sign { display:flex; gap:8px; justify-content:space-between; align-items:center; color:#ffdd95; padding:5px 8px; background:#512f25;
+  border-top:2px solid #b27b47; border-bottom:2px solid #211a1a; font-size:.78rem; font-weight:800; }
+.shop-sign h2 { font-size:.91rem; }
+.dialog-shop .shop-sign { justify-content:center; }
+.daily-shelves { margin:6px 0 0; gap:6px; }
+.daily-product { display:grid; gap:4px; border-bottom:2px solid #8a5735; padding:4px; background:#312625; min-width:0; }
+.daily-product .game-card { min-height:88px; }
+.daily-product .card-button { padding:0; }
+.daily-product .shelf-buy { background:#62402b; color:#ffdfa2; border-color:#a27148; text-align:center; display:block; padding:4px; }
+.daily-product.sold .game-card { filter:saturate(.25); }
+.daily-product.sold .shelf-buy { color:#ddc5ac; }
+.stage-column .day-result { margin-top:3px; }
+ .hero-side { grid-template-columns:repeat(2,auto); align-content:center; }
+.hero-tools { grid-column:2; grid-row:2; }
+.hero-tools button { min-width:70px; }
+.hero .chips { grid-row:3; }
+.shop-shortcut { padding:4px 8px; flex:none; background:#402b25; color:#ffdfa1; border-color:#8b603c; font-size:.75rem; }
+.shop-shortcut span { font-weight:800; }
+@media (min-width:880px) { .fighter .sprite { width:96px; } }
+@media (max-width:480px) {
+  .timeline { gap:2px; padding:3px 0; }
+  .timeline-day { font-size:.64rem; }
+  .timeline-day span { font-size:.55rem; }
+  .ticker { min-height:44px; }
+  .hero { padding:7px 9px; gap:2px 7px; }
+  .hero-main strong { font-size:clamp(1.25rem,6vw,1.8rem); }
+  .hero-tools { grid-row:1; grid-column:3; }
+  .hero-tools button { min-width:0; padding:4px; font-size:.72rem; }
+  .hero-side { column-gap:6px; }
+  .hero-side strong { font-size:.81rem; }
+  .hero .chips { grid-row:2; }
+  .trade-dock .dock-inner { gap:4px; }
+  .shop-shortcut { padding-inline:5px; font-size:.67rem; }
+  .stage { padding-top:18px; }
+  .item-row, .joker-row { grid-template-columns:repeat(5,minmax(0,1fr)); gap:4px; }
+  .item-row .game-card, .joker-row .game-card { min-height:84px; padding:3px; gap:2px; }
+  .item-row .card-line, .joker-row .card-line { display:none; }
+  .item-row .card-top, .joker-row .card-top { height:27px; }
+  .item-row .card-top canvas, .joker-row .card-top canvas { width:26px; height:auto; }
+  .item-row .game-card strong, .joker-row .game-card strong { font-size:.7rem; }
+  .item-row .item-phase { font-size:.58rem; }
+  .item-row .card-status { font-size:.55rem; }
+  .item-row .card-slot, .joker-row .card-slot { min-height:84px; }
+  .day-result .chain { max-height:155px; overflow-y:auto; }
+}
+@media (prefers-reduced-motion: reduce) { .joker-payout { animation:none; } }

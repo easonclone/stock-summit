@@ -25,7 +25,6 @@ describe('財務資料驗證', () => {
     expect(config.allocation.options.map(option => option.ratio)).toEqual([0, 0.5, 1]);
     expect(Object.keys(rules).sort()).toEqual(['initialCapital', 'maxDefenses', 'maxRecoveries', 'recoveryCash']);
     expect([config.jokers.length, config.items.length]).toEqual([18, 24]);
-    expect([...config.jokers, ...config.items].every(card => card.line.length <= 24)).toBe(true);
     expect(Object.values(config.effects).some(effect => ['bailout', 'repay', 'maintenance', 'fee_coupon', 'hedge'].includes(effect.type as string))).toBe(false);
   });
 });

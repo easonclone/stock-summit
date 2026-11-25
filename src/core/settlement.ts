@@ -1,4 +1,5 @@
 import type { AllocationOption, FinanceEffect, FinancialConfig, GameCard, TradingEvent } from '../config/financial-settings';
+import { eventPrice, rulesFor } from './event-rules';
 import { copyPortfolio, netWorth, rebalance, type Portfolio, type Rebalance } from './economy';
 
 export type Tone = 'positive' | 'negative' | 'neutral';
@@ -33,6 +34,10 @@ export interface Memory {
   sacrificeDay: number;
   sacrificePaymentRoom: number;
   rebirthDay: number;
+  eventRebirthDay?: number;
+  eventRebirthRate?: number;
+  eventGenerateDay?: number;
+  eventRecycleDay?: number;
   recycleDay: number;
   generationDay: number;
   holdPaid: boolean;
@@ -76,6 +81,7 @@ export interface DayContext {
   /** 道具可指定的有效對手是否存在。 */
   hasTarget: boolean;
   openingLast?: boolean;
+  openingBottom?: boolean;
   gamblerRoll?: number;
 }
 
@@ -146,14 +152,13 @@ export function copyHolder(holder: Holder): Holder {
 }
 
 export function priceEffect(config: FinancialConfig, event: Pick<TradingEvent, 'effectIds'>) {
-  const effect = event.effectIds.map(id => config.effects[id]).find(item => item.type === 'price');
-  return effect?.type === 'price' ? effect : null;
+  return eventPrice(config, event, -1);
 }
 
 /** 利多、利空，或沒有股價變動的特殊事件。 */
 export function marketTone(event: Pick<TradingEvent, 'effectIds'>, config: FinancialConfig): Tone {
   const price = priceEffect(config, event);
-  if (!price) return 'neutral';
+  if (!price || price.binary) return 'neutral';
   const middle = price.floor + price.ceiling;
   return middle > 0 ? 'positive' : middle < 0 ? 'negative' : 'neutral';
 }
@@ -327,6 +332,8 @@ export function tradeDay(holder: Holder, items: GameCard[], context: DayContext)
       if (effect.type === 'item_grant') ledger.requests.items += effect.count;
     }
   }
+  const event = context.news?.applies ? context.news.event : null;
+  const rules = rulesFor(config, event);
   const stock = account.investmentValue;
   ledger.exposure = { stock, cash: account.cash };
   const newsRate = context.news?.applies ? context.news.rate : 0;
@@ -350,6 +357,11 @@ export function tradeDay(holder: Holder, items: GameCard[], context: DayContext)
   let value = base;
   if (base > 0) {
     const adds: Mod[] = [];
+    const eventGain = (rules.gain ?? 0) + (context.openingBottom ? rules.bottomGain ?? 0 : 0);
+    if (event && eventGain) adds.push({ source: 'event', id: event.id, name: event.title, value: eventGain });
+    if (memory.eventRebirthDay === context.day && memory.eventRebirthRate) {
+      adds.push({ source: 'event', id: 'event_rebirth_night', name: '浴火之夜', value: memory.eventRebirthRate });
+    }
     for (const { joker, effect } of jokers) {
       const mod = { source: 'joker' as const, id: joker.id, name: joker.name };
       if (effect.type === 'patient_gain' && ledger.exposure.stock > 0 && memory.heldStockDays + 1 >= effect.days) adds.push({ ...mod, value: effect.rate });
@@ -389,6 +401,7 @@ export function tradeDay(holder: Holder, items: GameCard[], context: DayContext)
     }
   } else if (base < 0) {
     const amplifiers: Mod[] = [];
+    if (event && rules.loss) amplifiers.push({ source: 'event', id: event.id, name: event.title, value: 1 + rules.loss });
     for (const { joker, effect } of jokers) {
       if (effect.type === 'swing_mult') amplifiers.push({ source: 'joker', id: joker.id, name: joker.name, value: effect.factor });
     }
@@ -401,7 +414,9 @@ export function tradeDay(holder: Holder, items: GameCard[], context: DayContext)
     let room = config.settlement.maxLossCut;
     const cuts: Mod[] = jokers.flatMap(({ joker, effect }) => effect.type === 'loss_cut'
       ? [{ source: 'joker' as const, id: joker.id, name: joker.name, value: effect.amount }] : []);
-    const defense = holder.defenses.shift() ?? null;
+    const shield = holder.defenses.shift();
+    const defense = shield ? { ...shield, amount: shield.amount * (1 + (rules.shieldBoost ?? 0)) } : null;
+    if (event && rules.marketCut) cuts.push({ source: 'event', id: event.id, name: event.title, value: rules.marketCut });
     if (defense?.mode === 'cut') cuts.push({ source: 'defense', id: defense.itemId, name: defense.name, value: defense.amount });
     for (const mod of cuts) {
       const share = Math.min(room, mod.value);
@@ -412,13 +427,13 @@ export function tradeDay(holder: Holder, items: GameCard[], context: DayContext)
       record(mod, 'cut', saved);
     }
     if (defense?.mode === 'absorb') {
-      const saved = Math.min(-value, defense.amount);
+      const saved = Math.min(-value, Math.round(defense.amount));
       value += saved;
       ledger.shielded += saved;
       record({ source: 'defense', id: defense.itemId, name: defense.name, value: defense.amount }, 'cut', saved);
     }
     if (defense?.mode === 'reverse') {
-      const flipped = Math.min(-value, defense.amount);
+      const flipped = Math.min(-value, Math.round(defense.amount));
       const saved = flipped - value;
       ledger.shielded += -value;
       value = flipped;
@@ -450,6 +465,8 @@ export function closeDay(holder: Holder, context: DayContext, ledger: DayLedger,
   const memory = holder.memory;
   memory.holdDays = account.investmentValue > 0 ? memory.holdDays + 1 : 0;
   memory.heldStockDays = account.investmentValue > 0 ? memory.heldStockDays + 1 : 0;
+  const event = context.news?.applies ? context.news.event : null;
+  const rules = rulesFor(config, event);
   const jokers = jokerEffects(holder, config);
   const boost = jokers.reduce((product, { effect }) => effect.type === 'yield_boost' ? product * effect.factor : product, 1);
   const booster = jokers.find(entry => entry.effect.type === 'yield_boost');
@@ -476,10 +493,10 @@ export function closeDay(holder: Holder, context: DayContext, ledger: DayLedger,
       case 'cash_yield': {
         if (netWorth(account) <= 0) break;
         const income = Math.min(effect.cap, Math.round(account.cash * effect.rate));
-        addCash(holder, ledger, { ...source, value: effect.rate }, income);
+        addCash(holder, ledger, { ...source, value: effect.rate }, Math.round(income * (rules.cashJokers ?? 1)));
         if (booster?.effect.type === 'yield_boost' && income && joker.effectIds.some(id => config.effects[id].type === 'cash_yield')) {
           const bonus = Math.max(0, Math.min(booster.effect.cap - income, Math.round(income * (boost - 1))));
-          addCash(holder, ledger, { source: 'joker', id: booster.joker.id, name: booster.joker.name, kind: 'mult', value: boost }, bonus);
+          addCash(holder, ledger, { source: 'joker', id: booster.joker.id, name: booster.joker.name, kind: 'mult', value: boost }, Math.round(bonus * (rules.cashJokers ?? 1)));
         }
         break;
       }
@@ -517,6 +534,19 @@ export function closeDay(holder: Holder, context: DayContext, ledger: DayLedger,
       default: break;
     }
   }
+  if (event && netWorth(account) > 0) {
+    const source = { source: 'event' as const, id: event.id, name: event.title };
+    const cash = account.cash;
+    const qualifies = rules.cashMajority && cash >= netWorth(account) * rules.cashMajority[0];
+    if (rules.cashYield) addCash(holder, ledger, source, Math.min(rules.cashYield[1], Math.round(cash * rules.cashYield[0])));
+    if (qualifies) addCash(holder, ledger, source, rules.cashMajority![1]);
+    if (rules.insurance) addCash(holder, ledger, source, Math.min(rules.insurance[1], Math.round(ledger.shielded * rules.insurance[0])));
+    if (rules.comboIncome && ledger.itemCount >= rules.comboIncome[0]) {
+      const fromSacrifice = ledger.itemCount === rules.comboIncome[0] && memory.sacrificeDay === context.day;
+      const amount = fromSacrifice ? spendSacrificePaymentRoom(holder, rules.comboIncome[1]) : rules.comboIncome[1];
+      addCash(holder, ledger, source, amount);
+    }
+  }
   memory.lastRate = ledger.rate;
   memory.lastStockPnl = ledger.stockFinal;
   memory.winStreak = ledger.stockFinal > 0 ? memory.winStreak + 1 : 0;
@@ -539,7 +569,7 @@ export function sumSteps(ledger: DayLedger) {
 /** News of each direction a player might face, with weights from the whole event list (never the private schedule). */
 export function newsOutlook(config: FinancialConfig, known: Tone | null) {
   const groups = new Map<Tone, { weight: number; total: number }>();
-  for (const event of config.events) {
+  for (const event of config.events.filter(event => !event.family)) {
     const tone = marketTone(event, config);
     const price = priceEffect(config, event);
     const entry = groups.get(tone) ?? { weight: 0, total: 0 };
@@ -550,5 +580,5 @@ export function newsOutlook(config: FinancialConfig, known: Tone | null) {
   const scenarios = [...groups].filter(([tone]) => known === null || tone === known)
     .map(([tone, entry]) => ({ tone, rate: entry.total / entry.weight, weight: entry.weight }));
   const total = scenarios.reduce((sum, item) => sum + item.weight, 0);
-  return scenarios.map(item => ({ ...item, weight: item.weight / total }));
+  return total > 0 ? scenarios.map(item => ({ ...item, weight: item.weight / total })) : [{ tone: 'neutral' as const, rate: 0, weight: 1 }];
 }

@@ -1,5 +1,6 @@
 import './style.css';
 import './polish.css';
+import './battle.css';
 import { loadHDArt } from './ui/hd-art';
 import { loadInvestorSprites } from './ui/investor-sprites';
 import { readFinancialConfig, type FinancialConfig, type PixelIcon, type TradingDifficulty } from './config/financial-settings';
@@ -16,12 +17,12 @@ import { escapeHtml, money, signedMoney } from './ui/format';
 import { iconMarkup } from './ui/pixels';
 import { paintCanvases } from './ui/paint';
 import { settlementMarkup, shareText } from './ui/settlement';
-import { cardDetailMarkup, chartDialogMarkup, newsMarkup, offerHeading, offerMarkup, openingMarkup, shopMarkup, tradingMarkup, type TerminalSelection } from './ui/trading-terminal';
+import { cardDetailMarkup, chartDialogMarkup, dailyShopMarkup, newsMarkup, offerHeading, offerMarkup, openingMarkup, shopMarkup, tradingMarkup, type TerminalSelection } from './ui/trading-terminal';
 import { timelineDetail } from './ui/timeline';
 import { playGuideMarkup } from './ui/coach';
 import { MarketTheater, preloadNewsArt, type TheaterMode } from './ui/theater';
 
-type DialogKind = 'crisis' | 'recovery' | 'offer' | 'shop' | 'settings' | 'share' | 'chart' | 'news' | 'timeline' | 'card-detail' | 'help';
+type DialogKind = 'crisis' | 'recovery' | 'offer' | 'shop' | 'daily-shop' | 'settings' | 'share' | 'chart' | 'news' | 'timeline' | 'card-detail' | 'help';
 const freshSeed = () => crypto.getRandomValues(new Uint32Array(1))[0];
 
 class TerminalApp {
@@ -35,6 +36,7 @@ class TerminalApp {
   private showUntil = 0;
   private readonly feedback: FeedbackConfig = readFeedbackConfig();
   private presentedDay = 1;
+  private shoppingDay = 0;
   private readonly selection: TerminalSelection = { allocation: null, item: null, animate: false };
   private selectedCharacter: string;
   private difficulty: TradingDifficulty = 'normal';
@@ -91,6 +93,10 @@ class TerminalApp {
     document.addEventListener('keydown', this.keyDown);
     this.dialog.addEventListener('cancel', event => {
       event.preventDefault();
+      if (this.dialogKind === 'card-detail' && this.detail.kind === 'daily') {
+        this.openDialog('daily-shop', `[data-act="daily-detail"][data-value="${this.detail.slot}"]`);
+        return;
+      }
       if (this.dialogKind !== 'recovery' && this.dialogKind !== 'offer' && this.dialogKind !== 'shop') this.closeDialog();
     });
     this.render();
@@ -103,6 +109,8 @@ class TerminalApp {
     this.disposeEffect = undefined;
     const run = this.run;
     const complete = run?.closed || this.personal;
+    const previousHand = this.screen.querySelector<HTMLElement>('[data-hand-day]');
+    const handOffset = previousHand?.dataset.handDay === String(run?.day) ? previousHand?.scrollLeft ?? 0 : 0;
     const status = run ? `<div class="session-counter"><span>${run.closed ? '已結算' : '交易日'}</span>
       <strong>${String(run.closed ? run.reports.length : run.day).padStart(2, '0')} <small>／ ${run.config.gameplay.turns}</small></strong></div>` : '';
     this.screen.innerHTML = `<header class="masthead"><div class="brand-lockup"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
@@ -112,6 +120,8 @@ class TerminalApp {
       ${run ? complete ? settlementMarkup(run, this.personal) : tradingMarkup(run, this.selection)
         : `<main>${openingMarkup(this.config, this.selectedCharacter, this.difficulty)}</main>`}`;
     this.paint(this.screen);
+    const hand = this.screen.querySelector<HTMLElement>('[data-hand-day]');
+    if (hand && handOffset) hand.scrollLeft = handOffset;
     this.selection.animate = false;
     this.selection.fresh = false;
     if (focus) this.screen.querySelector<HTMLElement>(focus)?.focus({ preventScroll: true });
@@ -145,6 +155,7 @@ class TerminalApp {
     if (this.locked && button.dataset.act !== 'skip') return;
     const act = button.dataset.act;
     const value = Number(button.dataset.value);
+    const skippedOpening = this.dayTransition.active;
     this.dayTransition.close();
     switch (act) {
       case 'character':
@@ -162,10 +173,19 @@ class TerminalApp {
         this.dialogTrigger = button;
         this.openDialog('timeline');
         break;
+      case 'open-daily-shop':
+        if (!this.run?.dailyShop || this.run.offer) break;
+        this.shoppingDay = this.run.day;
+        this.dialogTrigger = button;
+        this.selection.dailyPick = undefined;
+        this.openDialog('daily-shop');
+        break;
+      case 'daily-back':
+        this.openDialog('daily-shop', `[data-act="daily-detail"][data-value="${this.detail.slot}"]`);
+        break;
       case 'daily-detail':
         this.detail = { kind: 'daily', slot: value };
-        this.dialogTrigger = button;
-        this.openDialog('card-detail');
+        this.openDialog('card-detail', '[data-act="daily-back"]');
         break;
       case 'card-detail':
         this.dialogTrigger = button;
@@ -173,6 +193,7 @@ class TerminalApp {
         this.openDialog('card-detail');
         break;
       case 'crisis': this.dialogTrigger = button; this.openDialog('crisis'); break;
+      case 'finish-daily-shop': this.closeDialog(); break;
       case 'close-dialog': this.closeDialog(); break;
       case 'personal': this.personal = true; this.closeDialog(false); this.render('[data-act="spectate"]'); window.scrollTo(0, 0); break;
       case 'spectate': this.personal = false; this.render('[data-act="trade"]'); window.scrollTo(0, 0); break;
@@ -180,15 +201,9 @@ class TerminalApp {
       case 'item': this.pickItem(value); break;
       case 'use-item': this.useItem(value, button.dataset.cardId); break;
       case 'focus-action': this.focusAction(value); break;
-      case 'go-shop': {
-        const shelf = this.screen.querySelector<HTMLElement>('.daily-shop');
-        shelf?.scrollIntoView({ block: 'center' });
-        shelf?.querySelector<HTMLElement>('[data-act="daily-detail"]')?.focus({ preventScroll: true });
-        break;
-      }
       case 'daily-buy': this.buyDaily(value); break;
       case 'daily-buy-replace': this.buyDaily(this.selection.dailyPick, value); break;
-      case 'daily-buy-cancel': this.selection.dailyPick = undefined; this.render('[data-act="daily-buy"]'); break;
+      case 'daily-buy-cancel': this.selection.dailyPick = undefined; this.openDialog('daily-shop', '[data-act="daily-buy"]'); break;
       case 'target': {
         const id = button.dataset.value!;
         const action = this.selection.actions?.find(choice => choice.slot === this.selection.item);
@@ -218,6 +233,7 @@ class TerminalApp {
       case 'leave-shop': this.leaveShop(); break;
       case 'share': this.dialogTrigger = button; void this.share(); break;
     }
+    if (skippedOpening) this.showOpeningShop();
   }
 
   private start(seed: number) {
@@ -225,6 +241,8 @@ class TerminalApp {
     this.run = new TradingRun(this.config, { playerId: this.selectedCharacter, seed, difficulty: this.difficulty });
     this.personal = false;
     this.presentedDay = 1;
+    this.shoppingDay = 0;
+    this.showUntil = 0;
     this.dayTransition.close();
     this.lastCrisis = null;
     this.theaterDay = 0;
@@ -272,7 +290,7 @@ class TerminalApp {
       if (selected >= 0) {
         actions.splice(selected, 1);
         this.focusAction(actions.at(-1)?.slot ?? -1);
-      } else if (actions.length < this.config.gameplay.actionLimit && actions.length < run.openingCardsLeft) {
+      } else if (actions.length < run.actionLimit && actions.length < run.openingCardsLeft) {
         actions.push({ slot });
         this.focusAction(slot);
       }
@@ -306,16 +324,18 @@ class TerminalApp {
     if (!run || index === undefined || run.offer) return;
     if (replace === null && run.dailyShopCheck(index).block === 'full') {
       this.selection.dailyPick = index;
-      this.render('[data-act="daily-buy-replace"]');
+      this.openDialog('daily-shop', '[data-act="daily-buy-replace"]');
       return;
     }
     const purchase = run.buyDaily(index, replace);
     if (!purchase) return;
     this.selection.dailyPick = undefined;
-    if (replace !== null) this.removeSelection(replace);
+    if (replace !== null && purchase.kind === 'item') this.removeSelection(replace);
     this.selection.feedback = '買下 ' + purchase.card.name + ' ' + money(-purchase.price);
     this.audio.play('page');
-    this.render('[data-act="daily-buy"]:not(:disabled)');
+    this.render();
+    this.dialogTrigger = this.screen.querySelector<HTMLElement>('[data-act="open-daily-shop"]');
+    this.openDialog('daily-shop', '[data-act="daily-buy"]:not(:disabled), [data-act="close-dialog"]');
   }
 
   private removeSelection(slot: number) {
@@ -334,6 +354,7 @@ class TerminalApp {
   private trade() {
     const run = this.run;
     if (!run || run.closed || this.dialog.open || this.locked) return;
+    if (run.dailyShop && !run.player.account.eliminated && this.shoppingDay !== run.day) return;
     const action = run.player.account.eliminated ? null : { actions: this.selection.actions ?? [], allocation: this.selection.allocation ?? run.player.allocation };
     this.audio.unlock();
     if (!run.confirm(action)) return;
@@ -437,6 +458,7 @@ class TerminalApp {
     if (this.dialog.open) return;
     if (!this.run?.offer || this.run.offer.source === 'daily') {
       this.presentMorning();
+      this.showOpeningShop();
       return;
     }
     this.offered = this.run.offer.cards.length === 1 ? 0 : null;
@@ -448,13 +470,25 @@ class TerminalApp {
     const run = this.run;
     if (!run || run.closed || run.day === this.presentedDay) return;
     this.presentedDay = run.day;
-    if (!this.reduced) this.dayTransition.play(run.day, Math.max(0, this.showUntil - performance.now()));
+    if (!this.reduced) {
+      this.dayTransition.play(run.day, Math.max(0, this.showUntil - performance.now()), () => this.showOpeningShop());
+    }
     const card = run.playerOpeningItem;
     if (card) {
       if (!this.reduced) this.screen.querySelector('[data-morning-item]')?.classList.add('morning-arrival');
       this.audio.play('page');
     }
     this.announce(`第 ${run.day} 個交易日開始。${card ? `今天抽到 ${card.name}。` : ''}`);
+  }
+
+  private showOpeningShop() {
+    const run = this.run;
+    if (!run?.dailyShop || run.closed || run.player.account.eliminated || run.shop || run.offer ||
+      this.dialog.open || this.dayTransition.active || this.shoppingDay === run.day) return;
+    this.shoppingDay = run.day;
+    this.selection.dailyPick = undefined;
+    this.dialogTrigger = this.screen.querySelector<HTMLElement>('[data-act="open-daily-shop"]');
+    this.openDialog('daily-shop');
   }
 
   private takeOffer(card: number | null, replace: number | null) {
@@ -497,8 +531,13 @@ class TerminalApp {
         break;
       case 'shop':
         if (!run.shop) return;
-        heading = `第 ${run.shop.day} 日收盤・商店`;
+        heading = `收盤商店 · 第 ${run.shop.day} 日`;
         content = shopMarkup(run, this.shopPick, this.shopReplace);
+        break;
+      case 'daily-shop':
+        if (!run.dailyShop) return;
+        heading = `開盤商店 · 第 ${run.day} 日`;
+        content = dailyShopMarkup(run, this.selection.dailyPick, this.selection.feedback);
         break;
       case 'crisis':
       case 'recovery':
@@ -531,12 +570,13 @@ class TerminalApp {
         content = timelineDetail(run, this.timelineDay);
         break;
       case 'card-detail': {
-        const kind = this.detail.kind === 'joker' ? 'joker' : 'item';
+        const kind = this.detail.kind === 'daily' ? run.dailyShop?.slots[this.detail.slot]?.kind ?? 'item' : this.detail.kind;
         const card = this.detail.kind === 'daily' ? run.dailyShop?.slots[this.detail.slot]?.card
           : (kind === 'joker' ? run.player.jokers : run.player.items)[this.detail.slot];
         if (!card) return;
         heading = card.name;
         content = cardDetailMarkup(run, card, kind);
+        if (this.detail.kind === 'daily') content += '<div class="dialog-actions"><button type="button" data-act="daily-back">回到商店</button></div>';
         break;
       }
       case 'share':
@@ -547,7 +587,7 @@ class TerminalApp {
     const dismissible = kind !== 'recovery' && kind !== 'offer' && kind !== 'shop';
     this.dialog.className = `terminal-dialog dialog-${kind}`;
     this.dialog.innerHTML = `<header><h2 id="dialog-heading" tabindex="-1">${heading}</h2>${dismissible ?
-      '<button type="button" data-act="close-dialog" aria-label="關閉視窗">×</button>' : ''}</header><div class="dialog-body">${content}</div>`;
+      `<button type="button" data-act="${kind === 'card-detail' && this.detail.kind === 'daily' ? 'daily-back' : 'close-dialog'}" aria-label="關閉視窗">×</button>` : ''}</header><div class="dialog-body">${content}</div>`;
     this.paint(this.dialog);
     if (!this.dialog.open) {
       this.dialog.showModal();
@@ -567,6 +607,7 @@ class TerminalApp {
     this.dialogTrigger = null;
     this.closingDialog = false;
     if (restore && previous === 'crisis') this.showOffer();
+    else if (restore) this.showOpeningShop();
   }
 
   private async share() {

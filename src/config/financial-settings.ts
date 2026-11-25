@@ -28,7 +28,27 @@ export const icons = ['shield', 'rocket', 'short', 'eye', 'bolt', 'anchor', 'cas
  * Every rule a market event, joker or item can apply. Cards and events only reference these by id,
  * so one settlement engine (src/core/settlement.ts) resolves them all.
  */
+const eventRules = z.strictObject({
+  coinMove: z.tuple([z.number().positive().max(1), z.number().negative().min(-1)]).optional(),
+  rebound: rate.optional(), gain: rate.optional(), loss: rate.optional(), marketCut: rate.optional(), shieldBoost: rate.optional(),
+  cashYield: z.tuple([rate, money]).optional(), cashMajority: z.tuple([rate, money]).optional(),
+  cashJokers: z.number().min(0).max(3).optional(), cashLeader: money.optional(),
+  attackBoost: rate.optional(), areaBoost: rate.optional(), guardWeakness: rate.optional(), attackCut: rate.optional(),
+  reflectBoost: rate.optional(), firstHitCut: rate.optional(), damageCap: rate.optional(),
+  bounty: money.optional(), damageIncome: z.tuple([rate, money]).optional(), insurance: z.tuple([rate, money]).optional(),
+  draws: z.object({ count: day, pool: z.enum(['all', 'attack', 'defense', 'sacrifice', 'rare', 'legendary']), pick: z.boolean().optional(), last: z.boolean().optional() }).optional(),
+  actionSlots: day.optional(), handSlots: day.optional(), comboIncome: z.tuple([day, money]).optional(),
+  generateBonus: day.optional(), recycle: money.optional(),
+  shopDiscount: rate.optional(), shopItems: day.optional(), shopRebate: rate.lt(1).optional(), shopSell: rate.lt(1).optional(),
+  shopJokers: z.enum(['rare', 'compatible', 'legendary']).optional(), voucher: money.optional(),
+  sacrificeBoost: rate.optional(), sacrificeArea: rate.optional(), sacrificeRefund: rate.optional(), sacrificeDraws: day.optional(),
+  sacrificeFactor: factor.optional(), sacrificeTomorrow: rate.optional(),
+  leaderBounty: money.optional(), overtakeLeader: money.optional(), lastAttack: rate.optional(), leaderGuard: rate.optional(),
+  rankGain: z.tuple([day, money]).optional(), defendLeader: money.optional(), bottomGain: rate.optional(), bottomAttack: rate.optional()
+});
+
 const effect = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('event_rules'), rules: eventRules }),
   z.object({ type: z.literal('price'), floor: z.number().min(-1).max(1), ceiling: z.number().min(-1).max(1) })
     .refine(value => value.floor <= value.ceiling, '價格波動下限不可大於上限'),
   z.object({ type: z.literal('cash_grant'), amount: money.positive() }),
@@ -112,7 +132,7 @@ const effect = z.discriminatedUnion('type', [
 const jokerTypes = ['gain_add', 'streak_add', 'rebound_add', 'joker_add', 'news_mult', 'repeat_mult', 'swing_mult', 'loss_cut', 'cash_yield',
   'yield_boost', 'stock_yield', 'bear_bonus', 'item_bonus', 'attack_bonus', 'news_item', 'hold_bonus', 'climb_bonus', 'shop_discount', 'bounty', 'attack_supply', 'stock_strike', 'shield_income', 'retaliate', 'attack_guard', 'generation_bonus', 'combo_income', 'recycle_income', 'purchase_rebate', 'dividend_bonus', 'patient_gain', 'sacrifice_contract', 'sacrifice_amplify', 'sacrifice_refund', 'sacrifice_supply', 'sacrifice_leader', 'sacrifice_rebirth', 'stored_strike', 'time_bank', 'finisher', 'lucky_star', 'fate_gambler', 'chaos_king', 'oracle', 'insider_king', 'market_prophet', 'imitator', 'phantom', 'universal_mirror', 'blacklist', 'wealth_seal', 'financial_hegemony', 'last_fury', 'pursuer', 'comeback_miracle'];
 const itemTypes = ['cash_grant', 'today_add', 'today_mult', 'defense', 'intel', 'item_pack', 'attack', 'cash_raid', 'shield_break', 'mirror', 'random_cash', 'generate', 'voucher', 'strike_boost', 'area_attack', 'stock_cash', 'relief', 'sacrifice_attack', 'sacrifice_draw'];
-const eventTypes = ['price', 'cash_grant', 'item_grant'];
+const eventTypes = ['price', 'cash_grant', 'item_grant', 'event_rules'];
 
 const references = z.array(id).min(1).refine(items => new Set(items).size === items.length, '效果引用不得重複');
 const card = z.object({
@@ -157,6 +177,8 @@ const schema = z.object({
   events: z.array(z.object({
     id, title: label, subtitle: label, description: label, fictional: z.literal(true), weight: positive,
     category: z.enum(categories),
+    family: z.enum(['market', 'cash', 'attack', 'defense', 'cards', 'shop', 'sacrifice', 'ranking']).optional(),
+    rarity: z.enum(['common', 'rare', 'legendary']).optional(),
     target: z.enum(['all', 'random_one', 'random_two', 'first_place', 'last_place']),
     severity: z.enum(['normal', 'major', 'extreme']),
     effectIds: references
@@ -168,6 +190,7 @@ export type FinancialRules = FinancialConfig['financial'];
 export type FinanceEffect = z.infer<typeof effect>;
 export type EffectType = FinanceEffect['type'];
 export type GameCard = FinancialConfig['jokers'][number];
+export type EventRules = z.infer<typeof eventRules>;
 export type TradingEvent = FinancialConfig['events'][number];
 export type InvestorCharacter = FinancialConfig['characters'][number];
 export type TradingDifficulty = 'easy' | 'normal' | 'hard';
@@ -192,6 +215,10 @@ export function readFinancialConfig(raw: unknown = financialInput): FinancialCon
   const { gameplay, allocation: plan } = config;
   for (const items of [[...config.jokers, ...config.items], config.events, config.characters]) {
     assert(new Set(items.map(item => item.id)).size === items.length, '資料含重複 ID');
+  }
+  for (const event of config.events) {
+    const rules = event.effectIds.filter(id => config.effects[id]?.type === 'event_rules');
+    assert(event.family ? rules.length === 1 && Boolean(event.rarity) && event.target === 'all' : rules.length === 0, '事件規則與分類不一致：' + event.id);
   }
   const groups = [
     ['王牌', config.jokers, jokerTypes], ['道具', config.items, itemTypes], ['新聞', config.events, eventTypes]

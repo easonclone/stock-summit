@@ -113,12 +113,16 @@ async function layout(width, height, dock = false) {
     const ctr = rect && document.elementFromPoint(rect.x + rect.width/2,rect.y + rect.height/2);
     return {
       width: innerWidth, doc: document.documentElement.scrollWidth, body: document.body.scrollWidth,
+      overflow: [...document.querySelectorAll('main *')].filter(el => {
+        const bounds = el.getBoundingClientRect();
+        return bounds.width && bounds.right > innerWidth + 1 && !el.closest('.item-row,.joker-row');
+      }).slice(0, 9).map(el => el.className),
       dock: rect && rect.top >= 0 && rect.bottom <= innerHeight && (ctr === trade || trade.contains(ctr)),
       touch: Array.from(document.querySelectorAll('.card-button,.alloc-button,.gold-button')).filter(el=>el.getClientRects().length).every(el=>el.getBoundingClientRect().height >= 44)
     };
   })()`);
   assert.equal(dims.width, width);
-  assert.equal(dims.doc, width, `document scrollWidth @${width}`);
+  assert.equal(dims.doc, width, `document scrollWidth @${width} ${JSON.stringify(dims.overflow)}`);
   assert.equal(dims.body, width, `body scrollWidth @${width}`);
   assert(dims.touch, `主要點擊尺寸 @${width}`);
   if (dock) assert(dims.dock, `固定確認列應可點擊 @${width}×${height}`);
@@ -146,15 +150,21 @@ async function openMarket(width, height, mobile, seed, reduced) {
   await click(on('offer-card') + '[data-value="0"]');
   await action('take');
   transitions.joker++;
+  assert(await has('.dialog-daily-shop[open] .daily-product'), '選完王牌直接展示開盤商品');
+  if (width === 390) await screenshot('opening-shop-390');
+  await action('finish-daily-shop');
+  assert(!(await has('dialog[open]')), '略過購物直接返回戰場');
   assert(!(await has('.coach, .opening-steps, .dialog-help[open]')));
   await action('help');
   assert(await has('.dialog-help[open]'));
   await action('close-dialog');
   assert.equal(await js('document.querySelectorAll(".joker-row .card-button").length'), 1, '王牌列顯示一張王牌');
   await layout(width, height, true);
+  await click('.battle-audit > summary');
   await action('chart');
   assert.equal(await js('document.querySelectorAll("dialog[open] .chart polyline").length'), 4);
   await action('close-dialog');
+  await click('.battle-audit > summary');
   for (const hidden of ['無融資', '交易正常', '正常交易', '無避險', '融資', '借款', '利息', '追繳', '定存', '欠款', '路線', '手牌', '行動力']) assert(!(await js('document.querySelector("main").innerText')).includes(hidden), '主畫面不顯示 ' + hidden);
   assert.equal(await js('document.querySelectorAll(\'[data-act="alloc"]\').length'), 3, '三個配置按鈕');
   assert.equal(await js('document.querySelector(\'[data-act="alloc"][aria-pressed="true"]\').dataset.value'), 'half', '預設一半買股');
@@ -168,6 +178,9 @@ async function clearDialogs(replaceOne = false) {
       transitions.show++;
       await click('.theater [data-th="skip"]');
       assert(!(await has('.theater')), '事件劇場可略過');
+    }
+    if (await has('.day-transition') && !(await has(on('daily-decline')))) {
+      await waitFor('.dialog-daily-shop[open]');
     }
     const dialog = await js('document.querySelector("dialog[open]")?.className ?? ""');
     if (!dialog) {
@@ -196,6 +209,9 @@ async function clearDialogs(replaceOne = false) {
       } else {
         await action('close-dialog');
       }
+    } else if (dialog.includes('dialog-daily-shop')) {
+      assert(await has('.daily-product'), '開盤直接展示今日商品');
+      await action('finish-daily-shop');
     } else if (dialog.includes('dialog-shop')) {
       transitions.shop++;
       assert(!(await has('.day-transition')), '換日演出等離開商店才播放');
@@ -204,13 +220,20 @@ async function clearDialogs(replaceOne = false) {
       assert.match(body, /商店/);
       assert.equal(await js('document.querySelectorAll("dialog .shop-card").length'), 5, '商店三張王牌加兩張道具');
       assert.equal(await js('document.querySelectorAll("dialog .shop-card .joker").length'), 3);
+      assert(await js(`(() => {
+        const cards = [...document.querySelectorAll("dialog .shop-card")];
+        const first = cards[0].querySelector(".game-card").getBoundingClientRect();
+        return cards.every(card => Math.abs(card.querySelector(".game-card").getBoundingClientRect().height - first.height) <= 1);
+      })()`), '王牌與道具卡面同高');
       const cash = () => js('Number(document.querySelector("[data-shop-cash]").textContent.replace(/[^\\d]/g, ""))');
       const before = await cash();
       const hasVip = await has('.joker-section [data-joker-id="vip"]');
       // Buy the first shelf that needs no replacement and is affordable; the wallet must drop by exactly its price.
-      const index = await js(`[...document.querySelectorAll("dialog .shop-card")].findIndex(b => b.querySelector(".shop-status").textContent === "買得起")`);
+      const index = await js(`[...document.querySelectorAll("dialog .shop-card")].findIndex(b => b.querySelector(".shop-status").textContent === "可購買")`);
       if (index >= 0) {
         await click(on('shop-card') + `[data-value="${index}"]`);
+        assert.equal(await js('getComputedStyle(document.querySelector(".shop-card[aria-pressed=true]")).transform'), 'none', '選取商品時維持對齊');
+        if (transitions.shop === 1) await screenshot('shop-cards-aligned');
         const price = await js('Number(document.querySelector("[data-act=buy]").textContent.replace(/[^\\d]/g, ""))');
         await action('buy');
         const paid = before - await cash();
@@ -251,6 +274,31 @@ try {
     const mobile = width < 500;
     await openMarket(width, height, mobile, width === 320 ? 2 : 23, mobile);
     assert.equal(await js('document.querySelectorAll(".item-row button").length'), 3, '開局三張道具');
+    assert(await js(`(() => {
+      const hand = document.querySelector('.item-row');
+      const button = hand.querySelector('button');
+      const face = button.querySelector('.game-card');
+      const width = button.getBoundingClientRect().width;
+      return width >= 90 && parseFloat(getComputedStyle(hand).gap) >= 9 &&
+        getComputedStyle(face).backgroundImage.includes('physical-card-frames');
+    })()`), '手牌加大、保持間距，並使用專屬卡框');
+    assert(await js(`(() => {
+      const opponents = [...document.querySelectorAll(".fighter:not(.is-player)")];
+      const player = document.querySelector(".fighter.is-player").getBoundingClientRect();
+      return opponents.length === 3 && opponents.every(seat => seat.getBoundingClientRect().top < player.top);
+    })()`), '三位對手在上方，玩家在下方');
+    assert(await has('.battle-market-board canvas'), '戰場有大盤 K 線螢幕');
+    assert(!(await has('main .daily-shop')), '今日商店獨立於戰場');
+    assert.match(await js('document.querySelector("[data-act=trade]").textContent'), /結束回合/);
+    if (width === 390 || width === 1440) {
+      await screenshot('battle-arena-' + width);
+      await action('open-daily-shop');
+      assert(await has('dialog[open] .daily-shelves'), '今日商店對話框');
+      await click(on('daily-detail') + '[data-value="0"]');
+      await action('daily-back');
+      assert(await has('dialog[open] .daily-shelves'), '看完商品可回到商店');
+      await action('close-dialog');
+    }
     assert(!(await has('[data-morning-item]')), '第 1 日不額外抽牌');
     assert.equal(await js('document.querySelectorAll(".timeline-day").length'), 15);
     assert.equal(await js('document.querySelectorAll(".timeline-day[data-shop]").length'), 4);
@@ -284,16 +332,17 @@ try {
       transitions.skip++;
       await action('skip');
     }
-    await clearDialogs();
-    assert.match(await js('document.querySelector(".session-counter strong").textContent'), /02/);
-    assert.match(await js('document.querySelector("[data-morning-item]").textContent'), /今日抽到/);
     if (!mobile) {
       assert.match(await js('document.querySelector(".day-transition strong")?.textContent ?? ""'), /DAY 02/);
       await delay(680);
       await screenshot('day-transition-desktop');
     }
+    await clearDialogs();
+    assert.match(await js('document.querySelector(".session-counter strong").textContent'), /02/);
+    assert.match(await js('document.querySelector("[data-morning-item]").textContent'), /今日抽到/);
+    assert.equal(await js('document.querySelector(".battle-market-board canvas").dataset.marketRates.split(",").filter(Boolean).length'), 1, '開盤只繪製已結算的一根 K 棒');
     await action('chart');
-    assert(!(await has('.day-transition')), '可直接點擊跳過換日畫面');
+    assert(!(await has('.day-transition')), '開盤後可直接查看走勢');
     assert.equal(await js('document.querySelector("dialog[open] .chart polyline").getAttribute("points").split(" ").length'), 2);
     await action('close-dialog');
     assert(await has('.day-result'), '每日結算分項');
@@ -363,6 +412,7 @@ try {
     assert.equal(chain.sum, chain.net, '結算連鎖加總等於當日變化，第 ' + day + ' 日');
   }
   await js('scrollTo(0,0)');
+  await js('document.querySelector(".battle-audit").open = true');
   await screenshot('chain-desktop');
   await layout(1440, 900, true);
 
@@ -374,8 +424,8 @@ try {
       await action('trade');
       if (await has(on('skip'))) await action('skip');
       if (day === 6) {
-        assert(await has('.theater.sev-extreme'), '黑天鵝事件劇場');
-        assert(await has('.theater .news-art'), '黑天鵝快報有 HD 場景');
+        assert(await has('.theater.sev-extreme'), '極端事件快報');
+        assert(await has('.theater .news-art[data-news-family]'), '新事件快報使用對應類別的 HD 場景');
         assert(await has('.theater .rpg-face'), '黑天鵝快報有播報員');
         await screenshot('news-brief-desktop');
         transitions.effect++;
@@ -426,8 +476,8 @@ try {
         assert.equal(await js('document.querySelector(".hero-main strong").textContent'), worth, '略過不影響結果');
       }
       if (day === 6) {
-        assert(await has('.theater.sev-extreme'), '黑天鵝事件劇場');
-        assert(await has('.theater .news-art'), '黑天鵝快報有 HD 場景');
+        assert(await has('.theater.sev-extreme'), '極端事件快報');
+        assert(await has('.theater .news-art[data-news-family]'), '新事件快報使用對應類別的 HD 場景');
         assert(await has('.theater .rpg-face'), '黑天鵝快報有播報員');
         transitions.effect++;
         await delay(2100);

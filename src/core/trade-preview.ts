@@ -1,6 +1,7 @@
-import type { AllocationOption, FinancialConfig, GameCard } from '../config/financial-settings';
+import type { AllocationOption, FinancialConfig, GameCard, TradingEvent } from '../config/financial-settings';
 import { attackOf, estimateAttack, isAreaAttack, type AttackEffect, type AttackTarget } from './attacks';
 import { sacrificeCost, sacrificeDamage, sacrificeRefund } from './sacrifice';
+import { eventAttackFactor, eventGuardFactor, eventPrice, rulesFor } from './event-rules';
 import { netWorth } from './economy';
 import {
   closeDay, copyHolder, jokerEffect, mirrorItem, itemBlock, newsOutlook, priceEffect, tradeDay, type DayContext, type DayLedger, type Holder, type ItemBlock, type Tone
@@ -29,6 +30,9 @@ export interface DecisionView {
   /** Direction of today's news if this investor learned it earlier with an item. */
   knownTone: Tone | null;
   openingLast?: boolean;
+  openingBottom?: boolean;
+  publicEvent?: TradingEvent | null;
+  previousMarket?: number;
   /** The stage shop opens after today's close; only cash can pay for it. */
   shopToday: boolean;
 }
@@ -39,7 +43,7 @@ export function allocationOption(config: FinancialConfig, id: string | undefined
 }
 
 export function viewContext(view: DecisionView, allocation: AllocationOption): DayContext {
-  return { config: view.config, day: view.day, allocation, marketRate: 0, news: null, nextNewsDay: view.nextNewsDay, hasTarget: false, openingLast: view.openingLast };
+  return { config: view.config, day: view.day, allocation, marketRate: 0, news: null, nextNewsDay: view.nextNewsDay, hasTarget: false, openingLast: view.openingLast, openingBottom: view.openingBottom };
 }
 
 export interface Scenario { marketRate: number; newsRate: number; tone: Tone | null; weight: number }
@@ -50,7 +54,13 @@ export function scenarios(view: DecisionView): Scenario[] {
   const moves = [
     { marketRate: market.floor, weight: 0.25 }, { marketRate: (market.floor + market.ceiling) / 2, weight: 0.5 }, { marketRate: market.ceiling, weight: 0.25 }
   ];
-  const news = view.eventToday ? newsOutlook(view.config, view.knownTone) : [{ tone: null, rate: 0, weight: 1 }];
+  const price = view.publicEvent ? eventPrice(view.config, view.publicEvent, view.previousMarket ?? 0) : null;
+  const samples = price ? (price.binary ? [price.floor, price.ceiling] : [price.floor, (price.floor + price.ceiling) / 2, price.ceiling]) : [0];
+  const advertised = samples.map(rate => ({ rate, tone: rate > 0 ? 'positive' as const : rate < 0 ? 'negative' as const : 'neutral' as const }));
+  const visible = advertised.filter(item => view.knownTone === null || item.tone === view.knownTone);
+  const publicOutcomes = visible.length ? visible : advertised;
+  const news = view.publicEvent ? publicOutcomes.map(item => ({ ...item, weight: 1 / publicOutcomes.length }))
+    : view.eventToday ? newsOutlook(view.config, view.knownTone) : [{ tone: null, rate: 0, weight: 1 }];
   return moves.flatMap(move => news.map(item => ({ marketRate: move.marketRate, newsRate: item.rate, tone: item.tone, weight: move.weight * item.weight })));
 }
 
@@ -61,7 +71,7 @@ function simulate(view: DecisionView, allocation: AllocationOption, items: GameC
   context.marketRate = scenario.marketRate;
   // Only the rate matters to a forecast; the event's topic (and so 護國神山) is unknown until the news airs.
   const placeholder = { ...view.config.events[0], category: 'flows' as const };
-  context.news = view.eventToday && scenario.newsRate ? { event: placeholder, rate: scenario.newsRate, applies: true } : null;
+  context.news = view.publicEvent || (view.eventToday && scenario.newsRate) ? { event: view.publicEvent ?? placeholder, rate: scenario.newsRate, applies: true } : null;
   const ledger = tradeDay(holder, items, context);
   ledger.itemCount += view.openingItems ?? 0;
   closeDay(holder, context, ledger);
@@ -95,7 +105,7 @@ export function attackTargets(view: DecisionView, item: GameCard | null, allocat
   const rivals = view.rivals.filter(rival => effect.type !== 'shield_break' || rival.shields > 0);
   const self = effect.type === 'attack' && jokerEffect(view.holder, view.config, 'sacrifice_contract');
   const stock = Math.floor(netWorth(view.holder.account) * allocation.ratio);
-  if (self && view.rivals.length && sacrificeCost(view.holder, view.day, effect, stock)) return [...rivals, {
+  if (self && view.rivals.length && sacrificeCost(view.holder, view.day, effect, stock, rulesFor(view.config, view.publicEvent))) return [...rivals, {
     id: view.characterId, name: '自己', rank: view.rank, cash: netWorth(view.holder.account) - stock, stock, shields: view.holder.defenses.length
   }];
   return rivals;
@@ -108,18 +118,19 @@ export function forecastSacrifice(view: DecisionView, effect: AttackEffect | nul
   const contract = isSelf && jokerEffect(view.holder, view.config, 'sacrifice_contract');
   if (!effect || (effect.type !== 'sacrifice_attack' && !contract)) return null;
   if (effect.type !== 'attack' && effect.type !== 'sacrifice_attack') return null;
-  const cost = sacrificeCost(view.holder, view.day, effect, stock);
+  const rules = rulesFor(view.config, view.publicEvent);
+  const cost = sacrificeCost(view.holder, view.day, effect, stock, rules);
   if (!cost) return null;
   const area = Boolean(contract) || isAreaAttack(effect);
   const victims = area ? view.rivals : view.rivals.filter(target => target.id === targetId);
   const best = Math.min(...view.rivals.map(target => target.rank));
   const factor = contract ? contract.effect.rate : effect.type === 'sacrifice_attack' ? effect.factor : 0;
   const damage = victims.map(target => {
-    const amount = sacrificeDamage(view.config, view.holder, cost, factor, target.rank === best && target.id === view.rivals.find(rival => rival.rank === best)?.id, area);
-    return { target, amount: Math.min(Math.floor((target.cash + target.stock) * view.config.settlement.attackLossLimit),
-      Math.round(amount * (1 - (target.guard ?? 0)))) };
+    const amount = sacrificeDamage(view.config, view.holder, cost, factor, target.rank === best && target.id === view.rivals.find(rival => rival.rank === best)?.id, area, rules);
+    return { target, amount: Math.min(Math.floor((target.cash + target.stock) * (rules.damageCap ?? view.config.settlement.attackLossLimit)),
+      Math.round(amount * eventGuardFactor(rules, target.guard ?? 0, Boolean(target.openingFirst), true))) };
   });
-  return { cost, refund: sacrificeRefund(view.config, view.holder, cost), damage };
+  return { cost, refund: sacrificeRefund(view.config, view.holder, cost, rules), damage };
 }
 
 export function forecastTrade(view: DecisionView, allocationId: string | undefined, slot: number | null, targetId?: string, actions?: ActionChoice[]): Forecast {
@@ -149,8 +160,10 @@ export function forecastTrade(view: DecisionView, allocationId: string | undefin
   const finisher = jokerEffect(view.holder, view.config, 'finisher');
   const ready = finisher && view.holder.memory.attackRestDays >= finisher.effect.days ? finisher.effect.factor : 1;
   const mirror = used && (effect?.type === 'attack' || effect?.type === 'cash_raid') ? mirrorItem(view.holder, view.config, used, view.day)?.effect.rate ?? 0 : 0;
-  const boostFactor = effect?.type === 'shield_break' ? 1 : (1 + charge) * ready * (1 + bonus + mirror);
-  const attack = target && effect ? { target, amount: sacrifice ? sacrifice.damage.find(hit => hit.target.id === target.id)?.amount ?? 0 : Math.min(Math.round(estimateAttack(effect, target) * boostFactor * (1 - (target.guard ?? 0))), Math.floor((target.cash + target.stock) * view.config.settlement.attackLossLimit)), kind: effect.type } : null;
+  const rules = rulesFor(view.config, view.publicEvent);
+  const boostFactor = (effect?.type === 'shield_break' ? 1 : (1 + charge) * ready * (1 + bonus + mirror)) *
+    eventAttackFactor(rules, isAreaAttack(effect), Boolean(view.openingLast), Boolean(view.openingBottom));
+  const attack = target && effect ? { target, amount: sacrifice ? sacrifice.damage.find(hit => hit.target.id === target.id)?.amount ?? 0 : Math.min(Math.round(estimateAttack(effect, target) * boostFactor * eventGuardFactor(rules, target.guard ?? 0, Boolean(target.openingFirst), true)), Math.floor((target.cash + target.stock) * (rules.damageCap ?? view.config.settlement.attackLossLimit))), kind: effect.type } : null;
   return {
     allocation, cash: worth - stock, stock, low: Math.min(...deltas), high: Math.max(...deltas), expected,
     item, itemBlock: block, itemCash, boost, shielded, targets, attack, sacrifice, ledger: middle.ledger

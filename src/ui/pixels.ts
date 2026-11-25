@@ -177,22 +177,38 @@ export function drawCardArt(canvas: HTMLCanvasElement, icon: PixelIcon, color: s
   }
 }
 
-/** 使用已結算的共同股價變化畫出開收盤柱，盤中沒有資料時不畫上下影線。 */
+/** 依大盤開盤、例行行情及全市場新聞的公布順序繪製 K 棒。 */
 export function drawMarketBackdrop(canvas: HTMLCanvasElement) {
   const rates = (canvas.dataset.marketRates ?? '').split(',').filter(Boolean).map(Number);
-  if (!rates.length) return;
+  const news = (canvas.dataset.marketNews ?? '').split(',').map(Number);
+  const { width, height } = canvas;
   const ctx = canvas.getContext('2d')!;
-  const prices = [1];
-  for (const rate of rates) prices.push(prices.at(-1)! * (1 + rate));
-  const low = Math.min(0.94, ...prices);
-  const high = Math.max(1.06, ...prices);
-  const y = (price: number) => Math.round(104 - (price - low) * 78 / (high - low));
-  const stride = (canvas.width - 28) / Number(canvas.dataset.marketDays);
+  ctx.clearRect(0, 0, width, height);
+  ctx.fillStyle = '#253e54';
+  for (let y = 9; y < height; y += 16) ctx.fillRect(0, y, width, 1);
+  const days = Number(canvas.dataset.marketDays) || 15;
+  const stride = width / days;
+  for (let day = 0; day < days; day++) ctx.fillRect(Math.round(stride * day), 0, 1, height);
+  if (!rates.length) return;
+
+  let index = 100;
+  const candles = rates.map((rate, day) => {
+    const open = index;
+    const middle = open * (1 + rate);
+    const close = open * (1 + rate + (news[day] ?? 0));
+    index = close;
+    return { open, close, low: Math.min(open, middle, close), high: Math.max(open, middle, close) };
+  });
+  const floor = Math.min(98, ...candles.map(candle => candle.low));
+  const ceiling = Math.max(102, ...candles.map(candle => candle.high));
+  const y = (price: number) => Math.round(height - 6 - (price - floor) * (height - 12) / (ceiling - floor));
   const style = getComputedStyle(canvas);
-  for (const [index, opening] of prices.slice(0, -1).entries()) {
-    const closing = prices[index + 1];
-    ctx.fillStyle = style.getPropertyValue(closing >= opening ? '--gain' : '--loss');
-    ctx.fillRect(Math.round(14 + stride * index), Math.min(y(opening), y(closing)),
-      Math.max(2, Math.floor(stride * 0.52)), Math.max(1, Math.abs(y(closing) - y(opening))));
+  const size = Math.max(4, Math.floor(stride * 0.58));
+  for (const [day, candle] of candles.entries()) {
+    const left = Math.round((day + 0.5) * stride - size / 2);
+    const top = Math.min(y(candle.open), y(candle.close));
+    ctx.fillStyle = style.getPropertyValue(candle.close >= candle.open ? '--gain' : '--loss').trim();
+    ctx.fillRect(left + Math.floor(size / 2), y(candle.high), 1, Math.max(1, y(candle.low) - y(candle.high)));
+    ctx.fillRect(left, top, size, Math.max(2, Math.abs(y(candle.close) - y(candle.open))));
   }
 }

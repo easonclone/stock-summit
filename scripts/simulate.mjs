@@ -2,7 +2,7 @@ import { createServer } from 'vite';
 
 const seeds = Number(process.argv[2] ?? 1000);
 if (!Number.isSafeInteger(seeds) || seeds < 1) throw new Error('種子數須為正整數');
-const server = await createServer({ server: { middlewareMode: true, ws: false }, appType: 'custom', logLevel: 'error' });
+const server = await createServer({ configLoader: 'runner', server: { middlewareMode: true, ws: false, hmr: false, watch: null }, appType: 'custom', logLevel: 'error' });
 
 try {
   const { readFinancialConfig } = await server.ssrLoadModule('/src/config/financial-settings.ts');

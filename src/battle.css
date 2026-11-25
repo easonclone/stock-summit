@@ -1,0 +1,231 @@
+/* 深藍交易所戰場，手牌與操作列共用金屬框。 */
+.battle-terminal { width:min(960px,100%); margin-inline:auto; gap:7px; }
+.battle-terminal .arena { border-color:#846d4b; background:#0b1221; }
+.battle-head { display:grid; grid-template-columns:minmax(0,1fr) auto; background:#111b2a; border-bottom:1px solid #746044; }
+.battle-head .ticker { border:0; background:transparent; min-height:48px; padding:5px 8px; gap:7px; }
+.battle-head .ticker-illustrated { grid-template-columns:clamp(30px,7vw,44px) minmax(0,1fr) auto; }
+.battle-head .ticker-text strong { font-size:.84rem; }
+.battle-head .ticker-impact { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:.69rem; }
+.battle-shop-trigger { display:grid; gap:1px; place-content:center; justify-items:center; padding:3px 8px;
+  border:0; border-left:1px solid #655239; background:#2a2220; color:#ffdc95; font-size:.67rem; white-space:nowrap; }
+.battle-shop-trigger .pixel-icon { width:22px; height:22px; }
+.battle-terminal .stage { grid-template-columns:repeat(3,minmax(0,1fr)); grid-template-rows:auto auto; gap:3px 10px;
+  padding:39px clamp(8px,4vw,40px) 6px; background:center 58% / cover no-repeat, #121d2d;
+  background-image:url('./assets/hd-art/exchange-arena.jpg'); background-position:center 38%; }
+.battle-terminal .stage::before { background:#07101b42; }
+.battle-market-board {
+  width:min(86%,590px); position:absolute; z-index:0; inset:5px auto auto 50%; transform:translateX(-50%);
+  padding:3px 5px; border:3px solid #9d7a49; background:#080f19;
+  box-shadow:inset 0 1px #cba26a,inset 0 -2px #4b3a2c,0 2px #0b0e16;
+}
+.battle-market-board strong { position:absolute; top:6px; left:8px; padding:1px 3px; color:#e3bc7a; background:#0a1320; font-size:.62rem; }
+.battle-market-board canvas { display:block; width:100%; height:40px; image-rendering:pixelated; }
+.battle-terminal .fighter { margin-bottom:0; z-index:1; }
+.battle-terminal .fighter:not(.is-player) { grid-row:1; }
+.battle-terminal .fighter.is-player { grid-column:2; grid-row:2; }
+.battle-terminal .fighter .sprite { display:block; width:clamp(46px,13vw,76px); max-width:100%; filter:drop-shadow(0 2px 0 #07090e); }
+.battle-terminal .fighter.is-player .sprite { width:clamp(53px,16vw,89px); }
+.battle-terminal .arena-portrait { display:none; }
+.battle-terminal .plate { grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:1px 4px; border:1px solid #85714f; padding:3px 5px;
+  background:#101824; max-width:184px; box-shadow:0 1px 0 #03050a; border-radius:3px; }
+.battle-terminal .plate strong { grid-column:1; grid-row:1; justify-self:start; font-size:.7rem; }
+.battle-terminal .plate .rank { grid-column:2; grid-row:1; font-size:.65rem; justify-self:end; }
+.battle-terminal .plate .rank .pixel-icon { width:12px; height:12px; }
+.battle-terminal .plate .worth { grid-column:1 / -1; justify-self:center; font-size:clamp(.7rem,2.8vw,.88rem); }
+.battle-terminal .wealth-track { grid-column:1 / -1; width:100%; height:8px; margin:1px 0; border:1px solid #746242;
+  background:#080c13; border-radius:2px; }
+.battle-terminal .wealth-track b { box-shadow:inset 0 2px #fff4; }
+.battle-terminal .fighter-status { position:absolute; inset:auto 0 100% auto; max-height:22px; background:#101824; padding:1px 3px; }
+.battle-terminal .plate strong em { padding-inline:2px; }
+.battle-terminal .bubble { z-index:1; font-size:.62rem; }
+.battle-terminal .target-seat { z-index:2; min-height:44px; box-shadow:inset 0 0 0 1px #c2a073; }
+.battle-console { display:grid; gap:7px; padding:7px clamp(6px,2vw,16px) 5px; min-width:0;
+  border:1px solid #766044; background:#151e2b; box-shadow:inset 0 0 0 2px #a380492c; }
+.battle-console .hero { display:grid; grid-template-columns:minmax(0,1fr) auto; padding:4px 6px; gap:2px 8px;
+  border:0; box-shadow:none; background:#0f1724; }
+.battle-console .hero-main { display:flex; align-items:baseline; flex-wrap:wrap; gap:4px; }
+.battle-console .hero-main strong { font-size:1.03rem; }
+.battle-console .hero-main b { font-size:.68rem; }
+.battle-console .hero-side { display:flex; flex-wrap:wrap; gap:3px 9px; }
+.battle-console .hero-side div { display:flex; align-items:baseline; gap:3px; }
+.battle-console .hero-side strong { font-size:.75rem; }
+.battle-console .hero span { font-size:.64rem; }
+.battle-console .hero .chips { grid-column:1 / -1; grid-row:auto; padding-top:1px; }
+.battle-console .section-head { min-height:0; margin:0; }
+.battle-console .section-head h2 { font-size:.8rem; color:#f1d18f; }
+.battle-console .section-head span { font-size:.68rem; }
+.battle-console .joker-row { grid-auto-columns:clamp(51px,16vw,108px); grid-auto-flow:column; grid-template-columns:none; gap:5px;
+  padding:2px 2px 4px; overflow-x:auto; }
+.battle-console .passive-token { display:flex; align-items:center; min-height:44px; gap:4px; padding:3px 5px;
+  color:#f0e6ce; border:1px solid #847455; background:#192536; box-shadow:inset 0 0 0 1px #08111b; }
+.passive-token canvas { width:clamp(20px,5.7vw,34px); height:auto; image-rendering:pixelated; }
+.passive-label { min-width:0; display:grid; line-height:1.13; }
+.passive-label strong { font-size:clamp(.61rem,2.7vw,.8rem); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.passive-label small { color:#ffe0a0; font-size:.61rem; white-space:nowrap; }
+.battle-console .passive-token.fx-fire { border-color:#ffcf76; background:#5e4727; }
+/* 少量手牌置中，超出時只在手牌區滑動。預留上方空間，可完整顯示選中的牌。 */
+.battle-hand .item-row {
+  --hand-card-width:clamp(91px,26vw,136px);
+  grid-template-columns:none; grid-auto-columns:var(--hand-card-width); grid-auto-flow:column;
+  gap:clamp(9px,2.65vw,18px); justify-content:safe center; align-items:start;
+  padding:17px 12px 9px; overflow-x:auto; scrollbar-width:thin;
+  scrollbar-color:#94754d #17151d; scroll-snap-type:x proximity; scroll-padding-inline:12px;
+}
+.battle-hand .item-row > .card-button {
+  position:relative; min-width:0; aspect-ratio:2 / 3; scroll-snap-align:start;
+  transition:transform 135ms ease-out;
+}
+.battle-hand .item-row .card-button[aria-pressed="true"] { transform:translateY(-11px) scale(1.055); z-index:2; }
+.battle-hand .item-row .card-button[aria-pressed="true"] .game-card { outline:2px solid #ffe0a4; outline-offset:-4px; }
+.battle-hand :is(.item-note,.target-hint,.quick-detail,.action-lineup) { margin-block:2px; padding:4px 6px; font-size:.72rem; }
+.trade-dock .alloc-row { gap:5px; }
+.trade-dock .alloc-button { min-height:44px; padding:3px 4px; gap:0; text-align:center; align-content:center; }
+.trade-dock .alloc-button strong { font-size:.76rem; }
+.trade-dock .alloc-button small { font-size:.63rem; }
+.trade-dock .preview { display:flex; align-items:baseline; justify-content:space-between; flex-wrap:wrap; gap:2px 7px;
+  margin:2px 0 0; padding:3px 5px; border:0; background:transparent; font-size:.67rem; }
+.trade-dock .preview p { margin:0; }
+.trade-dock .preview summary { color:#c2d7ec; cursor:pointer; }
+.battle-audit { font-size:.68rem; color:#c2d7ec; }
+.battle-audit > summary { cursor:pointer; padding:3px 2px; }
+.battle-audit[open] > button { margin:3px 0; }
+.battle-terminal .trade-dock { margin:0; background:#101621; border-color:#806440; }
+.battle-terminal .trade-dock .alloc-section { padding:4px 7px 0; }
+.battle-terminal .dock-inner { padding:4px 7px 5px; }
+.battle-terminal .dock-inner .gold-button { min-height:44px; max-width:min(490px,68%); }
+.dialog-daily-shop { width:min(595px,calc(100% - 24px)); }
+.dialog-daily-shop .daily-shop { padding:10px; }
+.dialog-daily-shop .daily-shelves { grid-template-columns:repeat(2,minmax(0,1fr)); }
+@media (min-width:700px) {
+  .battle-terminal .stage { padding-block:42px 6px; }
+  .battle-console .joker-row { grid-auto-columns:minmax(82px,130px); }
+  .battle-console .item-row { gap:18px; }
+}
+@media (max-width:410px) {
+  .battle-terminal .ticker-next { display:none; }
+  .battle-terminal .stage { gap:5px; }
+  .battle-terminal .plate .rank { margin-right:0; }
+  .battle-console .passive-token { padding-inline:3px; }
+}
+@media (prefers-reduced-motion:reduce) {
+  .battle-hand .item-row .card-button[aria-pressed="true"] { transform:none; }
+}
+.reduced-motion .battle-hand .item-row .card-button[aria-pressed="true"] { transform:none; }
+
+/* 共用卡框材質與按鈕，卡框顏色代表稀有度，圖示與底帶代表使用類型。 */
+body { background:#0b111b; }
+.game-card {
+  --card-frame:#a0a8b3; --card-shine:#ccd3da; --card-depth:#4a5360;
+  aspect-ratio:2 / 3; padding:5px; background:#162130;
+  clip-path:polygon(4px 0,calc(100% - 4px) 0,calc(100% - 4px) 2px,100% 2px,100% calc(100% - 4px),
+    calc(100% - 2px) calc(100% - 4px),calc(100% - 2px) 100%,2px 100%,2px calc(100% - 2px),0 calc(100% - 2px),0 2px,4px 2px);
+}
+.game-card.rarity-rare { --card-frame:#9a7ab9; --card-shine:#dbc0ed; --card-depth:#4a375f; }
+.game-card.rarity-legendary { --card-frame:#bd924d; --card-shine:#ffe4a0; --card-depth:#66502f; }
+.game-card.joker, .game-card.item, .shop-card .game-card {
+  border:3px solid var(--card-frame); border-radius:0;
+  box-shadow:inset 0 1px var(--card-shine),inset 1px 0 var(--card-shine),inset 0 -2px var(--card-depth),inset -2px 0 var(--card-depth);
+}
+.game-card.rarity-legendary::after, .game-card.rarity-rare::after { background:var(--card-shine); box-shadow:none; }
+.game-card .rarity-mark { font-size:.63rem; line-height:1; color:var(--card-shine); background:#0b1420; }
+.game-card .item-phase { display:flex; align-items:center; gap:2px; color:#e6edf4; background:#253349; padding:1px 2px; }
+.game-card.phase-instant .item-phase { color:#ffe0a0; background:#493820; }
+.game-card.phase-action .item-phase { color:#ffd0bd; background:#462c2c; }
+.game-card.phase-defense .item-phase { color:#c4e5fb; background:#253d59; }
+.game-card.phase-sacrifice .item-phase { color:#f5c4db; background:#512d49; }
+.game-card .item-phase .pixel-icon { width:12px; height:12px; }
+.card-button[aria-pressed="true"] .game-card { background:#26334a; }
+.battle-hand .game-card .item-phase .pixel-icon { width:10px; height:10px; }
+.battle-terminal .is-target .target-seat { border:2px solid #e6bf77; box-shadow:inset 0 0 0 1px #141824; }
+.battle-terminal .target-seat .pixel-icon { width:19px; height:19px; }
+.gold-button { background:#d9b677; color:#201910; border:2px solid #f1ce8a; box-shadow:inset 0 -3px #977144; }
+.gold-button:disabled { background:#303842; color:#bac5d3; border-color:#65717d; box-shadow:inset 0 -2px #202731; }
+.terminal-dialog { border:2px solid #896d49; box-shadow:4px 4px #070b14; background:#141e2c; }
+.terminal-dialog > header { background:#222b3a; border-bottom:2px solid #71583a; }
+.theater .rpg-box { background:#141e2c; border:3px solid #ac8a55; box-shadow:inset 0 -2px #5e4c36; }
+.daily-shop, .dialog-shop .shop { background:#302420; box-shadow:inset 0 0 0 2px #533b2d; }
+.dialog-daily-shop .shop-sign h3 { display:flex; align-items:center; gap:6px; font-size:.9rem; }
+
+@media (max-width:600px) and (max-height:710px) {
+  .battle-market-board canvas { height:34px; }
+  .battle-terminal .fighter .sprite { width:44px; }
+  .battle-terminal .fighter.is-player .sprite { width:55px; }
+}
+
+.battle-console .passive-token:only-child { grid-column:span 2; }
+
+/* 共用實體卡面。插畫、名稱和效果各佔固定區域，材質由稀有度決定。 */
+#app .game-card {
+  --frame-offset:0%; --name-band:#2e3d48;
+  display:block; position:relative; isolation:isolate; width:100%; padding:0; border:0; border-radius:0;
+  min-height:0; aspect-ratio:2/3; background:url('./assets/hd-art/physical-card-frames.jpg') var(--frame-offset) center / 300% 100% no-repeat;
+  box-shadow:none; clip-path:none;
+}
+#app .game-card.rarity-rare { --frame-offset:50%; }
+#app .game-card.rarity-legendary { --frame-offset:100%; }
+#app .game-card.phase-instant { --name-band:#354730; }
+#app .game-card.phase-action { --name-band:#633433; }
+#app .game-card.phase-defense { --name-band:#293f58; }
+#app .game-card.phase-sacrifice { --name-band:#572e4b; }
+#app .game-card::after { display:none; }
+#app .game-card .card-top {
+  position:absolute; inset:9% 8% 38%; display:grid; place-items:center; width:auto; height:auto;
+  min-height:0; background:transparent; border:0; overflow:hidden;
+}
+#app .game-card .card-top canvas { width:100%; height:100%; object-fit:contain; outline:0; image-rendering:pixelated; }
+#app .game-card.item .card-top canvas { width:100%; height:100%; max-width:none; }
+#app .game-card .rarity-mark { right:2%; top:0; padding:2px; border:1px solid var(--card-frame); color:var(--card-shine); background:#151923; }
+#app .game-card .item-phase {
+  position:absolute; inset:10% auto auto 8%; display:grid; place-items:center; border:1px solid #856b48;
+  background:var(--name-band); padding:2px; width:19px; height:19px; overflow:hidden; font-size:0;
+}
+#app .game-card .item-phase .pixel-icon { width:13px; height:13px; }
+#app .game-card > strong {
+  position:absolute; inset:58% 7% auto; min-height:13%; display:grid; place-content:center; text-align:center; padding:2px 1px;
+  color:#fff4d9; background:var(--name-band); border-block:1px solid #a98c62;
+  font-size:clamp(.68rem,2.95vw,.96rem); line-height:1.14; white-space:normal; overflow-wrap:anywhere;
+}
+#app .game-card > .card-line {
+  position:absolute; inset:72% 12% 7%; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:3;
+  overflow:hidden; text-align:center; color:#2e2419; font-size:clamp(.61rem,2.62vw,.82rem); line-height:1.17;
+}
+#app .game-card > .card-status {
+  position:absolute; bottom:41%; inset-inline:9%; padding:2px 3px; text-align:center;
+  background:#191522; color:#fff0c8; font-size:.61rem; line-height:1.14; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+#app .card-button[aria-pressed="true"] .game-card { box-shadow:none; outline:2px solid #f9d98a; outline-offset:-2px; }
+#app .card-button.blocked .game-card { opacity:.74; }
+.shop-card .game-card { height:100%; }
+.dialog-daily-shop .daily-product .card-button { width:min(100%,138px); margin-inline:auto; }
+.dialog-daily-shop .daily-product .game-card { height:auto; }
+.battle-terminal { gap:9px; }
+.battle-terminal .arena { border:2px solid #795e44; box-shadow:0 2px #0b0c12; }
+.battle-terminal .plate { background:#191722; border:2px solid #a58359; box-shadow:inset 0 -2px #463547,0 2px #101018; }
+.battle-terminal .fighter.is-player .plate { background:#232632; outline:1px solid #b49864; }
+.battle-terminal .battle-console { background:#211c29; padding-block:8px; border-color:#765842; }
+.battle-terminal .passive-rail { border-bottom:1px solid #4c3c42; padding-bottom:4px; }
+.battle-terminal .trade-dock { display:grid; grid-template-columns:minmax(0,1fr) minmax(104px,30%); align-items:start; gap:7px;
+  background:#221d28; border:2px solid #846446; padding:6px; }
+.battle-terminal .trade-dock .alloc-section { padding:0; min-width:0; }
+.battle-terminal .dock-inner { display:block; width:100%; min-width:0; padding:0; }
+.battle-terminal .dock-caption { display:none; }
+.battle-terminal .dock-inner .gold-button { width:100%; max-width:none; padding-inline:4px; font-size:clamp(.72rem,2.95vw,1rem); }
+.trade-dock .alloc-button { background:#302a38; border-color:#876949; }
+.trade-dock .alloc-button strong { font-size:clamp(.65rem,2.65vw,.86rem); }
+.trade-dock .alloc-button small { font-size:.59rem; }
+.trade-dock .alloc-button[aria-pressed="true"] { background:#715237; box-shadow:inset 0 0 0 1px #e5bd78; }
+.battle-terminal .trade-dock .preview { padding-inline:0; }
+@media (max-width:600px) {
+  .battle-terminal .timeline-day { min-height:34px; }
+  .battle-terminal .stage { padding-top:31px; }
+  .battle-terminal .battle-market-board canvas { height:33px; }
+  .battle-terminal .ticker { min-height:43px; }
+  .battle-terminal .battle-console { padding-inline:4px; }
+  .battle-terminal .trade-dock .preview { font-size:.61rem; }
+}
+
+.battle-hand, .battle-hand .item-row { min-width:0; }
+#app .battle-hand .game-card > .card-line { display:-webkit-box; }
+.dialog-daily-shop .daily-shelves { gap:12px; margin-block:12px; }
+.dialog-daily-shop .opening-shop-actions { display:flex; justify-content:flex-end; padding-top:10px; border-top:1px solid #73563e; }
+.dialog-daily-shop .opening-shop-actions .gold-button { min-height:44px; }

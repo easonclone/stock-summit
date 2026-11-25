@@ -4,8 +4,12 @@ export class DayTransition {
 
   constructor(private readonly root: HTMLElement) {}
 
-  /** `after` pushes the banner back so it never covers the arena while a hit show is still playing. */
-  play(day: number, after = 0) {
+  get active() {
+    return this.overlay !== null;
+  }
+
+  /** 延後開盤演出，讓戰場結算先播完。 */
+  play(day: number, after = 0, onFinish?: () => void) {
     this.close();
     if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     const overlay = document.createElement('div');
@@ -17,7 +21,10 @@ export class DayTransition {
     const subtitle = document.createElement('span');
     subtitle.textContent = '今日開盤';
     overlay.append(label, subtitle);
-    overlay.addEventListener('animationend', () => this.close(), { once: true });
+    overlay.addEventListener('animationend', () => {
+      this.close();
+      onFinish?.();
+    }, { once: true });
     this.root.append(overlay);
     this.overlay = overlay;
   }

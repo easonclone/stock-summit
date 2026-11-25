@@ -20,12 +20,15 @@ function play(seed: number, onDay?: (run: TradingRun) => void) {
 }
 
 describe('市場快報', () => {
-  it('六十則新聞沿用六類 HD 場景', () => {
-    expect(config.events).toHaveLength(60);
+  it('原有六類 HD 場景與新增事件的插畫皆可讀取', () => {
+    expect(config.events).toHaveLength(124);
     const categories = new Set(config.events.map(event => event.category));
     expect(categories.size).toBe(6);
-    expect(new Set([...categories].map(newsArt)).size).toBe(6);
+    expect(new Set([...categories].map(category => newsArt(category))).size).toBe(6);
     for (const category of categories) expect(newsCategories[category]).toBeTruthy();
+    const artwork = config.events.filter(event => event.family).map(event => newsArt(event.category, event.family));
+    expect(new Set(artwork).size).toBe(8);
+    expect(artwork.every(markup => markup.includes('400% 200%'))).toBe(true);
   });
 
   it('顯示玩家實際的新聞股票損益，讀取快報不改變市場及財務', () => {

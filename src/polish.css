@@ -75,7 +75,7 @@
 .shop-sign { display:flex; gap:8px; justify-content:space-between; align-items:center; color:#ffdd95; padding:5px 8px; background:#512f25;
   border-top:2px solid #b27b47; border-bottom:2px solid #211a1a; font-size:.78rem; font-weight:800; }
 .shop-sign h2 { font-size:.91rem; }
-.dialog-shop .shop-sign { justify-content:center; }
+.dialog-shop .shop { padding:clamp(10px, 2.2vw, 22px); }
 .daily-shelves { margin:6px 0 0; gap:6px; }
 .daily-product { display:grid; gap:4px; border-bottom:2px solid #8a5735; padding:4px; background:#312625; min-width:0; }
 .daily-product .game-card { min-height:88px; }
@@ -88,8 +88,6 @@
 .hero-tools { grid-column:2; grid-row:2; }
 .hero-tools button { min-width:70px; }
 .hero .chips { grid-row:3; }
-.shop-shortcut { padding:4px 8px; flex:none; background:#402b25; color:#ffdfa1; border-color:#8b603c; font-size:.75rem; }
-.shop-shortcut span { font-weight:800; }
 @media (min-width:880px) { .fighter .sprite { width:96px; } }
 @media (max-width:480px) {
   .timeline { gap:2px; padding:3px 0; }
@@ -104,7 +102,6 @@
   .hero-side strong { font-size:.81rem; }
   .hero .chips { grid-row:2; }
   .trade-dock .dock-inner { gap:4px; }
-  .shop-shortcut { padding-inline:5px; font-size:.67rem; }
   .stage { padding-top:18px; }
   .item-row, .joker-row { grid-template-columns:repeat(5,minmax(0,1fr)); gap:4px; }
   .item-row .game-card, .joker-row .game-card { min-height:84px; padding:3px; gap:2px; }
@@ -131,8 +128,7 @@
 .help-trigger .pixel-icon { margin-right:4px; }
 .fighter-status { display:flex; align-items:center; gap:2px; }
 .fighter-status .pixel-icon,.plate .rank .pixel-icon { width:16px; height:16px; }
-.shop-sign h2,.shop-sign span,.shop-shortcut { display:flex; gap:4px; align-items:center; justify-content:center; }
-.shop-shortcut .pixel-icon { width:20px; height:20px; }
+.shop-sign h2,.shop-sign span { display:flex; gap:4px; align-items:center; justify-content:center; }
 @media (max-width:480px) {
  .item-row .card-top,.joker-row .card-top { height:auto; }
  .item-row .card-top canvas,.joker-row .card-top canvas { width:100%; height:auto; }

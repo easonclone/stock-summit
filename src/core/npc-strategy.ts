@@ -3,6 +3,7 @@ import { isAreaAttack, attackOf, estimateAttack, type AttackEffect } from './att
 import { itemTiming } from './item-timing';
 import { netWorth } from './economy';
 import type { Random } from './random';
+import { eventAttackFactor, rulesFor } from './event-rules';
 import { forecastSacrifice, attackTargets, forecastTrade, type ActionChoice, type DecisionView, type TradeChoice } from './trade-preview';
 import { jokerEffect, copyHolder, type Holder } from './settlement';
 import { buy, checkBuy, sellPrice, type Shop } from './shop';
@@ -157,13 +158,13 @@ export function planShop(real: Shop, own: Holder, config: DecisionView['config']
     let top: { index: number; replace: number | null; net: number } | null = null;
     shop.slots.forEach((slot, index) => {
       const owned = slot.kind === 'joker' ? holder.jokers : holder.items;
-      const full = checkBuy(config, holder, slot).needsReplace;
+      const full = checkBuy(config, holder, slot, null, shop.day, shop.rules).needsReplace;
       const replace = full ? owned.reduce((pick, card, at) => worth(card, slot.kind) < worth(owned[pick], slot.kind) ? at : pick, 0) : null;
-      const check = checkBuy(config, holder, slot, replace, shop.day);
+      const check = checkBuy(config, holder, slot, replace, shop.day, shop.rules);
       if (check.block) return;
-      const lost = replace === null ? 0 : worth(owned[replace], slot.kind) - (slot.kind === 'joker' ? sellPrice(config, owned[replace]) : 0);
+      const lost = replace === null ? 0 : worth(owned[replace], slot.kind) - (slot.kind === 'joker' ? sellPrice(config, owned[replace], shop.rules) : 0);
       const vip = holder.memory.rebateDay !== day ? jokerEffect(holder, config, 'purchase_rebate') : undefined;
-      const net = worth(slot.card, slot.kind) - check.price - lost + Math.floor(check.price * (vip?.effect.rate ?? 0));
+      const net = worth(slot.card, slot.kind) - check.price - lost + Math.floor(check.price * (holder.memory.rebateDay !== day ? Math.max(vip?.effect.rate ?? 0, shop.rules?.shopRebate ?? 0) : 0));
       if (net > npc.shopMargin && (!top || net > top.net)) top = { index, replace, net };
     });
     if (!top) break;
@@ -234,6 +235,7 @@ export function chooseTrade(view: DecisionView, random: Random, strategy: Strate
   let best: TradeChoice = { allocation: choices[0], actions: [] };
   let top = -Infinity;
   const lean = holderStyle(view.holder, config);
+  const eventRules = rulesFor(config, view.publicEvent);
   for (const allocation of choices) {
     const available = actionSlots.flatMap(slot => {
       const card = view.holder.items[slot];
@@ -241,7 +243,8 @@ export function chooseTrade(view: DecisionView, random: Random, strategy: Strate
       const boost = card.effectIds.map(id => config.effects[id]).find(effect => effect.type === 'strike_boost');
       const target = chooseAttackTarget(view, card);
       const area = isAreaAttack(effect);
-      const targetIds = effect?.type === 'sacrifice_attack' && !area ? view.rivals.map(rival => rival.id) : [target?.id];
+      const targetIds = effect && !area && (effect.type === 'sacrifice_attack' || view.actionsLeft >= 3)
+        ? attackTargets(view, card).filter(rival => rival.id !== view.characterId).map(rival => rival.id) : [target?.id];
       if (effect?.type === 'attack' && jokerEffect(view.holder, config, 'sacrifice_contract') && view.rivals.length) targetIds.push(view.characterId);
       return targetIds.flatMap(targetId => {
         const forecast = forecastTrade(view, allocation, slot, targetId);
@@ -251,7 +254,8 @@ export function chooseTrade(view: DecisionView, random: Random, strategy: Strate
         const rebound = remaining > 0 && sacrifice && jokerEffect(view.holder, config, 'sacrifice_rebirth') ? forecast.stock * 0.025 : 0;
         const supply = sacrifice && (jokerEffect(view.holder, config, 'sacrifice_supply')?.effect.amount ?? Infinity) <= sacrifice.cost && remaining > 0 ? 275 : 0;
         const value = sacrifice ? sacrifice.damage.reduce((sum, hit) => sum + hit.amount * (hit.target.rank === 1 ? 0.9 : hit.target.rank <= view.rank ? 0.52 : 0.27), 0) + rebound + supply
-          : area ? view.rivals.reduce((sum, rival) => sum + estimateAttack(effect!, rival), 0) * 0.65
+          : area ? view.rivals.reduce((sum, rival) => sum + estimateAttack(effect!, rival), 0) * 0.65 *
+            eventAttackFactor(eventRules, true, Boolean(view.openingLast), Boolean(view.openingBottom))
             : forecast.attack ? attackValue(forecast.attack.kind, forecast.attack.amount) : 0;
         return [{ choice: { slot, targetId }, effect, boost, value, forecast, sacrifice: Boolean(sacrifice) }];
       });
@@ -265,6 +269,12 @@ export function chooseTrade(view: DecisionView, random: Random, strategy: Strate
       if (pair.every(card => card.effect) && (pair[0].choice.targetId === pair[1].choice.targetId ||
           pair.some(card => isAreaAttack(card.effect) || card.choice.targetId === view.characterId))) continue;
       plans.push(pair);
+      if (view.actionsLeft >= 3) for (const third of available) {
+        if (third.boost || pair.some(card => card.choice.slot === third.choice.slot || (card.sacrifice && third.sacrifice))) continue;
+        if (third.effect && pair.some(card => card.effect && (card.choice.targetId === third.choice.targetId ||
+            isAreaAttack(card.effect) || isAreaAttack(third.effect) || card.choice.targetId === view.characterId || third.choice.targetId === view.characterId))) continue;
+        plans.push([...pair, third]);
+      }
     }
     for (const plan of plans) {
       const actions: ActionChoice[] = plan.map(card => card.choice);

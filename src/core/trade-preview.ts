@@ -3,7 +3,7 @@ import { attackOf, estimateAttack, isAreaAttack, type AttackEffect, type AttackT
 import { sacrificeCost, sacrificeDamage, sacrificeRefund } from './sacrifice';
 import { netWorth } from './economy';
 import {
-  closeDay, copyHolder, jokerEffect, itemBlock, newsOutlook, priceEffect, tradeDay, type DayContext, type DayLedger, type Holder, type ItemBlock, type Tone
+  closeDay, copyHolder, jokerEffect, mirrorItem, itemBlock, newsOutlook, priceEffect, tradeDay, type DayContext, type DayLedger, type Holder, type ItemBlock, type Tone
 } from './settlement';
 
 /** Locked before any market result is known: today's stock ratio and at most one item (slot in the holder's items). */
@@ -23,10 +23,12 @@ export interface DecisionView {
   /** 只包含對手已公開的資產、排名與護盾。 */
   rivals: AttackTarget[];
   actionsLeft: number;
+  openingItems?: number;
   eventToday: boolean;
   nextNewsDay: number | null;
   /** Direction of today's news if this investor learned it earlier with an item. */
   knownTone: Tone | null;
+  openingLast?: boolean;
   /** The stage shop opens after today's close; only cash can pay for it. */
   shopToday: boolean;
 }
@@ -37,7 +39,7 @@ export function allocationOption(config: FinancialConfig, id: string | undefined
 }
 
 export function viewContext(view: DecisionView, allocation: AllocationOption): DayContext {
-  return { config: view.config, day: view.day, allocation, marketRate: 0, news: null, nextNewsDay: view.nextNewsDay, hasTarget: false };
+  return { config: view.config, day: view.day, allocation, marketRate: 0, news: null, nextNewsDay: view.nextNewsDay, hasTarget: false, openingLast: view.openingLast };
 }
 
 export interface Scenario { marketRate: number; newsRate: number; tone: Tone | null; weight: number }
@@ -61,6 +63,7 @@ function simulate(view: DecisionView, allocation: AllocationOption, items: GameC
   const placeholder = { ...view.config.events[0], category: 'flows' as const };
   context.news = view.eventToday && scenario.newsRate ? { event: placeholder, rate: scenario.newsRate, applies: true } : null;
   const ledger = tradeDay(holder, items, context);
+  ledger.itemCount += view.openingItems ?? 0;
   closeDay(holder, context, ledger);
   return { holder, ledger, delta: netWorth(holder.account) - before };
 }
@@ -142,7 +145,12 @@ export function forecastTrade(view: DecisionView, allocationId: string | undefin
   const itemCash = used ? middle.ledger.steps.filter(step => step.source === 'item' && step.kind === 'cash').reduce((sum, step) => sum + step.amount, 0) : 0;
   const effect = attackOf(view.config, used);
   const bonus = effect?.type === 'attack' ? jokerEffect(view.holder, view.config, 'stock_strike')?.effect.rate ?? 0 : 0;
-  const attack = target && effect ? { target, amount: sacrifice ? sacrifice.damage.find(hit => hit.target.id === target.id)?.amount ?? 0 : Math.min(Math.round(estimateAttack(effect, target) * (1 + bonus)), Math.floor((target.cash + target.stock) * view.config.settlement.attackLossLimit)), kind: effect.type } : null;
+  const charge = jokerEffect(view.holder, view.config, 'stored_strike') ? view.holder.memory.charge : 0;
+  const finisher = jokerEffect(view.holder, view.config, 'finisher');
+  const ready = finisher && view.holder.memory.attackRestDays >= finisher.effect.days ? finisher.effect.factor : 1;
+  const mirror = used && (effect?.type === 'attack' || effect?.type === 'cash_raid') ? mirrorItem(view.holder, view.config, used, view.day)?.effect.rate ?? 0 : 0;
+  const boostFactor = effect?.type === 'shield_break' ? 1 : (1 + charge) * ready * (1 + bonus + mirror);
+  const attack = target && effect ? { target, amount: sacrifice ? sacrifice.damage.find(hit => hit.target.id === target.id)?.amount ?? 0 : Math.min(Math.round(estimateAttack(effect, target) * boostFactor * (1 - (target.guard ?? 0))), Math.floor((target.cash + target.stock) * view.config.settlement.attackLossLimit)), kind: effect.type } : null;
   return {
     allocation, cash: worth - stock, stock, low: Math.min(...deltas), high: Math.max(...deltas), expected,
     item, itemBlock: block, itemCash, boost, shielded, targets, attack, sacrifice, ledger: middle.ledger

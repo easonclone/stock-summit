@@ -75,6 +75,24 @@
     "equal_exchange": {"type":"sacrifice_attack","rate":0.05,"factor":2,"area":false},
     "forbidden_trade": {"type":"sacrifice_draw","rate":0.05,"count":3},
     "mutual_doom": {"type":"sacrifice_attack","rate":0.1,"factor":1,"area":true},
-    "final_reckoning": {"type":"sacrifice_attack","rate":0.15,"factor":1.5,"area":true}
+    "final_reckoning": {"type":"sacrifice_attack","rate":0.15,"factor":1.5,"area":true},
+    "stored_strike": {"type":"stored_strike","step":0.2,"cap":1},
+    "time_bank": {"type":"time_bank","amount":600},
+    "finisher": {"type":"finisher","days":3,"factor":2},
+    "lucky_star": {"type":"lucky_star","rolls":2},
+    "fate_gambler": {"type":"fate_gambler","gain":1500,"loss":800,"chance":0.5},
+    "chaos_king": {"type":"chaos_king","count":1},
+    "oracle": {"type":"oracle"},
+    "insider_king": {"type":"insider_king"},
+    "market_prophet": {"type":"market_prophet","count":1},
+    "imitator": {"type":"imitator","days":3},
+    "phantom": {"type":"phantom","rate":0.5},
+    "universal_mirror": {"type":"universal_mirror","rate":0.5},
+    "blacklist": {"type":"blacklist","rate":0.25},
+    "wealth_seal": {"type":"wealth_seal","rate":0.5,"cap":800},
+    "financial_hegemony": {"type":"financial_hegemony","rate":0.5},
+    "last_fury": {"type":"last_fury","rate":0.5},
+    "pursuer": {"type":"pursuer","gap":5000,"count":1},
+    "comeback_miracle": {"type":"comeback_miracle","rank":2,"amount":3000}
   }
 }

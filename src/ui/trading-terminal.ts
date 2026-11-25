@@ -12,6 +12,7 @@ import { cardDescription } from './card-copy';
 import { timelineMarkup } from './timeline';
 import { rarityLabel } from './card-face';
 import { sacrificeCost, sacrificeRefund } from '../core/sacrifice';
+import { newsArt, newsCategories, newsImpact } from './theater';
 import { isAreaAttack, attackOf } from '../core/attacks';
 import { itemTiming } from '../core/item-timing';
 import type { ActionChoice, Forecast } from '../core/trade-preview';
@@ -70,6 +71,8 @@ function arenaMarkup(run: TradingRun, choosing: boolean, animate: boolean, previ
   const latest = run.reports.at(-1);
   const standings = run.standings();
   const news = run.latestNews;
+  const report = news ? run.reports.find(entry => entry.day === news.day) : undefined;
+  const impact = report ? newsImpact(report, run.player, run.config) : news?.event.subtitle;
   const tone = news ? marketTone(news.event, run.config) : 'neutral';
   const fresh = Boolean(news && latest?.market && news.day === latest.day);
   const next = run.nextEventDay;
@@ -111,10 +114,11 @@ function arenaMarkup(run: TradingRun, choosing: boolean, animate: boolean, previ
     </article>`;
   }).join('');
   return `<section class="arena tone-${tone} ${fresh ? `fresh-news sev-${news!.event.severity}` : ''} ${animate ? 'arena-animate' : ''}" aria-label="四人交易競技場">
-    <button type="button" class="ticker" data-act="news" aria-label="市場快訊：${news ? escapeHtml(news.event.title) : '尚無新聞'}，點開看詳情">
-      <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+    <button type="button" class="ticker ${news ? 'ticker-illustrated' : ''}" data-act="news" aria-label="市場快訊：${news ? escapeHtml(news.event.title) : '尚無新聞'}，點開看詳情">
+      ${news ? newsArt(news.event.category) : '<span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>'}
       <span class="ticker-text"><small>${fresh ? '快訊' : '市場'} · ${run.config.market[tone].name}</small>
-        <strong>${news ? escapeHtml(news.event.title) : '交易所開盤，等待第一則新聞'}</strong></span>
+        <strong>${news ? escapeHtml(news.event.title) : '交易所開盤，等待第一則新聞'}</strong>
+        ${impact ? `<span class="ticker-impact">${escapeHtml(impact)}</span>` : ''}</span>
       <span class="ticker-next">${next === null ? '新聞已結束' : `下則 第 ${next} 日`}</span>
     </button>
     <div class="stage" data-scale="${scale}"><canvas class="market-backdrop" width="480" height="180" data-market-rates="${run.reports.map(report => report.marketRate).join(',')}" data-market-days="${run.config.gameplay.turns}" aria-hidden="true"></canvas>${fighters}</div>
@@ -134,6 +138,10 @@ function chipsMarkup(run: TradingRun) {
   const chip = (tone: string, text: string) => chips.push(`<li class="chip ${tone}">${text}</li>`);
   for (const defense of run.player.defenses) chip('ice', `◆ ${escapeHtml(defense.name)}待命`);
   const intel = run.intelFor(run.player);
+  const jokerIntel = run.jokerIntelFor(run.player);
+  if (jokerIntel.category) chip('gold', '明日新聞 · ' + newsCategories[jokerIntel.category]);
+  if (jokerIntel.tone) chip('gold', '今日新聞 · ' + run.config.market[jokerIntel.tone].name);
+  if (run.player.memory.charge) chip('gold', '攻擊蓄力 +' + percent(run.player.memory.charge));
   if (intel) chip('gold', `第 ${intel.day} 日新聞：${intel.tone === 'positive' ? '利多' : intel.tone === 'negative' ? '利空' : '特殊事件'}`);
   return chips.length ? `<ul class="chips" aria-label="目前狀態">${chips.join('')}</ul>` : '';
 }
@@ -358,17 +366,17 @@ export function newsMarkup(run: TradingRun) {
   const current = run.latestNews;
   const intel = run.intelFor(run.player);
   const report = current ? run.reports.find(item => item.day === current.day) : null;
-  const outcome = report?.outcomes.find(item => item.investor === run.player);
   const tone = current ? marketTone(current.event, run.config) : 'neutral';
-  const impact = !outcome ? '' : !outcome.marketApplied ? '這則新聞沒有影響你。' :
-    tone === 'neutral' ? '這是特殊事件，股價沒有變動。' :
-    outcome.marketPnl ? `新聞讓你的股票${outcome.marketPnl > 0 ? '多了' : '少了'} ${money(Math.abs(outcome.marketPnl))}（王牌和護盾另計）。` : '你當天沒有股票，新聞沒有影響你的錢。';
+  const impact = report ? newsImpact(report, run.player, run.config) : '';
+  const jokerIntel = run.jokerIntelFor(run.player);
   return `<div class="news-detail ${tone}">
-    ${current ? `<p class="news-kicker">第 ${current.day} 日 · 虛構新聞 · ${tone === 'neutral' ? '特殊事件' : run.config.market[tone].name}</p><h3>${escapeHtml(current.event.title)}</h3>
+    ${current ? `${newsArt(current.event.category)}<p class="news-kicker">第 ${current.day} 日 · 虛構新聞 · ${tone === 'neutral' ? '特殊事件' : run.config.market[tone].name}</p><h3>${escapeHtml(current.event.title)}</h3>
       <p>${escapeHtml(current.event.subtitle)}</p>
       ${impact ? `<p data-market-impact class="gold">${impact}</p>` : ''}
       <p>${escapeHtml(current.event.description)}</p>` : '<p>還沒有市場新聞。</p>'}
     <p>${run.nextEventDay === null ? '本局新聞已全部公布。' : `下一則新聞在第 ${run.nextEventDay} 日。`}</p>
+    ${jokerIntel.category ? `<p class="intel">先知 · 明日新聞類型 ${newsCategories[jokerIntel.category]}</p>` : ''}
+    ${jokerIntel.tone ? `<p class="intel">內線之王 · 今日新聞方向 ${run.config.market[jokerIntel.tone].name}</p>` : ''}
     ${intel ? `<p class="intel">◆ 小道消息：第 ${intel.day} 日的新聞是${intel.tone === 'positive' ? '利多' : intel.tone === 'negative' ? '利空' : '特殊事件'}。漲跌多少還不知道。</p>` : ''}
   </div>`;
 }

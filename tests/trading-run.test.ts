@@ -490,7 +490,7 @@ describe('取得卡片', () => {
       }
     }
     expect(inShop).toBe(true);
-    expect(readFinancialConfig().jokers).toHaveLength(36);
+    expect(readFinancialConfig().jokers).toHaveLength(54);
     expect(readFinancialConfig().items).toHaveLength(28);
   });
 });
@@ -699,5 +699,57 @@ describe('風險獻祭流', () => {
     expect(run.canLock({ allocation: 'half', actions: [{ slot: 0 }] })).toBe(false);
     expect(run.confirm({ allocation: 'half' }, hold('cash'))).toBe(true);
     expect(outcomeOf(run, run.player).close).toBe(9500);
+  });
+});
+
+describe('追加王牌的跨日結算', () => {
+  it('蓄力的第一下未命中時保留，成功命中後消耗容量且遵守攻擊上限', () => {
+    const run = start(calmMarket(readFinancialConfig(), 0));
+    const [attacker, target] = run.investors;
+    equip(run, attacker, ['stored_strike', 'finisher'], ['snipe', 'snipe']);
+    equip(run, target, []);
+    for (let day = 0; day < 3; day++) expect(run.confirm({ allocation: 'all' }, hold('cash'))).toBe(true);
+    expect(attacker.memory.charge).toBeCloseTo(.6);
+    const strike = { allocation: 'all', actions: [{ slot: 0, targetId: target.character.id }] };
+    expect(run.confirm(strike, hold('cash'))).toBe(true);
+    expect(attacker.items).toHaveLength(2);
+    expect(attacker.memory.charge).toBeCloseTo(.8);
+    expect(run.confirm(strike, hold('all'))).toBe(true);
+    expect(run.reports[4].attacks[0].amount).toBe(2500);
+    expect(attacker.memory.charge).toBe(0);
+  });
+
+  it('財富封印隔天只扣首筆王牌正收益，股票詛咒只取較強的效果', () => {
+    const run = start(calmMarket(readFinancialConfig(), .02));
+    const [attacker, target] = run.investors;
+    equip(run, attacker, ['blacklist', 'wealth_seal', 'financial_hegemony'], ['snipe']);
+    equip(run, target, ['time_bank', 'cash_cow']);
+    expect(run.confirm({ allocation: 'all', actions: [{ slot: 0, targetId: target.character.id }] }, hold('all'))).toBe(true);
+    expect(outcomeOf(run, target).ledger.steps.some(step => step.id === 'wealth_seal')).toBe(false);
+    expect(run.confirm({ allocation: 'all' }, hold('half'))).toBe(true);
+    const ledger = outcomeOf(run, target).ledger;
+    expect(ledger.steps.filter(step => step.id === 'wealth_seal').map(step => step.amount)).toEqual([-300]);
+    expect(ledger.stockFinal).toBe(Math.floor(ledger.stockBase / 2));
+    expect(ledger.steps.some(step => step.id === 'blacklist')).toBe(false);
+  });
+
+  it('幻影王牌只讀左鄰，萬能鏡像每日一次，模仿大師的普通複本不會再次產生複本', () => {
+    const run = start(calmMarket(readFinancialConfig(), .02));
+    const player = run.player;
+    equip(run, player, ['diamond', 'phantom', 'imitator', 'universal_mirror'], ['gift', 'gift']);
+    expect(run.useOpeningItem(0)?.amount).toBe(1200);
+    expect(run.useOpeningItem(0)?.amount).toBe(800);
+    expect(run.confirm({ allocation: 'all' }, hold('all'))).toBe(true);
+    const first = outcomeOf(run, player).ledger;
+    expect(first.steps.find(step => step.id === 'phantom')?.amount).toBe(60);
+    expect(run.confirm({ allocation: 'all' }, hold('all'))).toBe(true);
+    player.items.push(item(run.config, 'gift'));
+    expect(run.useOpeningItem(0)?.amount).toBe(1200);
+    expect(run.confirm({ allocation: 'all' }, hold('all'))).toBe(true);
+    expect(player.items.map(card => card.id)).toEqual(['gift']);
+    for (let day = 4; day < 6; day++) expect(run.confirm({ allocation: 'all' }, hold('all'))).toBe(true);
+    expect(run.useOpeningItem(0)?.amount).toBe(1200);
+    expect(run.confirm({ allocation: 'all' }, hold('all'))).toBe(true);
+    expect(player.items).toHaveLength(0);
   });
 });

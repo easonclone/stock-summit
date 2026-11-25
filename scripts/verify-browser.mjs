@@ -164,7 +164,7 @@ const transitions = { joker: 0, shop: 0, bought: 0, itemFull: 0, recovery: 0, sk
 async function clearDialogs(replaceOne = false) {
   for (let n = 0; n < 6; n++) {
     if (await has('.theater')) {
-      assert.match(await js('document.querySelector(".scene-banner").innerText'), /第 \d+ 日/);
+      assert(await js('document.querySelector(".rpg-body h2")?.textContent.trim()'), '快報有事件標題');
       transitions.show++;
       await click('.theater [data-th="skip"]');
       assert(!(await has('.theater')), '事件劇場可略過');
@@ -206,13 +206,16 @@ async function clearDialogs(replaceOne = false) {
       assert.equal(await js('document.querySelectorAll("dialog .shop-card .joker").length'), 3);
       const cash = () => js('Number(document.querySelector("[data-shop-cash]").textContent.replace(/[^\\d]/g, ""))');
       const before = await cash();
+      const hasVip = await has('.joker-section [data-joker-id="vip"]');
       // Buy the first shelf that needs no replacement and is affordable; the wallet must drop by exactly its price.
       const index = await js(`[...document.querySelectorAll("dialog .shop-card")].findIndex(b => b.querySelector(".shop-status").textContent === "買得起")`);
       if (index >= 0) {
         await click(on('shop-card') + `[data-value="${index}"]`);
         const price = await js('Number(document.querySelector("[data-act=buy]").textContent.replace(/[^\\d]/g, ""))');
         await action('buy');
-        assert.equal(await cash(), before - price, '商店扣款等於售價');
+        const paid = before - await cash();
+        if (hasVip) assert(paid <= price && paid >= price - Math.floor(price * 0.2), '商店扣款扣除適用的會員返現');
+        else assert.equal(paid, price, '商店扣款等於售價');
         transitions.bought++;
       }
       await action('leave-shop');
@@ -363,8 +366,8 @@ try {
   await screenshot('chain-desktop');
   await layout(1440, 900, true);
 
-  if (desktopOnly) {
-    // 讓固定種子的黑天鵝演出跑到特效，避免主流程略過劇場時漏驗 Canvas。
+  {
+    // 以固定種子的黑天鵝新聞驗證桌面快報。
     await openMarket(1440, 900, false, 13, false);
     for (let day = 1; day <= 6; day++) {
       await clearDialogs();
@@ -372,8 +375,17 @@ try {
       if (await has(on('skip'))) await action('skip');
       if (day === 6) {
         assert(await has('.theater.sev-extreme'), '黑天鵝事件劇場');
-        for (let i = 0; i < 250 && !(await has('.theater-fx canvas')); i++) await delay(100);
-        if (await has('.theater-fx canvas')) transitions.effect++;
+        assert(await has('.theater .news-art'), '黑天鵝快報有 HD 場景');
+        assert(await has('.theater .rpg-face'), '黑天鵝快報有播報員');
+        await screenshot('news-brief-desktop');
+        transitions.effect++;
+        await delay(2100);
+        assert(await has('.theater'), '玩家尚未關閉，新聞繼續顯示');
+        await click('.theater [data-th="skip"]');
+        assert(!(await has('.theater')), '按一下結束快報');
+        assert(await has('[data-act="news"] .news-art'), '橫幅左側保留事件圖');
+        assert(await has('[data-act="news"] .ticker-impact'), '橫幅右側保留影響');
+        await screenshot('news-ticker-desktop');
       }
       await clearDialogs();
     }
@@ -404,31 +416,32 @@ try {
       await action('trade');
       for (let i = 0; i < 40 && await has(on('skip')); i++) await delay(25);
       if (day === 3) {
-        // 一般／重大新聞：Enter 先補完逐字，再進下一句；Esc 直接結束且結果不變。
+        // 事件快報可立即略過，資產數字取自同一份結算。
         assert(await has('.theater'), '新聞日播放事件劇場');
         const worth = await js('document.querySelector(".hero-main strong").textContent');
-        for (let i = 0; i < 40 && await js('document.querySelector(".theater")?.dataset.step') !== 'line'; i++) await delay(50);
-        await key('Enter');
-        assert.equal(await js('document.querySelector(".rpg-box").classList.contains("typing")'), false, 'Enter 補完當前句');
-        await screenshot('theater-line-390');
+        assert(await has('.theater [data-market-impact]'), '顯示單句實際影響');
+        await screenshot('news-brief-390');
         await key('Escape');
         assert(!(await has('.theater')), 'Esc 略過演出');
         assert.equal(await js('document.querySelector(".hero-main strong").textContent'), worth, '略過不影響結果');
       }
       if (day === 6) {
         assert(await has('.theater.sev-extreme'), '黑天鵝事件劇場');
-        for (let i = 0; i < 250 && await js(`document.querySelector(".theater")?.dataset.step`) !== "results"; i++) {
-          if (await has('.theater-fx canvas')) transitions.effect++;
-          await delay(100);
-        }
-        assert.equal(await js('document.querySelector(".theater")?.dataset.step'), 'results', '自動播放到實際結算，不需逐句點擊');
-        assert.equal(await js('document.querySelectorAll(".theater-results li").length'), 4);
-        await screenshot('theater-results-390');
+        assert(await has('.theater .news-art'), '黑天鵝快報有 HD 場景');
+        assert(await has('.theater .rpg-face'), '黑天鵝快報有播報員');
+        transitions.effect++;
+        await delay(2100);
+        assert(await has('.theater'), '玩家尚未關閉，手機快報繼續顯示');
+        await click('.theater [data-th="skip"]');
+        assert(!(await has('.theater')), '手機快報可點擊關閉');
+        assert(await has('[data-act="news"] .news-art'), '手機橫幅保留事件圖');
+        assert(await has('[data-act="news"] .ticker-impact'), '手機橫幅保留影響');
+        await screenshot('news-ticker-390');
       }
       await clearDialogs();
     }
     assert(transitions.show > 0, '事件劇場可略過');
-    // 快速演出：同一天的演出步驟較少；略過演出：不出現劇場。
+    // 隱藏快報後只保留交易橫幅。
     await action('settings');
     await js('(() => { const s = document.querySelector("[data-input=theater]"); s.value = "off"; s.dispatchEvent(new Event("change", { bubbles: true })); })()');
     await action('close-dialog');
@@ -454,7 +467,7 @@ try {
   assert(transitions.shop > 0, '商店開門');
   assert(transitions.bought > 0, '商店購買');
   assert(transitions.skip > 0, '略過動畫');
-  assert(transitions.effect > 0, 'Phaser 市場特效');
+  assert(transitions.effect > 0, '已驗證 HD 新聞快報');
   assert.deepEqual(errors, [], '瀏覽器例外與警告');
   console.log(JSON.stringify({ version: version.product, results, transitions, errors }, null, 2));
 } finally {

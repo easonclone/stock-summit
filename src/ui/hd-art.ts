@@ -6,7 +6,12 @@ import jokersV34A from '../assets/hd-art/jokers-v34-a.png';
 import jokersV34B from '../assets/hd-art/jokers-v34-b.png';
 import itemsSacrifice from '../assets/hd-art/items-sacrifice.png';
 
+import jokersNewA from '../assets/hd-art/jokers-new-a.png';
+import jokersNewB from '../assets/hd-art/jokers-new-b.png';
+
 const sheets = [
+  { url: jokersNewA, columns: 3, size: 128, cards: ['stored_strike','time_bank','finisher','lucky_star','fate_gambler','chaos_king','oracle','insider_king','market_prophet'] },
+  { url: jokersNewB, columns: 3, size: 128, cards: ['imitator','phantom','universal_mirror','blacklist','wealth_seal','financial_hegemony','last_fury','pursuer','comeback_miracle'] },
   { url: jokersV34A, columns: 3, size: 128, cards: ['bounty', 'arms_dealer', 'short_hunter', 'insurer', 'avenger', 'immovable', 'magician', 'combo_master', 'recycler'] },
   { url: jokersV34B, columns: 3, size: 128, cards: ['vip', 'reinvestment', 'patient', 'blood_contract', 'pain_transfer', 'adversity', 'phoenix', 'doom_bringer', 'rebirth'] },
   { url: itemsSacrifice, columns: 4, size: 64, cards: ['equal_exchange', 'forbidden_trade', 'mutual_doom', 'final_reckoning'] },

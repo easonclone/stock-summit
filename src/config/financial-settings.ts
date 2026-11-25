@@ -72,6 +72,24 @@ const effect = z.discriminatedUnion('type', [
   z.object({ type: z.literal('sacrifice_rebirth'), rate }),
   z.object({ type: z.literal('sacrifice_attack'), rate: rate.gt(0).lt(1), factor, area: z.boolean() }),
   z.object({ type: z.literal('sacrifice_draw'), rate: rate.gt(0).lt(1), count: z.number().int().min(1).max(3) }),
+  z.object({ type: z.literal('stored_strike'), step: rate, cap: rate }),
+  z.object({ type: z.literal('time_bank'), amount: money.positive() }),
+  z.object({ type: z.literal('finisher'), days: day, factor }),
+  z.object({ type: z.literal('lucky_star'), rolls: z.number().int().min(2).max(4) }),
+  z.object({ type: z.literal('fate_gambler'), gain: money.positive(), loss: money.positive(), chance: rate }),
+  z.object({ type: z.literal('chaos_king'), count: day }),
+  z.object({ type: z.literal('oracle') }),
+  z.object({ type: z.literal('insider_king') }),
+  z.object({ type: z.literal('market_prophet'), count: day }),
+  z.object({ type: z.literal('imitator'), days: day }),
+  z.object({ type: z.literal('phantom'), rate }),
+  z.object({ type: z.literal('universal_mirror'), rate }),
+  z.object({ type: z.literal('blacklist'), rate }),
+  z.object({ type: z.literal('wealth_seal'), rate, cap: money.positive() }),
+  z.object({ type: z.literal('financial_hegemony'), rate }),
+  z.object({ type: z.literal('last_fury'), rate }),
+  z.object({ type: z.literal('pursuer'), gap: money.positive(), count: day }),
+  z.object({ type: z.literal('comeback_miracle'), rank: day, amount: money.positive() }),
   // Items: one-shot, at most one per day.
   z.object({ type: z.literal('today_add'), amount: rate }),
   z.object({ type: z.literal('today_mult'), factor }),
@@ -92,7 +110,7 @@ const effect = z.discriminatedUnion('type', [
 ]);
 
 const jokerTypes = ['gain_add', 'streak_add', 'rebound_add', 'joker_add', 'news_mult', 'repeat_mult', 'swing_mult', 'loss_cut', 'cash_yield',
-  'yield_boost', 'stock_yield', 'bear_bonus', 'item_bonus', 'attack_bonus', 'news_item', 'hold_bonus', 'climb_bonus', 'shop_discount', 'bounty', 'attack_supply', 'stock_strike', 'shield_income', 'retaliate', 'attack_guard', 'generation_bonus', 'combo_income', 'recycle_income', 'purchase_rebate', 'dividend_bonus', 'patient_gain', 'sacrifice_contract', 'sacrifice_amplify', 'sacrifice_refund', 'sacrifice_supply', 'sacrifice_leader', 'sacrifice_rebirth'];
+  'yield_boost', 'stock_yield', 'bear_bonus', 'item_bonus', 'attack_bonus', 'news_item', 'hold_bonus', 'climb_bonus', 'shop_discount', 'bounty', 'attack_supply', 'stock_strike', 'shield_income', 'retaliate', 'attack_guard', 'generation_bonus', 'combo_income', 'recycle_income', 'purchase_rebate', 'dividend_bonus', 'patient_gain', 'sacrifice_contract', 'sacrifice_amplify', 'sacrifice_refund', 'sacrifice_supply', 'sacrifice_leader', 'sacrifice_rebirth', 'stored_strike', 'time_bank', 'finisher', 'lucky_star', 'fate_gambler', 'chaos_king', 'oracle', 'insider_king', 'market_prophet', 'imitator', 'phantom', 'universal_mirror', 'blacklist', 'wealth_seal', 'financial_hegemony', 'last_fury', 'pursuer', 'comeback_miracle'];
 const itemTypes = ['cash_grant', 'today_add', 'today_mult', 'defense', 'intel', 'item_pack', 'attack', 'cash_raid', 'shield_break', 'mirror', 'random_cash', 'generate', 'voucher', 'strike_boost', 'area_attack', 'stock_cash', 'relief', 'sacrifice_attack', 'sacrifice_draw'];
 const eventTypes = ['price', 'cash_grant', 'item_grant'];
 

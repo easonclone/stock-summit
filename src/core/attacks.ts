@@ -1,5 +1,5 @@
 import type { FinanceEffect, FinancialConfig, GameCard } from '../config/financial-settings';
-import { jokerEffect, type DayLedger, type Holder } from './settlement';
+import { jokerEffect, mirrorItem, type DayLedger, type Holder } from './settlement';
 
 export type AttackEffect = Extract<FinanceEffect, { type: 'attack' | 'cash_raid' | 'shield_break' | 'area_attack' | 'sacrifice_attack' }>;
 
@@ -50,7 +50,7 @@ export function estimateAttack(effect: AttackEffect, target: AttackTarget) {
 }
 
 interface Combatant { holder: Holder; ledger: DayLedger; id: string; name: string; start: number }
-interface Strike { from: Combatant; to: Combatant; effect: AttackEffect; slot: number; factor: number; itemId: string; sacrificeDamage?: number }
+interface Strike { from: Combatant; to: Combatant; effect: AttackEffect; slot: number; factor: number; itemId: string; sacrificeDamage?: number; card?: GameCard }
 
 function transferCash(from: Combatant, to: Combatant, amount: number, counterName?: string) {
   from.holder.account.cash -= amount;
@@ -67,12 +67,13 @@ function loseStock(target: Combatant, amount: number, id: string, name: string) 
 }
 
 /** 先依鎖定後的資產挑出有效攻擊，再套用反擊。反擊不進入直接攻擊佇列。 */
-export function resolveAttacks(strikes: Strike[], rules: FinancialConfig['settlement'], misses: AttackMiss[] = [], config?: FinancialConfig): AttackRecord[] {
+export function resolveAttacks(strikes: Strike[], rules: FinancialConfig['settlement'], misses: AttackMiss[] = [], config?: FinancialConfig, day?: number): AttackRecord[] {
   const hits = new Map<string, number>();
   const losses = new Map<string, number>();
   const pairs = new Set<string>();
   const retaliated = new Set<string>();
-  const landed = strikes.flatMap(({ from, to, effect, slot, factor, itemId, sacrificeDamage }) => {
+  const activated = new Map<string, { slot: number; multiplier: number }>();
+  const landed = strikes.flatMap(({ from, to, effect, slot, factor, itemId, sacrificeDamage, card }) => {
     const count = hits.get(to.id) ?? 0;
     const pair = from.id + ':' + to.id;
     const miss = (reason: MissReason) => { misses.push({ from: from.id, to: to.id, kind: effect.type, slot, itemId, reason }); return []; };
@@ -84,7 +85,16 @@ export function resolveAttacks(strikes: Strike[], rules: FinancialConfig['settle
     const boost = config && effect.type === 'attack' ? jokerEffect(from.holder, config, 'stock_strike')?.effect.rate ?? 0 : 0;
     const guard = config ? jokerEffect(to.holder, config, 'attack_guard')?.effect.rate ?? 0 : 0;
     const sacrifice = sacrificeDamage !== undefined;
-    const proposed = sacrificeDamage ?? estimate * factor * (1 + boost);
+    const previous = activated.get(from.id);
+    const { memory } = from.holder;
+    const canCharge = !sacrifice && effect.type !== 'shield_break' && effect.type !== 'sacrifice_attack';
+    const finisher = config && canCharge && !previous ? jokerEffect(from.holder, config, 'finisher') : undefined;
+    const stored = config && canCharge && !previous ? jokerEffect(from.holder, config, 'stored_strike') : undefined;
+    const mirror = config && card && !sacrifice && (effect.type === 'attack' || effect.type === 'cash_raid')
+      ? mirrorItem(from.holder, config, card, day) : undefined;
+    const multiplier = canCharge && previous?.slot === slot ? previous.multiplier
+      : (1 + (stored ? memory.charge : 0)) * (finisher && memory.attackRestDays >= finisher.effect.days ? finisher.effect.factor : 1);
+    const proposed = sacrificeDamage ?? estimate * factor * multiplier * (1 + boost + (mirror?.effect.rate ?? 0));
     const assets = sacrifice ? account.cash + account.investmentValue : effect.type === 'cash_raid' ? account.cash : account.investmentValue;
     const amount = Math.min(ceiling, Math.round(proposed * (1 - guard)), assets);
     if (effect.type === 'shield_break' && !to.holder.defenses.length) return miss('no_shield');
@@ -92,14 +102,19 @@ export function resolveAttacks(strikes: Strike[], rules: FinancialConfig['settle
       const empty = !sacrifice && (effect.type === 'cash_raid' ? account.cash <= 0 : account.investmentValue <= 0);
       return miss(empty ? (effect.type === 'cash_raid' ? 'no_cash' : 'no_stock') : 'capped');
     }
+    if (canCharge && amount > 0 && !previous) {
+      activated.set(from.id, { slot, multiplier });
+      memory.charge = 0;
+    }
+    if (mirror && amount > 0) memory.mirrorItemDay = day!;
     pairs.add(pair);
     losses.set(to.id, (losses.get(to.id) ?? 0) + amount);
     hits.set(to.id, count + 1);
-    const mirror = sacrifice || effect.type === 'shield_break' || effect.type === 'area_attack' ? null : to.holder.memory.mirror;
+    const mirrorDefense = sacrifice || effect.type === 'shield_break' || effect.type === 'area_attack' ? null : to.holder.memory.mirror;
     const singleHit = !sacrifice && amount > 0 && (effect.type === 'attack' || effect.type === 'cash_raid');
-    const revenge = config && singleHit && mirror === null && !retaliated.has(to.id)
+    const revenge = config && singleHit && mirrorDefense === null && !retaliated.has(to.id)
       ? jokerEffect(to.holder, config, 'retaliate') : undefined;
-    if (mirror !== null) to.holder.memory.mirror = null;
+    if (mirrorDefense !== null) to.holder.memory.mirror = null;
     if (singleHit) retaliated.add(to.id);
     if (sacrifice) {
       const stock = Math.min(amount, account.investmentValue);
@@ -119,7 +134,7 @@ export function resolveAttacks(strikes: Strike[], rules: FinancialConfig['settle
       to.holder.account.cash -= amount;
       // 暫扣現金直到直接攻擊全部鎖定，避免同一筆錢被連環轉走。
     } else loseStock(to, amount, from.id, from.name + '打擊股票');
-    return [{ from, to, effect, amount, mirror, revenge, slot, factor, itemId, sacrifice }];
+    return [{ from, to, effect, amount, mirror: mirrorDefense, revenge, slot, factor, itemId, sacrifice }];
   });
 
   for (const { from, to, effect, amount } of landed) {

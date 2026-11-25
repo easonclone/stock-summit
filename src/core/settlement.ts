@@ -18,6 +18,18 @@ export interface Memory {
   heldStockDays: number;
   attackSupplyHits: number;
   rebateDay: number;
+  charge: number;
+  attackRestDays: number;
+  mirrorItemDay: number;
+  copyDay: number;
+  stockCurseDay: number;
+  stockCurseRate: number;
+  stockCurseCard: GameCard | null;
+  cashCurseDay: number;
+  cashCurseCard: GameCard | null;
+  cashCurseRate: number;
+  cashCurseCap: number;
+  miraclePaid: boolean;
   sacrificeDay: number;
   sacrificePaymentRoom: number;
   rebirthDay: number;
@@ -63,9 +75,12 @@ export interface DayContext {
   nextNewsDay: number | null;
   /** 道具可指定的有效對手是否存在。 */
   hasTarget: boolean;
+  openingLast?: boolean;
+  gamblerRoll?: number;
 }
 
 export interface DayLedger {
+  day?: number;
   rebalance: Rebalance | null;
   steps: ChainStep[];
   /** Stock held when the market opened, after rebalancing and instant items. */
@@ -98,12 +113,29 @@ export function jokerEffect<T extends FinanceEffect['type']>(holder: Holder, con
   return entry as { joker: GameCard; effect: Extract<FinanceEffect, {type: T}> } | undefined;
 }
 
-function jokerEffects(holder: Holder, config: FinancialConfig) {
-  return holder.jokers.flatMap(joker => effectsOf(config, joker).map(effect => ({ joker, effect })));
+type JokerEffectEntry = { joker: GameCard; effect: FinanceEffect };
+
+function jokerEffects(holder: Holder, config: FinancialConfig): JokerEffectEntry[] {
+  return holder.jokers.flatMap((joker, index) => effectsOf(config, joker).flatMap<JokerEffectEntry>(effect => {
+    if (effect.type !== 'phantom') return [{ joker, effect }];
+    const left = holder.jokers[index - 1];
+    if (!left) return [];
+    return effectsOf(config, left).flatMap<JokerEffectEntry>(template => {
+      switch (template.type) {
+        case 'gain_add': case 'loss_cut':
+          return [{ joker, effect: { ...template, amount: template.amount * effect.rate } }];
+        case 'patient_gain':
+          return [{ joker, effect: { ...template, rate: template.rate * effect.rate } }];
+        case 'cash_yield': case 'stock_yield':
+          return [{ joker, effect: { ...template, rate: template.rate * effect.rate, cap: Math.floor(template.cap * effect.rate) } }];
+        default: return [];
+      }
+    });
+  }));
 }
 
 export function newMemory(): Memory {
-  return { lastRate: null, lastStockPnl: 0, winStreak: 0, holdDays: 0, heldStockDays: 0, attackSupplyHits: 0, rebateDay: 0, sacrificeDay: 0, sacrificePaymentRoom: 0, rebirthDay: 0, recycleDay: 0, generationDay: 0, holdPaid: false, climbPaid: false, reliefUsed: false, voucher: 0, mirror: null };
+  return { lastRate: null, lastStockPnl: 0, winStreak: 0, holdDays: 0, heldStockDays: 0, attackSupplyHits: 0, rebateDay: 0, charge: 0, attackRestDays: 0, mirrorItemDay: 0, copyDay: 0, stockCurseDay: 0, stockCurseRate: 0, stockCurseCard: null, cashCurseDay: 0, cashCurseCard: null, cashCurseRate: 0, cashCurseCap: 0, miraclePaid: false, sacrificeDay: 0, sacrificePaymentRoom: 0, rebirthDay: 0, recycleDay: 0, generationDay: 0, holdPaid: false, climbPaid: false, reliefUsed: false, voucher: 0, mirror: null };
 }
 
 export function copyHolder(holder: Holder): Holder {
@@ -130,9 +162,9 @@ export function rateFrom(effect: { floor: number; ceiling: number }, draw: numbe
   return effect.floor + (effect.ceiling - effect.floor) * draw;
 }
 
-export function newLedger(): DayLedger {
+export function newLedger(day?: number): DayLedger {
   return {
-    rebalance: null, steps: [], exposure: { stock: 0, cash: 0 }, rate: 0, marketPnl: 0, newsPnl: 0, stockBase: 0, stockFinal: 0,
+    day, rebalance: null, steps: [], exposure: { stock: 0, cash: 0 }, rate: 0, marketPnl: 0, newsPnl: 0, stockBase: 0, stockFinal: 0,
     shielded: 0, combos: 0, capped: false, itemCount: 0, defenseUsed: null,
     requests: { intel: false, pack: 0, items: 0 }, attackLoss: 0
   };
@@ -143,6 +175,20 @@ export function addCash(holder: Holder, ledger: DayLedger, step: Omit<ChainStep,
   holder.account.cash += amount;
   holder.account.stats.cashYield += amount;
   ledger.steps.push({ kind: 'cash', ...step, amount });
+  if (step.source !== 'joker' || ledger.day === undefined) return;
+  const curse = applyCashCurse(holder, ledger.day, amount);
+  if (curse) ledger.steps.push({ source: 'event', id: curse.card.id, name: curse.card.name, kind: 'cut', amount: -curse.amount });
+}
+
+export function applyCashCurse(holder: Holder, day: number, income: number, trackYield = true) {
+  const { memory, account } = holder;
+  if (income <= 0 || memory.cashCurseDay !== day || !memory.cashCurseCard) return null;
+  const card = memory.cashCurseCard;
+  memory.cashCurseCard = null;
+  const amount = Math.min(memory.cashCurseCap, Math.round(income * memory.cashCurseRate));
+  account.cash -= amount;
+  if (trackYield) account.stats.cashYield -= amount;
+  return amount ? { card, amount } : null;
 }
 
 /** Why an item cannot be used today with the chosen stock ratio, or null when it can. */
@@ -195,18 +241,44 @@ function addDividend(holder: Holder, config: FinancialConfig, ledger: DayLedger,
   if (bonus) addCash(holder, ledger, { source: 'joker', id: bonus.joker.id, name: bonus.joker.name }, Math.round(amount * bonus.effect.rate));
 }
 
+export function repeatableItem(config: FinancialConfig, card: GameCard) {
+  return card.rarity === 'common' && effectsOf(config, card).every(effect =>
+    effect.type === 'cash_grant' || effect.type === 'stock_cash' || effect.type === 'today_add' ||
+    effect.type === 'random_cash' || effect.type === 'attack' || effect.type === 'cash_raid' ||
+    (effect.type === 'defense' && effect.mode === 'cut'));
+}
+
+export function mirrorItem(holder: Holder, config: FinancialConfig, card: GameCard, day: number | undefined) {
+  if (day === undefined || holder.memory.mirrorItemDay === day || !repeatableItem(config, card)) return undefined;
+  return jokerEffect(holder, config, 'universal_mirror');
+}
+
 function applyItem(holder: Holder, item: GameCard, effect: FinanceEffect, ledger: DayLedger, boosts: { add: Mod[]; mult: Mod[] }, config: FinancialConfig) {
   const source = { source: 'item' as const, id: item.id, name: item.name };
+  const mirror = ['cash_grant', 'stock_cash', 'today_add', 'defense'].includes(effect.type) ? mirrorItem(holder, config, item, ledger.day) : undefined;
+  if (mirror) holder.memory.mirrorItemDay = ledger.day!;
+  const mirrorSource = mirror && { source: 'joker' as const, id: mirror.joker.id, name: mirror.joker.name };
   switch (effect.type) {
-    case 'cash_grant': addCash(holder, ledger, source, effect.amount); break;
-    case 'stock_cash': addDividend(holder, config, ledger, source, Math.round(holder.account.investmentValue * effect.rate)); break;
+    case 'cash_grant':
+      addCash(holder, ledger, source, effect.amount);
+      if (mirrorSource) addCash(holder, ledger, mirrorSource, Math.round(effect.amount * mirror.effect.rate));
+      break;
+    case 'stock_cash': {
+      const amount = Math.round(holder.account.investmentValue * effect.rate);
+      addDividend(holder, config, ledger, source, amount);
+      if (mirrorSource) addCash(holder, ledger, mirrorSource, Math.round(amount * mirror.effect.rate));
+      break;
+    }
     case 'relief':
       holder.memory.reliefUsed = true;
       addCash(holder, ledger, source, effect.amount);
       break;
-    case 'today_add': boosts.add.push({ ...source, value: effect.amount }); break;
+    case 'today_add':
+      boosts.add.push({ ...source, value: effect.amount });
+      if (mirrorSource) boosts.add.push({ ...mirrorSource, value: effect.amount * mirror.effect.rate });
+      break;
     case 'today_mult': boosts.mult.push({ ...source, value: effect.factor }); break;
-    case 'defense': holder.defenses.push({ itemId: item.id, name: item.name, mode: effect.mode, amount: effect.amount }); break;
+    case 'defense': holder.defenses.push({ itemId: item.id, name: item.name, mode: effect.mode, amount: effect.amount * (1 + (mirror?.effect.rate ?? 0)) }); break;
     case 'intel': ledger.requests.intel = true; break;
     case 'item_pack': ledger.requests.pack = effect.count; break;
     case 'mirror': holder.memory.mirror = effect.amount; break;
@@ -220,12 +292,19 @@ function applyItem(holder: Holder, item: GameCard, effect: FinanceEffect, ledger
  * rebalance → instant item → shared market and news → joker/item boosts on the stock result → defenses.
  * 角色攻擊與固定現金收益在股價結算後處理。
  */
-export function playOpeningItem(holder: Holder, item: GameCard, config: FinancialConfig, random: () => number) {
-  const ledger = newLedger();
+export function playOpeningItem(holder: Holder, item: GameCard, config: FinancialConfig, random: () => number, day?: number) {
+  const ledger = newLedger(day);
   for (const effect of effectsOf(config, item)) {
     if (effect.type === 'random_cash') {
-      const amount = effect.min + Math.floor(random() * (effect.max - effect.min + 1));
+      const rolls = jokerEffect(holder, config, 'lucky_star')?.effect.rolls ?? 1;
+      const draw = Math.max(...Array.from({ length: rolls }, random));
+      const amount = effect.min + Math.floor(draw * (effect.max - effect.min + 1));
       addCash(holder, ledger, { source: 'item', id: item.id, name: item.name }, amount);
+      const mirror = mirrorItem(holder, config, item, day);
+      if (mirror) {
+        holder.memory.mirrorItemDay = day!;
+        addCash(holder, ledger, { source: 'joker', id: mirror.joker.id, name: mirror.joker.name }, Math.round(amount * mirror.effect.rate));
+      }
     } else applyItem(holder, item, effect, ledger, { add: [], mult: [] }, config);
   }
   return ledger;
@@ -234,7 +313,7 @@ export function playOpeningItem(holder: Holder, item: GameCard, config: Financia
 export function tradeDay(holder: Holder, items: GameCard[], context: DayContext): DayLedger {
   const { config } = context;
   const { account } = holder;
-  const ledger = newLedger();
+  const ledger = newLedger(context.day);
   ledger.rebalance = rebalance(account, context.allocation.ratio);
   const boosts = { add: [] as Mod[], mult: [] as Mod[] };
   ledger.itemCount = items.length;
@@ -275,6 +354,7 @@ export function tradeDay(holder: Holder, items: GameCard[], context: DayContext)
       const mod = { source: 'joker' as const, id: joker.id, name: joker.name };
       if (effect.type === 'patient_gain' && ledger.exposure.stock > 0 && memory.heldStockDays + 1 >= effect.days) adds.push({ ...mod, value: effect.rate });
       if (effect.type === 'sacrifice_rebirth' && memory.rebirthDay === context.day) adds.push({ ...mod, value: effect.rate });
+      if (effect.type === 'last_fury' && context.openingLast) adds.push({ ...mod, value: effect.rate });
       if (effect.type === 'gain_add') adds.push({ ...mod, value: effect.amount });
       if (effect.type === 'streak_add' && memory.winStreak > 0) adds.push({ ...mod, value: Math.min(effect.cap, effect.step * memory.winStreak) });
       if (effect.type === 'rebound_add' && memory.lastRate !== null && memory.lastRate < 0) adds.push({ ...mod, value: effect.amount });
@@ -346,6 +426,11 @@ export function tradeDay(holder: Holder, items: GameCard[], context: DayContext)
     }
     ledger.defenseUsed = defense;
   }
+  if (value > 0 && memory.stockCurseDay === context.day && memory.stockCurseCard) {
+    const lost = Math.round(value * memory.stockCurseRate);
+    if (lost) ledger.steps.push({ source: 'event', id: memory.stockCurseCard.id, name: memory.stockCurseCard.name, kind: 'cut', amount: -lost });
+    value -= lost;
+  }
   account.investmentValue += value;
   account.stats.investmentPnl += value;
   ledger.stockFinal = value;
@@ -371,11 +456,28 @@ export function closeDay(holder: Holder, context: DayContext, ledger: DayLedger,
   for (const { joker, effect } of jokers) {
     const source = { source: 'joker' as const, id: joker.id, name: joker.name };
     switch (effect.type) {
+      case 'time_bank':
+        if (!ledger.itemCount && netWorth(account) > 0) addCash(holder, ledger, source, effect.amount);
+        break;
+      case 'fate_gambler': {
+        if (context.gamblerRoll === undefined || netWorth(account) <= 0) break;
+        if (context.gamblerRoll < effect.chance) {
+          addCash(holder, ledger, source, effect.gain);
+        } else {
+          const loss = Math.min(netWorth(account), effect.loss);
+          const cash = Math.min(account.cash, loss);
+          account.cash -= cash;
+          account.investmentValue -= loss - cash;
+          account.stats.investmentPnl -= loss - cash;
+          ledger.steps.push({ ...source, kind: 'cash', amount: -loss });
+        }
+        break;
+      }
       case 'cash_yield': {
         if (netWorth(account) <= 0) break;
         const income = Math.min(effect.cap, Math.round(account.cash * effect.rate));
         addCash(holder, ledger, { ...source, value: effect.rate }, income);
-        if (booster?.effect.type === 'yield_boost' && income) {
+        if (booster?.effect.type === 'yield_boost' && income && joker.effectIds.some(id => config.effects[id].type === 'cash_yield')) {
           const bonus = Math.max(0, Math.min(booster.effect.cap - income, Math.round(income * (boost - 1))));
           addCash(holder, ledger, { source: 'joker', id: booster.joker.id, name: booster.joker.name, kind: 'mult', value: boost }, bonus);
         }

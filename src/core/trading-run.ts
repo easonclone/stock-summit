@@ -4,10 +4,10 @@ import { netWorth, openPortfolio, recordWorth } from './economy';
 import { settleRisk } from './financial-risk';
 import { buildMarketSchedule } from './market-events';
 import { generatesItems, itemTiming, soldInShop } from './item-timing';
-import { chooseCard, chooseTrade, planShop, type Planner } from './npc-strategy';
+import { cardValue, chooseCard, chooseTrade, planShop, type Planner } from './npc-strategy';
 import { seededRandom, weighted, type Random } from './random';
 import {
-  addCash, spendSacrificePaymentRoom, newLedger, jokerEffect, playOpeningItem, climbBonus, closeDay, copyHolder, itemBlock, marketTone, newMemory, priceEffect, rateFrom, tradeDay,
+  addCash, repeatableItem, spendSacrificePaymentRoom, newLedger, jokerEffect, playOpeningItem, climbBonus, closeDay, copyHolder, itemBlock, marketTone, newMemory, priceEffect, rateFrom, tradeDay,
   type ChainStep, type DayContext, type DayLedger, type Holder, type Tone
 } from './settlement';
 import { buy, checkBuy, listPrice, type Purchase, type Shop } from './shop';
@@ -76,7 +76,7 @@ export interface DayOutcome {
 }
 
 export interface DayReport {
-  day: number; marketRate: number; market: TradingEvent | null; outcomes: DayOutcome[]; attacks: AttackRecord[];
+  day: number; marketRate: number; newsRate?: number; market: TradingEvent | null; outcomes: DayOutcome[]; attacks: AttackRecord[];
   /** Locked attacks that did not land, with the reason. Presentation only. */
   misses: AttackMiss[];
 }
@@ -108,11 +108,15 @@ export class TradingRun {
   shop: Shop | null = null;
   private readonly dailyShops = new Map<Investor, Shop>();
   private openingLeaders = new Set<string>();
+  private openingLast = new Set<string>();
+  private readonly copiedItems = new WeakSet<GameCard>();
+  private readonly marketDraws: { daily: number; news: number }[];
   private readonly opening = new Map<Investor, { worth: number; cards: GameCard[]; steps: ChainStep[] }>();
 
   constructor(readonly config: FinancialConfig, readonly options: TradingOptions) {
     this.jokerPool = config.jokers.filter(joker => !joker.shopOnly);
     this.marketRoll = seededRandom(localSeed(options.seed, 'market roll'));
+    this.marketDraws = Array.from({ length: config.gameplay.turns }, () => ({ daily: this.marketRoll(), news: this.marketRoll() }));
     this.targetRandom = seededRandom(localSeed(options.seed, 'market targeting'));
     this.schedule = buildMarketSchedule(config, seededRandom(localSeed(options.seed, 'market schedule')));
     this.investors = config.characters.map(character => ({
@@ -129,6 +133,7 @@ export class TradingRun {
       this.shopRandom.set(investor, seededRandom(localSeed(options.seed, `${investor.character.id} shop`)));
       this.dealOpeningItems(investor);
       this.offerJokers(investor, 'opening');
+      if (investor !== this.player) this.dailyJokerItems(investor, 0);
       this.openDailyShop(investor);
     }
     this.captureOpeningLeaders();
@@ -166,6 +171,15 @@ export class TradingRun {
     return investor.intel && investor.intel.day >= this.day ? investor.intel : null;
   }
 
+  jokerIntelFor(investor: Investor) {
+    if (investor.account.eliminated || this.closed || this.reports.at(-1)?.day === this.day) return { category: null, tone: null };
+    const tomorrow = jokerEffect(investor, this.config, 'oracle') ? this.schedule.get(this.day + 1) : undefined;
+    const today = jokerEffect(investor, this.config, 'insider_king') ? this.schedule.get(this.day) : undefined;
+    const effect = today && priceEffect(this.config, today);
+    const actual = effect ? rateFrom(effect, this.marketDraws[this.day - 1].news) : 0;
+    return { category: tomorrow?.category ?? null, tone: today ? actual > 0 ? 'positive' as const : actual < 0 ? 'negative' as const : 'neutral' as const : null };
+  }
+
   decisionView(investor: Investor, standings = this.standings()): DecisionView {
     const leader = standings.find(item => item.rank === 1)?.investor;
     const rank = standings.find(item => item.investor === investor)?.rank ?? this.investors.length;
@@ -178,9 +192,11 @@ export class TradingRun {
       config: this.config, characterId: investor.character.id, day: this.day, holder: copyHolder(investor), allocation: investor.allocation,
       rank, gap: leader ? netWorth(leader.account) - netWorth(investor.account) : 0,
       rivals,
+      openingItems: this.opening.get(investor)?.cards.length ?? 0,
       actionsLeft: Math.max(0, Math.min(this.config.gameplay.actionLimit, this.config.gameplay.itemPlayLimit - (this.opening.get(investor)?.cards.length ?? 0))),
       eventToday: this.eventToday(), nextNewsDay: this.eventAtOrAfter(this.day + 1),
-      knownTone: intel && intel.day === this.day ? intel.tone : null,
+      knownTone: this.jokerIntelFor(investor).tone ?? (intel && intel.day === this.day ? intel.tone : null),
+      openingLast: this.openingLast.has(investor.character.id),
       shopToday: this.shopOpensAfter(this.day)
     };
   }
@@ -197,6 +213,7 @@ export class TradingRun {
     if (index !== null && !this.store(this.player, offer.kind, offer.cards[index], replace)) return false;
     if (discarded) this.rewardRecycle(this.player, offer.fromSacrifice);
     this.offers.shift();
+    if (offer.source === 'opening' && index !== null) this.dailyJokerItems(this.player, 0);
     this.openNextDay();
     return true;
   }
@@ -298,7 +315,7 @@ export class TradingRun {
     const opening = this.openingFor(investor);
     const before = netWorth(investor.account);
     const random = seededRandom(localSeed(this.options.seed, investor.character.id + ' item cash ' + this.day + ' ' + opening.cards.length));
-    const ledger = playOpeningItem(investor, card, this.config, random);
+    const ledger = playOpeningItem(investor, card, this.config, random, this.day);
     const sacrificeDraw = card.effectIds.map(id => this.config.effects[id]).find(effect => effect.type === 'sacrifice_draw');
     const cost = sacrificeDraw ? paySacrifice(investor, this.config, this.day, ledger, card, sacrificeDraw) : 0;
     if (sacrificeDraw && !cost) return null;
@@ -336,6 +353,8 @@ export class TradingRun {
         const pick = usable.find(({ card, timing }) => {
           if (timing !== 'instant' || (card.id === 'ticket' && !shopping)) return false;
           const draw = card.effectIds.map(id => this.config.effects[id]).find(effect => effect.type === 'sacrifice_draw');
+          const bank = jokerEffect(investor, this.config, 'time_bank');
+          if (bank && !this.opening.get(investor)?.cards.length && cardValue(card, { config: this.config, holder: investor }) < bank.effect.amount) return false;
           if (!draw) return true;
           const cost = sacrificeCost(investor, this.day, draw);
           const refund = jokerEffect(investor, this.config, 'sacrifice_refund')?.effect.rate ?? 0;
@@ -445,8 +464,9 @@ export class TradingRun {
 
     // Every decision is locked; only now are the shared market move and the news target drawn.
     const daily = priceEffect(this.config, { effectIds: [this.config.allocation.dailyMarket] })!;
-    const marketRate = rateFrom(daily, this.marketRoll());
-    const newsDraw = this.marketRoll();
+    const draw = this.marketDraws[this.day - 1];
+    const marketRate = rateFrom(daily, draw.daily);
+    const newsDraw = draw.news;
     const ranked = standings.filter(item => item.rank !== null).map(item => ({ ...item, tie: this.targetRandom() }))
       .sort((first, second) => first.rank! - second.rank! || first.tie - second.tie).map(item => item.investor);
     const targets = market ? new Set(marketTargets(market.target, ranked, this.targetRandom)) : new Set<Investor>();
@@ -459,6 +479,8 @@ export class TradingRun {
       investor.allocation = allocation.id;
       const start = this.opening.get(investor)?.worth ?? netWorth(investor.account);
       context.marketRate = marketRate;
+      context.openingLast = this.openingLast.has(investor.character.id);
+      context.gamblerRoll = seededRandom(localSeed(this.options.seed, investor.character.id + ' fate ' + this.day))();
       context.news = market ? { event: market, rate: newsRate, applies: targets.has(investor) } : null;
       const ledger = tradeDay(investor, cards.map(card => card.card), context);
       ledger.steps.unshift(...(this.opening.get(investor)?.steps ?? []));
@@ -475,7 +497,7 @@ export class TradingRun {
         const effect = card.effect;
         if (!effect) return [];
         const from = combatants[index];
-        const makeStrike = (to: typeof from) => ({ from, to, effect, slot: card.slot, factor: card.factor, itemId: card.card.id });
+        const makeStrike = (to: typeof from) => ({ from, to, effect, slot: card.slot, factor: card.factor, itemId: card.card.id, card: card.card });
         const victims = combatants.filter(target => card.targets.includes(target.id));
         if (card.sacrificeFactor === null) return victims.map(makeStrike);
         if (effect.type !== 'attack' && effect.type !== 'sacrifice_attack') return [];
@@ -487,7 +509,7 @@ export class TradingRun {
         return victims.map(to => ({ ...makeStrike(to), sacrificeDamage: sacrificeDamage(this.config, from.holder, cost, factor, to.id === highest, effect.type === 'attack' || effect.area) }));
       }));
     const misses: AttackMiss[] = [];
-    const attacks = resolveAttacks(strikes, this.config.settlement, misses, this.config);
+    const attacks = resolveAttacks(strikes, this.config.settlement, misses, this.config, this.day);
     for (const trade of trades) {
       const id = trade.investor.character.id;
       const sent = attacks.find(attack => attack.from === id);
@@ -509,6 +531,7 @@ export class TradingRun {
       investor.stats.itemsUsed += used.length;
       const received: GameCard[] = [];
       const valid = sent.filter(hit => hit.amount > 0 || hit.kind === 'shield_break');
+      this.updateNewJokers(investor, valid, used.length, played, market, ledger);
       const bounty = jokerEffect(investor, this.config, 'bounty');
       if (bounty && valid.some(hit => this.openingLeaders.has(hit.to))) {
         const ordinary = valid.some(hit => !hit.sacrifice && this.openingLeaders.has(hit.to));
@@ -549,7 +572,7 @@ export class TradingRun {
         clearedItems: 0, attackedBy: trade.attackedBy, attacked: trade.attacked, attackBlocked: trade.attackBlocked, received, exposure: ledger.exposure
       };
     });
-    const report: DayReport = { day: this.day, marketRate, market, outcomes, attacks, misses };
+    const report: DayReport = { day: this.day, marketRate, newsRate, market, outcomes, attacks, misses };
     if (market) this.latestNews = { day: this.day, event: market };
     if (outcomes.some(outcome => outcome.investor === this.player && this.eligibleForRecovery(outcome))) this.pendingRecovery = report;
     else this.finishDay(report);
@@ -574,7 +597,7 @@ export class TradingRun {
         outcome.clearedItems = investor.items.length;
         outcome.recovery = recoverPortfolio(investor.account, this.config.financial);
         investor.items = [];
-        investor.memory = { ...newMemory(), holdPaid: investor.memory.holdPaid, climbPaid: investor.memory.climbPaid, reliefUsed: investor.memory.reliefUsed };
+        investor.memory = { ...newMemory(), holdPaid: investor.memory.holdPaid, climbPaid: investor.memory.climbPaid, miraclePaid: investor.memory.miraclePaid, reliefUsed: investor.memory.reliefUsed };
         investor.recoveries += 1;
         this.offers.splice(0, this.offers.length, ...this.offers.filter(offer => investor !== this.player || offer.kind === 'joker'));
       } else {
@@ -587,6 +610,12 @@ export class TradingRun {
     const lastPlace = this.investors.filter(investor => !investor.account.eliminated).length;
     for (const { investor, rank } of this.standings()) {
       const outcome = report.outcomes.find(item => item.investor === investor);
+      const miracle = jokerEffect(investor, this.config, 'comeback_miracle');
+      if (outcome && !outcome.risk.insolvent && miracle && !investor.memory.miraclePaid &&
+          this.openingLast.has(investor.character.id) && rank !== null && rank <= miracle.effect.rank) {
+        investor.memory.miraclePaid = true;
+        addCash(investor, outcome.ledger, { source: 'joker', id: miracle.joker.id, name: miracle.joker.name }, miracle.effect.amount);
+      }
       if (outcome && !outcome.recovery && before.get(investor) === lastPlace && rank !== null && rank < lastPlace) {
         climbBonus(investor, this.config, outcome.ledger, true);
       }
@@ -627,7 +656,12 @@ export class TradingRun {
     this.day += 1;
     this.opening.clear();
     this.captureOpeningLeaders();
-    for (const investor of this.investors) this.openDailyShop(investor);
+    const first = Math.max(...this.investors.filter(investor => !investor.account.eliminated).map(investor => netWorth(investor.account)));
+    for (const investor of this.investors) {
+      this.openDailyShop(investor);
+      if (investor.account.eliminated) continue;
+      this.dailyJokerItems(investor, first - netWorth(investor.account));
+    }
     this.playerOpeningItem = null;
     const start = this.config.gameplay.dailyItemStart;
     if (start === null || this.day < start) return;
@@ -672,7 +706,10 @@ export class TradingRun {
   private readonly closeRecycles = new Map<Investor, boolean>();
 
   private captureOpeningLeaders() {
-    this.openingLeaders = new Set(this.standings().filter(entry => entry.rank === 1).map(entry => entry.investor.character.id));
+    const standings = this.standings();
+    this.openingLeaders = new Set(standings.filter(entry => entry.rank === 1).map(entry => entry.investor.character.id));
+    const last = Math.max(1, ...standings.map(entry => entry.rank ?? 0));
+    this.openingLast = new Set(standings.filter(entry => last > 1 && entry.rank === last).map(entry => entry.investor.character.id));
   }
 
   private rewardRecycle(investor: Investor, fromSacrifice = false) {
@@ -681,7 +718,7 @@ export class TradingRun {
     investor.memory.recycleDay = this.day;
     const afterClose = this.reports.at(-1)?.day === this.day;
     const opening = afterClose ? null : this.openingFor(investor);
-    const ledger = newLedger();
+    const ledger = newLedger(this.day);
     const amount = fromSacrifice ? spendSacrificePaymentRoom(investor, collector.effect.amount) : collector.effect.amount;
     addCash(investor, ledger, { source: 'joker', id: collector.joker.id, name: collector.joker.name }, amount);
     if (opening) opening.steps.push(...ledger.steps);
@@ -757,6 +794,56 @@ export class TradingRun {
 
   private revealIntel(investor: Investor, day: number | null) {
     if (day !== null) investor.intel = { day, tone: marketTone(this.schedule.get(day)!, this.config) };
+  }
+
+  private dailyJokerItems(investor: Investor, gap: number) {
+    const king = jokerEffect(investor, this.config, 'chaos_king');
+    const pursuer = jokerEffect(investor, this.config, 'pursuer');
+    const count = (king?.effect.count ?? 0) + (pursuer && gap > pursuer.effect.gap ? pursuer.effect.count : 0);
+    if (!count) return;
+    for (const item of this.generatedItems(investor, count)) this.giveItem(investor, 'event', item);
+  }
+
+  private updateNewJokers(investor: Investor, hits: readonly AttackRecord[], actions: number, played: GameCard[], market: TradingEvent | null, ledger: DayLedger) {
+    const { memory } = investor;
+    const charge = jokerEffect(investor, this.config, 'stored_strike');
+    if (!actions && charge) memory.charge = Math.min(charge.effect.cap, memory.charge + charge.effect.step);
+    memory.attackRestDays = hits.length ? 0 : memory.attackRestDays + 1;
+    if (this.day >= this.config.gameplay.turns) return;
+    const blacklist = jokerEffect(investor, this.config, 'blacklist');
+    const seal = jokerEffect(investor, this.config, 'wealth_seal');
+    const hegemony = jokerEffect(investor, this.config, 'financial_hegemony');
+    const first = hits[0];
+    const leader = hits.find(hit => this.openingLeaders.has(hit.to));
+    const next = this.day + 1;
+    for (const hit of hits) {
+      const target = this.investors.find(item => item.character.id === hit.to)!;
+      const stock = hit === leader && hegemony ? hegemony : blacklist;
+      if (stock && (target.memory.stockCurseDay !== next || stock.effect.rate > target.memory.stockCurseRate)) {
+        target.memory.stockCurseDay = next;
+        target.memory.stockCurseRate = stock.effect.rate;
+        target.memory.stockCurseCard = stock.joker;
+      }
+      if (hit === first && seal && (target.memory.cashCurseDay !== next || seal.effect.rate > target.memory.cashCurseRate ||
+          (seal.effect.rate === target.memory.cashCurseRate && seal.effect.cap > target.memory.cashCurseCap))) {
+        target.memory.cashCurseDay = next;
+        target.memory.cashCurseRate = seal.effect.rate;
+        target.memory.cashCurseCap = seal.effect.cap;
+        target.memory.cashCurseCard = seal.joker;
+      }
+    }
+    const prophet = jokerEffect(investor, this.config, 'market_prophet');
+    if (prophet && market && market.severity !== 'normal' && played.length) {
+      for (const item of this.generatedItems(investor, prophet.effect.count)) this.giveItem(investor, 'event', item, ledger);
+    }
+    const imitator = jokerEffect(investor, this.config, 'imitator');
+    const copy = played.find(card => repeatableItem(this.config, card) && !this.copiedItems.has(card));
+    if (imitator && copy && this.day - memory.copyDay >= imitator.effect.days) {
+      memory.copyDay = this.day;
+      const replica = { ...copy };
+      this.copiedItems.add(replica);
+      this.giveItem(investor, 'event', replica, ledger);
+    }
   }
 
   private sacrificeSupply(investor: Investor, cost: number, ledger?: DayLedger) {

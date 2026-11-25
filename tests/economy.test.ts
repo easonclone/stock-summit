@@ -21,10 +21,10 @@ describe('財務資料驗證', () => {
     expect(() => readFinancialConfig({ ...financialInput, allocation: { ...financialInput.allocation, initial: 'nope' } })).toThrow(/起始資產配置/);
   });
 
-  it('預設遊戲只有三種配置、36 張王牌與 28 張道具，沒有借款或費用設定', () => {
+  it('預設遊戲只有三種配置、54 張王牌與 28 張道具，沒有借款或費用設定', () => {
     expect(config.allocation.options.map(option => option.ratio)).toEqual([0, 0.5, 1]);
     expect(Object.keys(rules).sort()).toEqual(['initialCapital', 'maxDefenses', 'maxRecoveries', 'recoveryCash']);
-    expect([config.jokers.length, config.items.length]).toEqual([36, 28]);
+    expect([config.jokers.length, config.items.length]).toEqual([54, 28]);
     expect(Object.values(config.effects).some(effect => ['bailout', 'repay', 'maintenance', 'fee_coupon', 'hedge'].includes(effect.type as string))).toBe(false);
   });
 });

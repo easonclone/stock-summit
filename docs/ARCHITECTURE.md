@@ -10,7 +10,7 @@
 | `src/core/financial-risk.ts`、`bankruptcy.ts` | 歸零判斷與一次翻身 |
 | `src/core/trade-preview.ts`、`npc-strategy.ts` | 用複製帳本在幾個市場情境下試算；電腦依同一試算挑配置、道具與卡片 |
 | `src/core/market-events.ts`、`random.ts`、`targets.ts` | 新聞排程、種子亂數與新聞目標 |
-| `src/main.ts`、`src/ui` | DOM 互動、SVG 績效、像素圖示、視窗與音效；Phaser 延遲載入以播放重大市場像素效果 |
+| `src/main.ts`、`src/ui` | DOM 互動、SVG 績效、像素圖示、視窗與音效；市場快報讀取已結算的新聞資料 |
 | `src/ui/fx-events.ts` | 純函式 `buildFxPlan`：只讀已結算的 `DayReport`（攻擊紀錄、未命中、結算連鎖），產生有時間的演出事件與每席財富影格；影格最後必等於收盤，不重算卡片、不碰亂數 |
 | `src/ui/arena-fx.ts` | 在競技場 DOM 播放演出計畫：命中閃光、浮字、粒子、震動、延遲傷害條、王牌連鎖與音效；重繪時全部清除，同一日不重播；減少動態只留靜態數字與財富條 |
 | `src/ui/paint.ts` | 繪製肖像、角色、城市背景、卡圖與圖示的畫布 |

@@ -1,5 +1,5 @@
 import type { FinancialConfig, GameCard } from '../config/financial-settings';
-import { jokerEffect, type Holder } from './settlement';
+import { applyCashCurse, jokerEffect, type Holder } from './settlement';
 
 export type CardKind = 'joker' | 'item';
 
@@ -71,6 +71,10 @@ export function buy(config: FinancialConfig, holder: Holder, shop: Shop, index: 
   } else owned.push(slot.card);
   slot.sold = true;
   holder.memory.voucher = 0;
-  if (rebate) holder.account.cash += rebate.amount;
+  if (rebate) {
+    holder.account.cash += rebate.amount;
+    const curse = applyCashCurse(holder, shop.day, rebate.amount, false);
+    if (curse) rebate.amount -= curse.amount;
+  }
   return { day: shop.day, kind: slot.kind, card: slot.card, price: check.price, replaced, refund, ...(rebate && { rebate }) };
 }

@@ -54,6 +54,17 @@ function effectValue(effect: FinanceEffect, holder: Holder | null): number {
     case 'sacrifice_supply': return 1150;
     case 'sacrifice_attack': return effect.area ? 1000 : 680;
     case 'sacrifice_draw': return 710;
+    case 'stored_strike': case 'finisher': return 1000;
+    case 'time_bank': return effect.amount * 4;
+    case 'lucky_star': case 'oracle': return 550;
+    case 'fate_gambler': return 1500;
+    case 'chaos_king': return 3600;
+    case 'insider_king': case 'market_prophet': return 1350;
+    case 'imitator': case 'universal_mirror': return 1650;
+    case 'phantom': return holder?.jokers.length ? 1000 : 350;
+    case 'blacklist': case 'wealth_seal': case 'financial_hegemony': return 950;
+    case 'last_fury': case 'pursuer': return 1250;
+    case 'comeback_miracle': return 900;
     case 'attack_bonus': return 150;
     case 'news_item': return 700;
     case 'hold_bonus': return 400;
@@ -84,9 +95,9 @@ function effectValue(effect: FinanceEffect, holder: Holder | null): number {
  * Play styles a computer drifts into from the jokers it already owns. All four characters start equal; the style
  * only changes which cards look attractive next, and the forecast (same engine as the player) does the rest.
  */
-export const styles = ['cash', 'stock', 'defense', 'items', 'attack', 'dividend', 'sacrifice'] as const;
+export const styles = ['cash', 'stock', 'defense', 'items', 'attack', 'dividend', 'sacrifice', 'time', 'chaos', 'intel', 'copy', 'curse', 'comeback'] as const;
 export type Style = typeof styles[number];
-export const styleNames: Record<Style, string> = { cash: '現金經濟流', stock: '股票爆發流', defense: '防禦反擊流', items: '抽牌連招流', attack: '攻擊掠奪流', dividend: '股息持有流', sacrifice: '風險獻祭流' };
+export const styleNames: Record<Style, string> = { cash: '現金經濟流', stock: '股票爆發流', defense: '防禦反擊流', items: '抽牌連招流', attack: '攻擊掠奪流', dividend: '股息持有流', sacrifice: '風險獻祭流', time: '時間蓄力', chaos: '混沌賭博', intel: '情報操盤', copy: '複製模仿', curse: '詛咒控制', comeback: '逆轉翻盤' };
 const styleOf: Partial<Record<FinanceEffect['type'], Style>> = {
   cash_yield: 'cash', yield_boost: 'cash', bear_bonus: 'cash', shop_discount: 'cash',
   gain_add: 'stock', streak_add: 'stock', rebound_add: 'stock', joker_add: 'stock', news_mult: 'stock', repeat_mult: 'stock',
@@ -96,7 +107,10 @@ const styleOf: Partial<Record<FinanceEffect['type'], Style>> = {
   bounty: 'attack', attack_supply: 'attack', stock_strike: 'attack', shield_income: 'defense', retaliate: 'defense', attack_guard: 'defense',
   generation_bonus: 'items', combo_income: 'items', recycle_income: 'items', purchase_rebate: 'cash', dividend_bonus: 'dividend', patient_gain: 'dividend',
   sacrifice_contract: 'sacrifice', sacrifice_amplify: 'sacrifice', sacrifice_refund: 'sacrifice', sacrifice_supply: 'sacrifice',
-  sacrifice_leader: 'sacrifice', sacrifice_rebirth: 'sacrifice', sacrifice_attack: 'sacrifice', sacrifice_draw: 'sacrifice'
+  sacrifice_leader: 'sacrifice', sacrifice_rebirth: 'sacrifice', sacrifice_attack: 'sacrifice', sacrifice_draw: 'sacrifice',
+  stored_strike: 'time', time_bank: 'time', finisher: 'time', lucky_star: 'chaos', fate_gambler: 'chaos', chaos_king: 'chaos',
+  oracle: 'intel', insider_king: 'intel', market_prophet: 'intel', imitator: 'copy', phantom: 'copy', universal_mirror: 'copy',
+  blacklist: 'curse', wealth_seal: 'curse', financial_hegemony: 'curse', last_fury: 'comeback', pursuer: 'comeback', comeback_miracle: 'comeback'
 };
 
 export const cardStyles = (card: GameCard, config: DecisionView['config']) =>

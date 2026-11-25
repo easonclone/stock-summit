@@ -1,8 +1,9 @@
 import type { AllocationOption, FinancialConfig, GameCard } from '../config/financial-settings';
-import { attackOf, estimateAttack, type AttackTarget } from './attacks';
+import { attackOf, estimateAttack, isAreaAttack, type AttackEffect, type AttackTarget } from './attacks';
+import { sacrificeCost, sacrificeDamage, sacrificeRefund } from './sacrifice';
 import { netWorth } from './economy';
 import {
-  closeDay, copyHolder, itemBlock, newsOutlook, priceEffect, tradeDay, type DayContext, type DayLedger, type Holder, type ItemBlock, type Tone
+  closeDay, copyHolder, jokerEffect, itemBlock, newsOutlook, priceEffect, tradeDay, type DayContext, type DayLedger, type Holder, type ItemBlock, type Tone
 } from './settlement';
 
 /** Locked before any market result is known: today's stock ratio and at most one item (slot in the holder's items). */
@@ -79,37 +80,71 @@ export interface Forecast {
   boost: number;
   shielded: number;
   targets: AttackTarget[];
-  attack: { target: AttackTarget; amount: number; kind: 'attack' | 'cash_raid' | 'shield_break' | 'area_attack' } | null;
+  attack: { target: AttackTarget; amount: number; kind: AttackEffect['type'] } | null;
+  sacrifice: SacrificePreview | null;
   ledger: DayLedger;
 }
 
 /** The same settlement the run uses, applied to copies under a few market scenarios. Never changes the real state. */
-export function attackTargets(view: DecisionView, item: GameCard | null) {
+export function attackTargets(view: DecisionView, item: GameCard | null, allocation = allocationOption(view.config, view.allocation)) {
   const effect = attackOf(view.config, item);
-  return effect && effect.type !== 'area_attack' ? view.rivals.filter(rival => effect.type !== 'shield_break' || rival.shields > 0) : [];
+  if (!effect || isAreaAttack(effect)) return [];
+  const rivals = view.rivals.filter(rival => effect.type !== 'shield_break' || rival.shields > 0);
+  const self = effect.type === 'attack' && jokerEffect(view.holder, view.config, 'sacrifice_contract');
+  const stock = Math.floor(netWorth(view.holder.account) * allocation.ratio);
+  if (self && view.rivals.length && sacrificeCost(view.holder, view.day, effect, stock)) return [...rivals, {
+    id: view.characterId, name: '自己', rank: view.rank, cash: netWorth(view.holder.account) - stock, stock, shields: view.holder.defenses.length
+  }];
+  return rivals;
+}
+
+interface SacrificePreview { cost: number; refund: number; damage: { target: AttackTarget; amount: number }[] }
+
+export function forecastSacrifice(view: DecisionView, effect: AttackEffect | null, targetId: string | undefined, stock: number): SacrificePreview | null {
+  const isSelf = effect?.type === 'attack' && targetId === view.characterId;
+  const contract = isSelf && jokerEffect(view.holder, view.config, 'sacrifice_contract');
+  if (!effect || (effect.type !== 'sacrifice_attack' && !contract)) return null;
+  if (effect.type !== 'attack' && effect.type !== 'sacrifice_attack') return null;
+  const cost = sacrificeCost(view.holder, view.day, effect, stock);
+  if (!cost) return null;
+  const area = Boolean(contract) || isAreaAttack(effect);
+  const victims = area ? view.rivals : view.rivals.filter(target => target.id === targetId);
+  const best = Math.min(...view.rivals.map(target => target.rank));
+  const factor = contract ? contract.effect.rate : effect.type === 'sacrifice_attack' ? effect.factor : 0;
+  const damage = victims.map(target => {
+    const amount = sacrificeDamage(view.config, view.holder, cost, factor, target.rank === best && target.id === view.rivals.find(rival => rival.rank === best)?.id, area);
+    return { target, amount: Math.min(Math.floor((target.cash + target.stock) * view.config.settlement.attackLossLimit),
+      Math.round(amount * (1 - (target.guard ?? 0)))) };
+  });
+  return { cost, refund: sacrificeRefund(view.config, view.holder, cost), damage };
 }
 
 export function forecastTrade(view: DecisionView, allocationId: string | undefined, slot: number | null, targetId?: string, actions?: ActionChoice[]): Forecast {
   const allocation = allocationOption(view.config, allocationId ?? view.allocation);
   const item = slot === null ? null : view.holder.items[slot] ?? null;
-  const targets = attackTargets(view, item);
+  const targets = attackTargets(view, item, allocation);
   const target = targets.find(rival => rival.id === targetId);
-  const block = item ? itemBlock(view.holder, item, { ...viewContext(view, allocation), hasTarget: targets.length > 0 }) : null;
+  const block = item ? itemBlock(view.holder, item, { ...viewContext(view, allocation), hasTarget: targets.length > 0 || (isAreaAttack(attackOf(view.config, item)) && view.rivals.length > 0) }) : null;
   const used = block ? null : item;
   const selected = actions ? actions.map(choice => view.holder.items[choice.slot]).filter(Boolean) : used ? [used] : [];
   const runs = scenarios(view).map(scenario => ({ scenario, result: simulate(view, allocation, selected, scenario) }));
-  const deltas = runs.map(run => run.result.delta);
-  const expected = runs.reduce((sum, run) => sum + run.result.delta * run.scenario.weight, 0);
+  const worth = Math.max(0, netWorth(view.holder.account));
+  const stock = Math.floor(worth * allocation.ratio);
+  const sacrifice = forecastSacrifice(view, attackOf(view.config, used), targetId, stock);
+  const totalSacrifice = actions?.map(action => forecastSacrifice(view, attackOf(view.config, view.holder.items[action.slot] ?? null), action.targetId, stock))
+    .find(result => result !== null) ?? sacrifice;
+  const netCost = totalSacrifice ? totalSacrifice.cost - totalSacrifice.refund : 0;
+  const deltas = runs.map(run => run.result.delta - netCost);
+  const expected = runs.reduce((sum, run) => sum + run.result.delta * run.scenario.weight, 0) - netCost;
   const middle = runs.reduce((best, run) => run.scenario.weight > best.scenario.weight ? run : best, runs[0]).result;
   const boost = runs.reduce((sum, run) => sum + (run.result.ledger.stockFinal - run.result.ledger.stockBase) * run.scenario.weight, 0);
   const shielded = Math.max(...runs.map(run => run.result.ledger.shielded));
-  const worth = Math.max(0, netWorth(view.holder.account));
-  const stock = Math.floor(worth * allocation.ratio);
   const itemCash = used ? middle.ledger.steps.filter(step => step.source === 'item' && step.kind === 'cash').reduce((sum, step) => sum + step.amount, 0) : 0;
   const effect = attackOf(view.config, used);
-  const attack = target && effect ? { target, amount: estimateAttack(effect, target), kind: effect.type } : null;
+  const bonus = effect?.type === 'attack' ? jokerEffect(view.holder, view.config, 'stock_strike')?.effect.rate ?? 0 : 0;
+  const attack = target && effect ? { target, amount: sacrifice ? sacrifice.damage.find(hit => hit.target.id === target.id)?.amount ?? 0 : Math.min(Math.round(estimateAttack(effect, target) * (1 + bonus)), Math.floor((target.cash + target.stock) * view.config.settlement.attackLossLimit)), kind: effect.type } : null;
   return {
     allocation, cash: worth - stock, stock, low: Math.min(...deltas), high: Math.max(...deltas), expected,
-    item, itemBlock: block, itemCash, boost, shielded, targets, attack, ledger: middle.ledger
+    item, itemBlock: block, itemCash, boost, shielded, targets, attack, sacrifice, ledger: middle.ledger
   };
 }

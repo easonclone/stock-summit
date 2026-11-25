@@ -2,7 +2,7 @@ import type { DayOutcome } from '../core/trading-run';
 import type { ChainStep } from '../core/settlement';
 
 export interface BreakdownLine {
-  key: 'stock' | 'news' | 'joker' | 'item' | 'event' | 'attack' | 'restart';
+  key: 'stock' | 'news' | 'joker' | 'item' | 'event' | 'attack' | 'sacrifice' | 'restart';
   label: string;
   amount: number;
 }
@@ -19,10 +19,10 @@ export interface DayBreakdown {
 }
 
 const group: Record<ChainStep['source'], BreakdownLine['key']> = {
-  shop: 'event', market: 'stock', cap: 'joker', news: 'news', joker: 'joker', item: 'item', defense: 'item', attack: 'attack', event: 'event'
+  shop: 'event', market: 'stock', cap: 'joker', news: 'news', joker: 'joker', item: 'item', defense: 'item', attack: 'attack', sacrifice: 'sacrifice', event: 'event'
 };
 const labels: Record<BreakdownLine['key'], string> = {
-  stock: '今日股市', news: '市場新聞', joker: '王牌', item: '道具', event: '特殊事件', attack: '對手狙擊', restart: '歸零翻身'
+  stock: '今日股市', news: '市場新聞', joker: '王牌', item: '道具', event: '特殊事件', attack: '對手狙擊', sacrifice: '主動獻祭', restart: '歸零翻身'
 };
 
 /** Groups the actual settlement chain of one day; the parts always add up to the real change in total worth. */

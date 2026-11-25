@@ -206,7 +206,7 @@ class View {
         break;
       }
       case 'own':
-        this.float(event.id, `${escapeHtml(event.name)} <b>${signedMoney(event.amount)}</b>`, event.amount < 0 ? 'market-loss' : 'cash-gain');
+        this.float(event.id, `${event.source === 'sacrifice' ? '獻祭 · ' : ''}${escapeHtml(event.name)} <b>${signedMoney(event.amount)}</b>`, event.amount < 0 ? 'market-loss' : 'cash-gain');
         break;
       case 'defense':
         this.float(event.id, `◆ 格擋 <b>${money(event.amount)}</b>`, 'shield');
@@ -221,7 +221,7 @@ class View {
         break;
       case 'attack': {
         this.cast(event.from, event.itemId, event.at);
-        const tag = [event.factor > 1 ? `雙重打擊 ×${event.factor}` : '', hitLabel[event.tier]].filter(Boolean).join(' · ');
+        const tag = [event.sacrifice ? '獻祭衝擊' : '', event.factor > 1 ? `雙重打擊 ×${event.factor}` : '', hitLabel[event.tier]].filter(Boolean).join(' · ');
         this.float(event.to, `${tag ? `<small>${tag}</small>` : ''}<b>${money(-event.amount)}</b>`, 'hit', `tier-${event.tier}`);
         this.flash(event.to, `tier-${event.tier}`);
         if (event.tier === 'strong' || event.tier === 'heavy') this.particles(event.to, 'burst', event.tier === 'heavy' ? 10 : 7);
@@ -246,7 +246,7 @@ class View {
         break;
       case 'reflect':
         this.flash(event.owner, 'mirror', 200);
-        this.float(event.hit, `<small>反擊鏡</small><b>${money(-event.amount)}</b>`, 'reflect');
+        this.float(event.hit, `<small>${escapeHtml(event.counterName ?? '反擊鏡')}</small><b>${money(-event.amount)}</b>`, 'reflect');
         this.flash(event.hit, 'tier-normal');
         if (event.cash) this.float(event.owner, `<small>拿回</small><b>+${money(event.amount)}</b>`, 'cash-gain');
         this.fx.sound('counter');

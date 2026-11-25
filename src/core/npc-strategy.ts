@@ -1,11 +1,11 @@
 import type { FinanceEffect, GameCard, TradingDifficulty } from '../config/financial-settings';
-import { attackOf, estimateAttack, type AttackEffect } from './attacks';
+import { isAreaAttack, attackOf, estimateAttack, type AttackEffect } from './attacks';
 import { itemTiming } from './item-timing';
 import { netWorth } from './economy';
 import type { Random } from './random';
-import { attackTargets, forecastTrade, type ActionChoice, type DecisionView, type TradeChoice } from './trade-preview';
-import { copyHolder, type Holder } from './settlement';
-import { checkBuy, sellPrice, type Shop } from './shop';
+import { forecastSacrifice, attackTargets, forecastTrade, type ActionChoice, type DecisionView, type TradeChoice } from './trade-preview';
+import { jokerEffect, copyHolder, type Holder } from './settlement';
+import { buy, checkBuy, sellPrice, type Shop } from './shop';
 
 /**
  * Play styles shared by the simulation and the computer opponents. Every style plays by the player's rules and
@@ -36,6 +36,24 @@ function effectValue(effect: FinanceEffect, holder: Holder | null): number {
     case 'stock_yield': return 650;
     case 'bear_bonus': return 500;
     case 'item_bonus': return 600;
+    case 'bounty': return 1600;
+    case 'attack_supply': return 2300;
+    case 'stock_strike': return 2100;
+    case 'shield_income': return 1550;
+    case 'retaliate': return 1900;
+    case 'attack_guard': return 2050;
+    case 'generation_bonus': return 1950;
+    case 'combo_income': return 2300;
+    case 'recycle_income': return 1650;
+    case 'purchase_rebate': return 1550;
+    case 'dividend_bonus': return holder?.jokers.some(card => card.id === 'dividend_king') ? 2750 : 1750;
+    case 'patient_gain': return 1450;
+    case 'sacrifice_contract': return 1250;
+    case 'sacrifice_amplify': case 'sacrifice_leader': return 1050;
+    case 'sacrifice_refund': case 'sacrifice_rebirth': return 1500;
+    case 'sacrifice_supply': return 1150;
+    case 'sacrifice_attack': return effect.area ? 1000 : 680;
+    case 'sacrifice_draw': return 710;
     case 'attack_bonus': return 150;
     case 'news_item': return 700;
     case 'hold_bonus': return 400;
@@ -66,17 +84,22 @@ function effectValue(effect: FinanceEffect, holder: Holder | null): number {
  * Play styles a computer drifts into from the jokers it already owns. All four characters start equal; the style
  * only changes which cards look attractive next, and the forecast (same engine as the player) does the rest.
  */
-export const styles = ['cash', 'stock', 'defense', 'items'] as const;
+export const styles = ['cash', 'stock', 'defense', 'items', 'attack', 'dividend', 'sacrifice'] as const;
 export type Style = typeof styles[number];
+export const styleNames: Record<Style, string> = { cash: '現金經濟流', stock: '股票爆發流', defense: '防禦反擊流', items: '抽牌連招流', attack: '攻擊掠奪流', dividend: '股息持有流', sacrifice: '風險獻祭流' };
 const styleOf: Partial<Record<FinanceEffect['type'], Style>> = {
   cash_yield: 'cash', yield_boost: 'cash', bear_bonus: 'cash', shop_discount: 'cash',
   gain_add: 'stock', streak_add: 'stock', rebound_add: 'stock', joker_add: 'stock', news_mult: 'stock', repeat_mult: 'stock',
-  swing_mult: 'stock', stock_yield: 'stock', hold_bonus: 'stock', today_add: 'stock', today_mult: 'stock', stock_cash: 'stock',
+  swing_mult: 'stock', stock_yield: 'dividend', hold_bonus: 'dividend', today_add: 'stock', today_mult: 'stock', stock_cash: 'dividend',
   loss_cut: 'defense', defense: 'defense', relief: 'defense', climb_bonus: 'defense',
-  item_bonus: 'items', news_item: 'items', attack_bonus: 'items', item_pack: 'items', attack: 'items', cash_raid: 'items', shield_break: 'items', mirror: 'items', intel: 'items'
+  item_bonus: 'items', news_item: 'items', attack_bonus: 'attack', item_pack: 'items', attack: 'attack', cash_raid: 'attack', shield_break: 'attack', area_attack: 'attack', mirror: 'defense', intel: 'items',
+  bounty: 'attack', attack_supply: 'attack', stock_strike: 'attack', shield_income: 'defense', retaliate: 'defense', attack_guard: 'defense',
+  generation_bonus: 'items', combo_income: 'items', recycle_income: 'items', purchase_rebate: 'cash', dividend_bonus: 'dividend', patient_gain: 'dividend',
+  sacrifice_contract: 'sacrifice', sacrifice_amplify: 'sacrifice', sacrifice_refund: 'sacrifice', sacrifice_supply: 'sacrifice',
+  sacrifice_leader: 'sacrifice', sacrifice_rebirth: 'sacrifice', sacrifice_attack: 'sacrifice', sacrifice_draw: 'sacrifice'
 };
 
-const cardStyles = (card: GameCard, config: DecisionView['config']) =>
+export const cardStyles = (card: GameCard, config: DecisionView['config']) =>
   new Set(card.effectIds.map(id => styleOf[config.effects[id].type]).filter((style): style is Style => style !== undefined));
 
 /** The style with the most owned jokers, or null before the investor leans anywhere. */
@@ -122,22 +145,17 @@ export function planShop(real: Shop, own: Holder, config: DecisionView['config']
       const owned = slot.kind === 'joker' ? holder.jokers : holder.items;
       const full = checkBuy(config, holder, slot).needsReplace;
       const replace = full ? owned.reduce((pick, card, at) => worth(card, slot.kind) < worth(owned[pick], slot.kind) ? at : pick, 0) : null;
-      const check = checkBuy(config, holder, slot, replace);
+      const check = checkBuy(config, holder, slot, replace, shop.day);
       if (check.block) return;
       const lost = replace === null ? 0 : worth(owned[replace], slot.kind) - (slot.kind === 'joker' ? sellPrice(config, owned[replace]) : 0);
-      const net = worth(slot.card, slot.kind) - check.price - lost;
+      const vip = holder.memory.rebateDay !== day ? jokerEffect(holder, config, 'purchase_rebate') : undefined;
+      const net = worth(slot.card, slot.kind) - check.price - lost + Math.floor(check.price * (vip?.effect.rate ?? 0));
       if (net > npc.shopMargin && (!top || net > top.net)) top = { index, replace, net };
     });
     if (!top) break;
     const { index, replace } = top as { index: number; replace: number | null };
     picks.push({ index, replace });
-    const slot = shop.slots[index];
-    const owned = slot.kind === 'joker' ? holder.jokers : holder.items;
-    holder.account.cash -= checkBuy(config, holder, slot, replace).price;
-    holder.memory.voucher = 0;
-    if (replace !== null) { holder.account.cash += slot.kind === 'joker' ? sellPrice(config, owned[replace]) : 0; owned[replace] = slot.card; }
-    else owned.push(slot.card);
-    slot.sold = true;
+    buy(config, holder, shop, index, replace);
   }
   return picks;
 }
@@ -174,9 +192,10 @@ function chooseAttackTarget(view: DecisionView, card: GameCard | null) {
   const score = (target: DecisionView['rivals'][number]) => {
     const value = attackValue(effect.type, estimateAttack(effect, target));
     const rankWeight = (target.rank <= view.rank ? 1.15 : 0.75) / (1 + 0.12 * Math.abs(target.rank - view.rank));
-    return value * rankWeight;
+    const bounty = target.rank === 1 && value > 0 ? jokerEffect(view.holder, view.config, 'bounty')?.effect.amount ?? 0 : 0;
+    return value * rankWeight + bounty;
   };
-  return attackTargets(view, card).sort((a, b) => score(b) - score(a))[0];
+  return attackTargets(view, card).filter(target => target.id !== view.characterId).sort((a, b) => score(b) - score(a))[0];
 }
 
 export function chooseTrade(view: DecisionView, random: Random, strategy: Strategy = 'mixed', difficulty: TradingDifficulty = 'normal'): TradeChoice {
@@ -200,24 +219,37 @@ export function chooseTrade(view: DecisionView, random: Random, strategy: Strate
   const noise = npc.noise[difficulty] * worth * 0.01;
   let best: TradeChoice = { allocation: choices[0], actions: [] };
   let top = -Infinity;
+  const lean = holderStyle(view.holder, config);
   for (const allocation of choices) {
     const available = actionSlots.flatMap(slot => {
       const card = view.holder.items[slot];
       const effect = attackOf(config, card);
       const boost = card.effectIds.map(id => config.effects[id]).find(effect => effect.type === 'strike_boost');
       const target = chooseAttackTarget(view, card);
-      const forecast = forecastTrade(view, allocation, slot, target?.id);
-      if (forecast.itemBlock || (effect && effect.type !== 'area_attack' && !target) || (effect?.type === 'area_attack' && !view.rivals.length)) return [];
-      const value = effect?.type === 'area_attack' ? view.rivals.reduce((sum, rival) => sum + estimateAttack(effect, rival), 0) * 0.65
-        : forecast.attack ? attackValue(forecast.attack.kind, forecast.attack.amount) : 0;
-      return [{ choice: { slot, targetId: target?.id }, effect, boost, value, forecast }];
+      const area = isAreaAttack(effect);
+      const targetIds = effect?.type === 'sacrifice_attack' && !area ? view.rivals.map(rival => rival.id) : [target?.id];
+      if (effect?.type === 'attack' && jokerEffect(view.holder, config, 'sacrifice_contract') && view.rivals.length) targetIds.push(view.characterId);
+      return targetIds.flatMap(targetId => {
+        const forecast = forecastTrade(view, allocation, slot, targetId);
+        const sacrifice = forecastSacrifice(view, effect, targetId, forecast.stock);
+        if (forecast.itemBlock || (effect && !area && !forecast.attack) || (area && !view.rivals.length) ||
+            (targetId === view.characterId && !forecast.targets.some(target => target.id === targetId))) return [];
+        const rebound = remaining > 0 && sacrifice && jokerEffect(view.holder, config, 'sacrifice_rebirth') ? forecast.stock * 0.025 : 0;
+        const supply = sacrifice && (jokerEffect(view.holder, config, 'sacrifice_supply')?.effect.amount ?? Infinity) <= sacrifice.cost && remaining > 0 ? 275 : 0;
+        const value = sacrifice ? sacrifice.damage.reduce((sum, hit) => sum + hit.amount * (hit.target.rank === 1 ? 0.9 : hit.target.rank <= view.rank ? 0.52 : 0.27), 0) + rebound + supply
+          : area ? view.rivals.reduce((sum, rival) => sum + estimateAttack(effect!, rival), 0) * 0.65
+            : forecast.attack ? attackValue(forecast.attack.kind, forecast.attack.amount) : 0;
+        return [{ choice: { slot, targetId }, effect, boost, value, forecast, sacrifice: Boolean(sacrifice) }];
+      });
     });
     const plans = [[], ...(view.actionsLeft ? available.filter(card => !card.boost).map(card => [card]) : [])];
     if (view.actionsLeft >= 2) for (const [i, first] of available.entries()) for (const second of available.slice(i + 1)) {
       const pair = first.boost ? [first, second] : second.boost ? [second, first] : [first, second];
+      if (pair[0].choice.slot === pair[1].choice.slot || (pair[0].sacrifice && pair[1].sacrifice) ||
+          (pair[0].boost && pair[1].sacrifice)) continue;
       if (pair[1].boost || (pair[0].boost && !pair[1].effect)) continue;
       if (pair.every(card => card.effect) && (pair[0].choice.targetId === pair[1].choice.targetId ||
-          pair.some(card => card.effect?.type === 'area_attack'))) continue;
+          pair.some(card => isAreaAttack(card.effect) || card.choice.targetId === view.characterId))) continue;
       plans.push(pair);
     }
     for (const plan of plans) {
@@ -227,7 +259,11 @@ export function chooseTrade(view: DecisionView, random: Random, strategy: Strate
       const reserve = remaining > 0 ? npc.itemReserve * plan.length : 0;
       const extra = plan.reduce((sum, card) => sum + card.value, 0) * (plan[0]?.boost?.factor ?? 1) * (0.6 + behind);
       const shopping = view.shopToday ? npc.shopCashValue * Math.min(forecast.cash, npc.shopBudget) : 0;
-      const score = forecast.expected - risk - reserve + extra + shopping + random() * noise;
+      const holding = lean === 'dividend' && forecast.stock > 0 ? npc.styleSynergy * (1 + Math.min(4, view.holder.memory.heldStockDays)) : 0;
+      const patientCash = lean === 'cash' ? npc.shopCashValue * Math.min(forecast.cash, npc.shopBudget) * 0.5 : 0;
+      const attackValue = lean === 'attack' ? plan.filter(card => card.effect && card.value > 0).length * npc.styleSynergy : 0;
+      const cardsValue = lean === 'items' ? plan.length * npc.styleSynergy : 0;
+      const score = forecast.expected - risk - reserve + extra + shopping + holding + patientCash + attackValue + cardsValue + random() * noise;
       if (score > top) { top = score; best = { allocation, actions }; }
     }
   }

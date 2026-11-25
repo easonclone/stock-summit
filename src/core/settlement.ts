@@ -15,6 +15,14 @@ export interface Memory {
   winStreak: number;
   /** Consecutive closes with stock held, including today once closed. */
   holdDays: number;
+  heldStockDays: number;
+  attackSupplyHits: number;
+  rebateDay: number;
+  sacrificeDay: number;
+  sacrificePaymentRoom: number;
+  rebirthDay: number;
+  recycleDay: number;
+  generationDay: number;
   holdPaid: boolean;
   climbPaid: boolean;
   reliefUsed: boolean;
@@ -32,7 +40,7 @@ export interface Holder {
   memory: Memory;
 }
 
-export type StepSource = 'shop' | 'market' | 'news' | 'joker' | 'item' | 'defense' | 'attack' | 'event' | 'cap';
+export type StepSource = 'shop' | 'market' | 'news' | 'joker' | 'item' | 'defense' | 'attack' | 'sacrifice' | 'event' | 'cap';
 export type StepKind = 'base' | 'add' | 'mult' | 'cut' | 'cash' | 'cap';
 
 /**
@@ -41,7 +49,7 @@ export type StepKind = 'base' | 'add' | 'mult' | 'cut' | 'cash' | 'cap';
  */
 export interface ChainStep { source: StepSource; id: string; name: string; kind: StepKind; value?: number; amount: number }
 
-export type ItemBlock = 'no_stock' | 'full_defense' | 'no_news' | 'known_news' | 'no_target' | 'mirror_ready' | 'not_low' | 'used' | 'last_day' | 'play_limit' | 'defense_today' | 'voucher_ready';
+export type ItemBlock = 'no_stock' | 'full_defense' | 'no_news' | 'known_news' | 'no_target' | 'mirror_ready' | 'not_low' | 'used' | 'last_day' | 'play_limit' | 'defense_today' | 'voucher_ready' | 'sacrifice_used' | 'sacrifice_funds';
 
 export interface DayContext {
   config: FinancialConfig;
@@ -85,12 +93,17 @@ interface Mod { source: StepSource; id: string; name: string; value: number }
 
 const effectsOf = (config: FinancialConfig, card: { effectIds: readonly string[] }) => card.effectIds.map(id => config.effects[id]);
 
+export function jokerEffect<T extends FinanceEffect['type']>(holder: Holder, config: FinancialConfig, type: T) {
+  const entry = jokerEffects(holder, config).find(({ effect }) => effect.type === type);
+  return entry as { joker: GameCard; effect: Extract<FinanceEffect, {type: T}> } | undefined;
+}
+
 function jokerEffects(holder: Holder, config: FinancialConfig) {
   return holder.jokers.flatMap(joker => effectsOf(config, joker).map(effect => ({ joker, effect })));
 }
 
 export function newMemory(): Memory {
-  return { lastRate: null, lastStockPnl: 0, winStreak: 0, holdDays: 0, holdPaid: false, climbPaid: false, reliefUsed: false, voucher: 0, mirror: null };
+  return { lastRate: null, lastStockPnl: 0, winStreak: 0, holdDays: 0, heldStockDays: 0, attackSupplyHits: 0, rebateDay: 0, sacrificeDay: 0, sacrificePaymentRoom: 0, rebirthDay: 0, recycleDay: 0, generationDay: 0, holdPaid: false, climbPaid: false, reliefUsed: false, voucher: 0, mirror: null };
 }
 
 export function copyHolder(holder: Holder): Holder {
@@ -117,7 +130,7 @@ export function rateFrom(effect: { floor: number; ceiling: number }, draw: numbe
   return effect.floor + (effect.ceiling - effect.floor) * draw;
 }
 
-function newLedger(): DayLedger {
+export function newLedger(): DayLedger {
   return {
     rebalance: null, steps: [], exposure: { stock: 0, cash: 0 }, rate: 0, marketPnl: 0, newsPnl: 0, stockBase: 0, stockFinal: 0,
     shielded: 0, combos: 0, capped: false, itemCount: 0, defenseUsed: null,
@@ -125,7 +138,7 @@ function newLedger(): DayLedger {
   };
 }
 
-function addCash(holder: Holder, ledger: DayLedger, step: Omit<ChainStep, 'amount' | 'kind'> & { kind?: StepKind }, amount: number) {
+export function addCash(holder: Holder, ledger: DayLedger, step: Omit<ChainStep, 'amount' | 'kind'> & { kind?: StepKind }, amount: number) {
   if (!amount) return;
   holder.account.cash += amount;
   holder.account.stats.cashYield += amount;
@@ -138,6 +151,11 @@ export function itemBlock(holder: Holder, item: GameCard, context: DayContext): 
   const plannedStock = Math.floor(worth * context.allocation.ratio);
   for (const effect of effectsOf(context.config, item)) {
     switch (effect.type) {
+      case 'sacrifice_attack': case 'sacrifice_draw':
+        if (holder.memory.sacrificeDay === context.day) return 'sacrifice_used';
+        if (worth < 2 || !Math.round(worth * effect.rate)) return 'sacrifice_funds';
+        if (effect.type === 'sacrifice_attack' && !context.hasTarget) return 'no_target';
+        break;
       case 'today_add':
       case 'today_mult':
       case 'stock_cash':
@@ -171,11 +189,17 @@ export function itemBlock(holder: Holder, item: GameCard, context: DayContext): 
   return null;
 }
 
-function applyItem(holder: Holder, item: GameCard, effect: FinanceEffect, ledger: DayLedger, boosts: { add: Mod[]; mult: Mod[] }) {
+function addDividend(holder: Holder, config: FinancialConfig, ledger: DayLedger, source: { source: 'joker' | 'item'; id: string; name: string }, amount: number) {
+  addCash(holder, ledger, source, amount);
+  const bonus = jokerEffect(holder, config, 'dividend_bonus');
+  if (bonus) addCash(holder, ledger, { source: 'joker', id: bonus.joker.id, name: bonus.joker.name }, Math.round(amount * bonus.effect.rate));
+}
+
+function applyItem(holder: Holder, item: GameCard, effect: FinanceEffect, ledger: DayLedger, boosts: { add: Mod[]; mult: Mod[] }, config: FinancialConfig) {
   const source = { source: 'item' as const, id: item.id, name: item.name };
   switch (effect.type) {
     case 'cash_grant': addCash(holder, ledger, source, effect.amount); break;
-    case 'stock_cash': addCash(holder, ledger, source, Math.round(holder.account.investmentValue * effect.rate)); break;
+    case 'stock_cash': addDividend(holder, config, ledger, source, Math.round(holder.account.investmentValue * effect.rate)); break;
     case 'relief':
       holder.memory.reliefUsed = true;
       addCash(holder, ledger, source, effect.amount);
@@ -202,7 +226,7 @@ export function playOpeningItem(holder: Holder, item: GameCard, config: Financia
     if (effect.type === 'random_cash') {
       const amount = effect.min + Math.floor(random() * (effect.max - effect.min + 1));
       addCash(holder, ledger, { source: 'item', id: item.id, name: item.name }, amount);
-    } else applyItem(holder, item, effect, ledger, { add: [], mult: [] });
+    } else applyItem(holder, item, effect, ledger, { add: [], mult: [] }, config);
   }
   return ledger;
 }
@@ -215,7 +239,7 @@ export function tradeDay(holder: Holder, items: GameCard[], context: DayContext)
   const boosts = { add: [] as Mod[], mult: [] as Mod[] };
   ledger.itemCount = items.length;
   for (const item of items) {
-    for (const effect of effectsOf(config, item)) applyItem(holder, item, effect, ledger, boosts);
+    for (const effect of effectsOf(config, item)) applyItem(holder, item, effect, ledger, boosts, config);
   }
   if (context.news?.applies) {
     const event = context.news.event;
@@ -249,6 +273,8 @@ export function tradeDay(holder: Holder, items: GameCard[], context: DayContext)
     const adds: Mod[] = [];
     for (const { joker, effect } of jokers) {
       const mod = { source: 'joker' as const, id: joker.id, name: joker.name };
+      if (effect.type === 'patient_gain' && ledger.exposure.stock > 0 && memory.heldStockDays + 1 >= effect.days) adds.push({ ...mod, value: effect.rate });
+      if (effect.type === 'sacrifice_rebirth' && memory.rebirthDay === context.day) adds.push({ ...mod, value: effect.rate });
       if (effect.type === 'gain_add') adds.push({ ...mod, value: effect.amount });
       if (effect.type === 'streak_add' && memory.winStreak > 0) adds.push({ ...mod, value: Math.min(effect.cap, effect.step * memory.winStreak) });
       if (effect.type === 'rebound_add' && memory.lastRate !== null && memory.lastRate < 0) adds.push({ ...mod, value: effect.amount });
@@ -327,11 +353,18 @@ export function tradeDay(holder: Holder, items: GameCard[], context: DayContext)
 }
 
 /** Flat cash from jokers, settled last and never multiplied; then the holder's memory moves to tomorrow. */
+export function spendSacrificePaymentRoom(holder: Holder, amount: number) {
+  const payable = Math.min(holder.memory.sacrificePaymentRoom, amount);
+  holder.memory.sacrificePaymentRoom -= payable;
+  return payable;
+}
+
 export function closeDay(holder: Holder, context: DayContext, ledger: DayLedger, attackDamage = 0) {
   const { config } = context;
   const { account } = holder;
   const memory = holder.memory;
   memory.holdDays = account.investmentValue > 0 ? memory.holdDays + 1 : 0;
+  memory.heldStockDays = account.investmentValue > 0 ? memory.heldStockDays + 1 : 0;
   const jokers = jokerEffects(holder, config);
   const boost = jokers.reduce((product, { effect }) => effect.type === 'yield_boost' ? product * effect.factor : product, 1);
   const booster = jokers.find(entry => entry.effect.type === 'yield_boost');
@@ -349,13 +382,26 @@ export function closeDay(holder: Holder, context: DayContext, ledger: DayLedger,
         break;
       }
       case 'stock_yield':
-        addCash(holder, ledger, { ...source, value: effect.rate }, Math.min(effect.cap, Math.round(account.investmentValue * effect.rate)));
+        addDividend(holder, config, ledger, source, Math.min(effect.cap, Math.round(account.investmentValue * effect.rate)));
         break;
       case 'bear_bonus':
         if (ledger.exposure.stock <= 0 && ledger.rate < 0) addCash(holder, ledger, source, effect.amount);
         break;
-      case 'item_bonus':
-        addCash(holder, ledger, source, Math.min(effect.cap, ledger.itemCount * effect.amount));
+      case 'item_bonus': {
+        const regularCount = ledger.itemCount - Number(memory.sacrificeDay === context.day);
+        const regularPay = Math.min(effect.cap, Math.max(0, regularCount) * effect.amount);
+        const sacrificePay = Math.min(effect.cap, ledger.itemCount * effect.amount) - regularPay;
+        addCash(holder, ledger, source, regularPay + spendSacrificePaymentRoom(holder, sacrificePay));
+        break;
+      }
+      case 'shield_income':
+        addCash(holder, ledger, source, Math.min(effect.cap, Math.round(ledger.shielded * effect.rate)));
+        break;
+      case 'combo_income':
+        if (ledger.itemCount >= effect.count) {
+          const fromSacrifice = ledger.itemCount === effect.count && memory.sacrificeDay === context.day;
+          addCash(holder, ledger, source, fromSacrifice ? spendSacrificePaymentRoom(holder, effect.amount) : effect.amount);
+        }
         break;
       case 'attack_bonus':
         addCash(holder, ledger, source, Math.round(attackDamage * effect.rate));

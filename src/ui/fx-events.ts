@@ -12,14 +12,14 @@ export type HitTier = 'light' | 'normal' | 'strong' | 'heavy';
 
 export type FxEvent =
   | { kind: 'market'; at: number; id: string; amount: number; big: boolean; news: boolean }
-  | { kind: 'own'; at: number; id: string; source: 'item' | 'event' | 'shop'; name: string; amount: number }
+  | { kind: 'own'; at: number; id: string; source: 'item' | 'event' | 'shop' | 'sacrifice'; name: string; amount: number }
   | { kind: 'defense'; at: number; id: string; name: string; amount: number }
   | { kind: 'joker'; at: number; id: string; jokerId: string; name: string; amount: number; index: number; total: number; count: number; cap: boolean }
   | { kind: 'jokers'; at: number; id: string; amount: number; count: number }
-  | { kind: 'attack'; at: number; from: string; to: string; itemId: string; amount: number; tier: HitTier; factor: number; area: boolean }
+  | { kind: 'attack'; at: number; from: string; to: string; itemId: string; amount: number; tier: HitTier; factor: number; area: boolean; sacrifice?: boolean }
   | { kind: 'shatter'; at: number; from: string; to: string; itemId: string; amount: number; tier: HitTier }
   | { kind: 'raid'; at: number; from: string; to: string; itemId: string; amount: number; tier: HitTier }
-  | { kind: 'reflect'; at: number; owner: string; hit: string; amount: number; cash: boolean }
+  | { kind: 'reflect'; at: number; owner: string; hit: string; amount: number; cash: boolean; counterName?: string }
   | { kind: 'miss'; at: number; from: string; to: string; itemId: string; reason: MissReason }
   | { kind: 'rank'; at: number; id: string; before: number; after: number };
 
@@ -78,7 +78,7 @@ export function buildFxPlan(feedback: FeedbackConfig, report: DayReport, playerI
         const when = next();
         events.push({ kind: 'defense', at: when, id, name: step.name, amount: step.amount });
         add(id, when, step.amount);
-      } else if ((step.source === 'item' || step.source === 'event' || step.source === 'shop') && step.amount) {
+      } else if ((step.source === 'item' || step.source === 'event' || step.source === 'shop' || step.source === 'sacrifice') && step.amount) {
         const when = next();
         events.push({ kind: 'own', at: when, id, source: step.source, name: step.name, amount: step.amount });
         add(id, when, step.amount);
@@ -109,7 +109,7 @@ export function buildFxPlan(feedback: FeedbackConfig, report: DayReport, playerI
   let volley = null as { key: string; at: number } | null;
   for (const { record, miss } of hits) {
     // One 股市大混戰 hits every target at the same moment; every other attack gets its own beat.
-    const key = record?.kind === 'area_attack' ? `${record.from}:${record.slot}` : null;
+    const key = (record?.kind === 'area_attack' || record?.sacrifice) ? `${record.from}:${record.slot}` : null;
     let at: number;
     if (key && volley?.key === key) at = volley.at;
     else {
@@ -132,13 +132,14 @@ export function buildFxPlan(feedback: FeedbackConfig, report: DayReport, playerI
       add(attack.to, at, -attack.amount);
     } else {
       events.push({ kind: 'attack', at, from: attack.from, to: attack.to, itemId: attack.itemId, amount: attack.amount, tier,
-        factor: attack.factor, area: attack.kind === 'area_attack' });
+        factor: attack.factor, area: attack.kind === 'area_attack' || Boolean(attack.sacrifice), ...(attack.sacrifice && { sacrifice: true }) });
       add(attack.to, at, -attack.amount);
     }
     if (attack.reflected > 0) {
       const when = at + timing.reflectDelay;
       const cash = attack.kind === 'cash_raid';
-      events.push({ kind: 'reflect', at: when, owner: attack.to, hit: attack.from, amount: attack.reflected, cash });
+      events.push({ kind: 'reflect', at: when, owner: attack.to, hit: attack.from, amount: attack.reflected, cash,
+        ...(attack.counterName && { counterName: attack.counterName }) });
       add(attack.from, when, -attack.reflected);
       if (cash) add(attack.to, when, attack.reflected);
     }

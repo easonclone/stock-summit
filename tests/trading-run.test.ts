@@ -324,6 +324,7 @@ describe('道具', () => {
       const run = start(calmMarket(readFinancialConfig(), market));
       const [breaker, defender] = run.investors;
       equip(run, breaker, [], ['shatter']);
+      equip(run, defender, []);
       defender.defenses.push({ itemId: 'guard', name: '防跌護盾', mode: 'cut', amount: 0.5 });
       playDay(run, view => view.characterId === breaker.character.id
         ? { allocation: 'all', item: 0, targetId: defender.character.id } : { allocation: 'all', item: null });
@@ -489,8 +490,8 @@ describe('取得卡片', () => {
       }
     }
     expect(inShop).toBe(true);
-    expect(readFinancialConfig().jokers).toHaveLength(18);
-    expect(readFinancialConfig().items).toHaveLength(24);
+    expect(readFinancialConfig().jokers).toHaveLength(36);
+    expect(readFinancialConfig().items).toHaveLength(28);
   });
 });
 
@@ -652,5 +653,51 @@ describe('歸零與翻身', () => {
     expect(run.pendingRecovery).toBeNull();
     expect(run.investors.every(investor => investor.account.eliminated)).toBe(true);
     expect(run.closed).toBe(true);
+  });
+});
+
+describe('風險獻祭流', () => {
+  it('血色契約扣自身股票，痛苦轉移放大群攻，逆境狂人退回現金，並套用減傷而不反擊', () => {
+    const run = start(calmMarket(readFinancialConfig(), 0));
+    const [player, defender, ...others] = run.investors;
+    equip(run, player, ['blood_contract', 'pain_transfer', 'adversity'], ['snipe']);
+    equip(run, defender, ['immovable', 'avenger'], []);
+    defender.memory.mirror = 0.5;
+    expect(run.preview('all', 0, player.character.id)?.sacrifice).toMatchObject({ cost: 1000, refund: 250 });
+    expect(run.confirm({ allocation: 'all', actions: [{ slot: 0, targetId: player.character.id }] }, hold('cash'))).toBe(true);
+    expect(outcomeOf(run, player).close).toBe(9250);
+    expect(run.reports[0].attacks.map(({ to, amount, reflected }) => [to, amount, reflected])).toEqual([
+      [defender.character.id, 840, 0], ...others.map(rival => [rival.character.id, 1200, 0])
+    ]);
+    expect(defender.memory.mirror).toBe(0.5);
+    for (const outcome of run.reports[0].outcomes) expect(sumSteps(outcome.ledger)).toBe(outcome.close - outcome.start);
+  });
+
+  it('群攻和返還都有上限，同日第二次獻祭無效，隔天的股票加成只發動一次', () => {
+    const run = start(calmMarket(readFinancialConfig(), 0.02));
+    const player = run.player;
+    equip(run, player, ['adversity', 'rebirth', 'doom_bringer', 'bounty', 'wolf'], ['forbidden_trade', 'final_reckoning', 'final_reckoning']);
+    expect(run.canLock({ allocation: 'cash', actions: [{ slot: 1 }, { slot: 2 }] })).toBe(false);
+    expect(run.confirm({ allocation: 'cash', actions: [{ slot: 1 }] }, hold('cash'))).toBe(true);
+    const first = outcomeOf(run, player);
+    expect(first.close).toBe(9999);
+    expect(run.reports[0].attacks.every(hit => hit.amount <= 2500 && hit.reflected === 0)).toBe(true);
+    expect(run.confirm({ allocation: 'all' }, hold('cash'))).toBe(true);
+    expect(outcomeOf(run, player).ledger.steps.find(step => step.id === 'rebirth')?.amount).toBe(200);
+    expect(run.confirm({ allocation: 'all' }, hold('cash'))).toBe(true);
+    expect(outcomeOf(run, player).ledger.steps.some(step => step.id === 'rebirth')).toBe(false);
+  });
+
+  it('禁忌交易先空出格子，抽出的牌互不相同，並共用每日獻祭限制', () => {
+    const run = start(calmMarket(readFinancialConfig(), 0));
+    equip(run, run.player, [], ['forbidden_trade', 'mutual_doom']);
+    expect(run.useOpeningItem(0)?.amount).toBe(-500);
+    const drawn = run.player.items.slice(1).map(card => card.id);
+    expect(drawn).toHaveLength(3);
+    expect(new Set(drawn).size).toBe(3);
+    expect(drawn).not.toContain('forbidden_trade');
+    expect(run.canLock({ allocation: 'half', actions: [{ slot: 0 }] })).toBe(false);
+    expect(run.confirm({ allocation: 'half' }, hold('cash'))).toBe(true);
+    expect(outcomeOf(run, run.player).close).toBe(9500);
   });
 });

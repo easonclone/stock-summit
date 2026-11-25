@@ -52,6 +52,26 @@ const effect = z.discriminatedUnion('type', [
   z.object({ type: z.literal('hold_bonus'), days: day, amount: money.positive() }),
   z.object({ type: z.literal('climb_bonus'), amount: money.positive() }),
   z.object({ type: z.literal('shop_discount'), rate }),
+  z.object({ type: z.literal('bounty'), amount: money.positive() }),
+  z.object({ type: z.literal('attack_supply'), hits: z.number().int().positive() }),
+  z.object({ type: z.literal('stock_strike'), rate: rate }),
+  z.object({ type: z.literal('shield_income'), rate: rate, cap: money.positive() }),
+  z.object({ type: z.literal('retaliate'), rate: rate, cap: money.positive() }),
+  z.object({ type: z.literal('attack_guard'), rate: rate }),
+  z.object({ type: z.literal('generation_bonus'), count: z.number().int().min(1).max(6) }),
+  z.object({ type: z.literal('combo_income'), amount: money.positive(), count: z.number().int().min(1).max(6) }),
+  z.object({ type: z.literal('recycle_income'), amount: money.positive() }),
+  z.object({ type: z.literal('purchase_rebate'), rate: rate.lt(1) }),
+  z.object({ type: z.literal('dividend_bonus'), rate: rate }),
+  z.object({ type: z.literal('patient_gain'), rate: rate, days: day }),
+  z.object({ type: z.literal('sacrifice_contract'), rate }),
+  z.object({ type: z.literal('sacrifice_amplify'), rate }),
+  z.object({ type: z.literal('sacrifice_refund'), rate }),
+  z.object({ type: z.literal('sacrifice_supply'), amount: money.positive() }),
+  z.object({ type: z.literal('sacrifice_leader'), rate }),
+  z.object({ type: z.literal('sacrifice_rebirth'), rate }),
+  z.object({ type: z.literal('sacrifice_attack'), rate: rate.gt(0).lt(1), factor, area: z.boolean() }),
+  z.object({ type: z.literal('sacrifice_draw'), rate: rate.gt(0).lt(1), count: z.number().int().min(1).max(3) }),
   // Items: one-shot, at most one per day.
   z.object({ type: z.literal('today_add'), amount: rate }),
   z.object({ type: z.literal('today_mult'), factor }),
@@ -72,8 +92,8 @@ const effect = z.discriminatedUnion('type', [
 ]);
 
 const jokerTypes = ['gain_add', 'streak_add', 'rebound_add', 'joker_add', 'news_mult', 'repeat_mult', 'swing_mult', 'loss_cut', 'cash_yield',
-  'yield_boost', 'stock_yield', 'bear_bonus', 'item_bonus', 'attack_bonus', 'news_item', 'hold_bonus', 'climb_bonus', 'shop_discount'];
-const itemTypes = ['cash_grant', 'today_add', 'today_mult', 'defense', 'intel', 'item_pack', 'attack', 'cash_raid', 'shield_break', 'mirror', 'random_cash', 'generate', 'voucher', 'strike_boost', 'area_attack', 'stock_cash', 'relief'];
+  'yield_boost', 'stock_yield', 'bear_bonus', 'item_bonus', 'attack_bonus', 'news_item', 'hold_bonus', 'climb_bonus', 'shop_discount', 'bounty', 'attack_supply', 'stock_strike', 'shield_income', 'retaliate', 'attack_guard', 'generation_bonus', 'combo_income', 'recycle_income', 'purchase_rebate', 'dividend_bonus', 'patient_gain', 'sacrifice_contract', 'sacrifice_amplify', 'sacrifice_refund', 'sacrifice_supply', 'sacrifice_leader', 'sacrifice_rebirth'];
+const itemTypes = ['cash_grant', 'today_add', 'today_mult', 'defense', 'intel', 'item_pack', 'attack', 'cash_raid', 'shield_break', 'mirror', 'random_cash', 'generate', 'voucher', 'strike_boost', 'area_attack', 'stock_cash', 'relief', 'sacrifice_attack', 'sacrifice_draw'];
 const eventTypes = ['price', 'cash_grant', 'item_grant'];
 
 const references = z.array(id).min(1).refine(items => new Set(items).size === items.length, '效果引用不得重複');

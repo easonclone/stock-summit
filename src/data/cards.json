@@ -17,7 +17,25 @@
     {"id":"insider","name":"消息靈通","icon":"eye","color":"#c9b3f4","rarity":"rare","weight":5,"effectIds":["insider"]},
     {"id":"holder","name":"長期持有","icon":"anchor","color":"#e8c875","rarity":"common","weight":5,"effectIds":["holder"]},
     {"id":"underdog","name":"逆風飛翔","icon":"bull","color":"#f1bd8a","rarity":"rare","weight":5,"effectIds":["underdog"]},
-    {"id":"god","name":"全能股神","icon":"crown","color":"#efd080","rarity":"legendary","weight":5,"effectIds":["god"]}
+    {"id":"god","name":"全能股神","icon":"crown","color":"#efd080","rarity":"legendary","weight":5,"effectIds":["god"]},
+    {"id":"bounty","name":"賞金獵人","icon":"short","color":"#ffae85","rarity":"common","weight":5,"effectIds":["bounty"]},
+    {"id":"arms_dealer","name":"軍火商","icon":"gift","color":"#ffa17b","rarity":"rare","weight":5,"effectIds":["arms_dealer"]},
+    {"id":"short_hunter","name":"空頭獵人","icon":"bear","color":"#ff9a87","rarity":"rare","weight":5,"effectIds":["short_hunter"]},
+    {"id":"insurer","name":"保險大亨","icon":"shield","color":"#9bd9f6","rarity":"common","weight":5,"effectIds":["insurer"]},
+    {"id":"avenger","name":"復仇者","icon":"fire","color":"#dfbca4","rarity":"rare","weight":5,"effectIds":["avenger"]},
+    {"id":"immovable","name":"不動如山","icon":"anchor","color":"#9fd7d7","rarity":"rare","weight":5,"effectIds":["immovable"]},
+    {"id":"magician","name":"魔術師","icon":"eye","color":"#c5b1fb","rarity":"rare","weight":5,"effectIds":["magician"]},
+    {"id":"combo_master","name":"連招大師","icon":"bolt","color":"#bca9fc","rarity":"rare","weight":5,"effectIds":["combo_master"]},
+    {"id":"recycler","name":"回收商","icon":"gift","color":"#b6d99b","rarity":"common","weight":5,"effectIds":["recycler"]},
+    {"id":"vip","name":"VIP會員","icon":"cash","color":"#e9ca7b","rarity":"common","weight":5,"effectIds":["vip"]},
+    {"id":"reinvestment","name":"股息再投資","icon":"up","color":"#a3db94","rarity":"rare","weight":5,"effectIds":["reinvestment"]},
+    {"id":"patient","name":"耐心投資人","icon":"anchor","color":"#b6d69b","rarity":"common","weight":5,"effectIds":["patient"]},
+    {"id":"blood_contract","name":"血色契約","icon":"fire","color":"#ed687c","rarity":"common","weight":5,"effectIds":["blood_contract"]},
+    {"id":"pain_transfer","name":"痛苦轉移","icon":"bolt","color":"#ca8ef1","rarity":"rare","weight":5,"effectIds":["pain_transfer"]},
+    {"id":"adversity","name":"逆境狂人","icon":"bear","color":"#fa7c93","rarity":"common","weight":5,"effectIds":["adversity"]},
+    {"id":"phoenix","name":"不死鳥","icon":"fire","color":"#ffae86","rarity":"rare","weight":5,"effectIds":["phoenix"]},
+    {"id":"doom_bringer","name":"末日使者","icon":"crown","color":"#dfad60","rarity":"legendary","weight":5,"effectIds":["doom_bringer"]},
+    {"id":"rebirth","name":"浴火重生","icon":"fire","color":"#ff8b64","rarity":"rare","weight":5,"effectIds":["rebirth"]}
   ],
   "items": [
     {"id":"gift","name":"銀行大放送","icon":"gift","color":"#efd080","rarity":"common","weight":5,"effectIds":["gift"]},
@@ -43,6 +61,10 @@
     {"id":"ticket","name":"免費招待券","icon":"bills","rarity":"common","color":"#efd080","weight":5,"effectIds":["ticket"]},
     {"id":"strike_boost","name":"雙重打擊","icon":"bolt","rarity":"rare","color":"#efd080","weight":5,"effectIds":["strike_boost"]},
     {"id":"brawl","name":"股市大混戰","icon":"fire","rarity":"legendary","color":"#efd080","weight":5,"effectIds":["brawl"]},
-    {"id":"roulette","name":"命運轉盤","icon":"dice","rarity":"legendary","color":"#efd080","weight":5,"effectIds":["roulette"]}
+    {"id":"roulette","name":"命運轉盤","icon":"dice","rarity":"legendary","color":"#efd080","weight":5,"effectIds":["roulette"]},
+    {"id":"equal_exchange","name":"等價交換","icon":"cash","color":"#dfb16f","rarity":"common","weight":5,"effectIds":["equal_exchange"]},
+    {"id":"forbidden_trade","name":"禁忌交易","icon":"eye","color":"#bd90f5","rarity":"rare","weight":5,"effectIds":["forbidden_trade"]},
+    {"id":"mutual_doom","name":"同歸於盡","icon":"bolt","color":"#f47d90","rarity":"rare","weight":5,"effectIds":["mutual_doom"]},
+    {"id":"final_reckoning","name":"末日清算","icon":"crown","color":"#e8a75e","rarity":"legendary","weight":5,"effectIds":["final_reckoning"]}
   ]
 }

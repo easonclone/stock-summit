@@ -1,5 +1,5 @@
 import type { FinancialConfig, InvestorCharacter } from '../config/financial-settings';
-import { drawHDCard, drawHDCity } from './hd-art';
+import { drawHDCard } from './hd-art';
 import { drawInvestorArt } from './investor-art';
 import { drawInvestorPortrait, drawInvestorSprite } from './investor-sprites';
 
@@ -177,32 +177,22 @@ export function drawCardArt(canvas: HTMLCanvasElement, icon: PixelIcon, color: s
   }
 }
 
-/** 都市天際線只用座標畫圖，不讀取遊戲亂數。 */
-export function drawCity(canvas: HTMLCanvasElement) {
-  canvas.width = 288;
-  canvas.height = 126;
+/** 使用已結算的共同股價變化畫出開收盤柱，盤中沒有資料時不畫上下影線。 */
+export function drawMarketBackdrop(canvas: HTMLCanvasElement) {
+  const rates = (canvas.dataset.marketRates ?? '').split(',').filter(Boolean).map(Number);
+  if (!rates.length) return;
   const ctx = canvas.getContext('2d')!;
-  if (drawHDCity(ctx)) return;
-  const fill: Pixel = (color, x, y, w, h) => { ctx.fillStyle = color; ctx.fillRect(x, y, w, h); };
-  fill('#11172b', 0, 0, 288, 126);
-  fill('#192438', 0, 33, 288, 40);
-  fill('#243247', 178, 11, 19, 14); fill('#c39070', 180, 9, 15, 15);
-  fill('#c39070', 177, 12, 21, 9); fill('#734f56', 177, 20, 21, 2);
-  for (let i = 0; i < 18; i++) {
-    const left = 16 * i;
-    const roof = 23 + ((i * 19 + 11) % 37);
-    fill(i % 3 ? '#182236' : '#202f44', left, roof, 14, 90 - roof);
-    fill('#111827', left, roof + 2, 2, 90 - roof);
-    for (let row = roof + 5; row < 79; row += 6) for (let col = 3; col < 13; col += 4) {
-      const lit = (row + col * 5 + i * 7) % 13;
-      fill(lit < 4 ? '#765a4e' : lit < 8 ? '#365268' : '#263749', left + col, row, 2, 2);
-    }
-  }
-  fill('#0d1422', 0, 82, 288, 44);
-  fill('#273549', 0, 84, 288, 2);
-  for (const row of [91, 100, 112, 124]) fill('#273245', 0, row, 288, 1);
-  ctx.strokeStyle = '#253244';
-  for (let col = -96; col <= 384; col += 24) {
-    ctx.beginPath(); ctx.moveTo(144 + (col - 144) * .25, 85); ctx.lineTo(col, 126); ctx.stroke();
+  const prices = [1];
+  for (const rate of rates) prices.push(prices.at(-1)! * (1 + rate));
+  const low = Math.min(0.94, ...prices);
+  const high = Math.max(1.06, ...prices);
+  const y = (price: number) => Math.round(104 - (price - low) * 78 / (high - low));
+  const stride = (canvas.width - 28) / Number(canvas.dataset.marketDays);
+  const style = getComputedStyle(canvas);
+  for (const [index, opening] of prices.slice(0, -1).entries()) {
+    const closing = prices[index + 1];
+    ctx.fillStyle = style.getPropertyValue(closing >= opening ? '--gain' : '--loss');
+    ctx.fillRect(Math.round(14 + stride * index), Math.min(y(opening), y(closing)),
+      Math.max(2, Math.floor(stride * 0.52)), Math.max(1, Math.abs(y(closing) - y(opening))));
   }
 }

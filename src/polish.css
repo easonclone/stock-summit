@@ -11,7 +11,12 @@
 .timeline-detail { display:grid; gap:8px; }
 .arena { isolation:isolate; border-color:#405970; background:#101322; }
 .stage { position:relative; isolation:isolate; padding-top:28px; }
-.city-art { position:absolute; z-index:-1; inset:0; width:100%; height:100%; image-rendering:pixelated; pointer-events:none; }
+.stage {
+  background:repeating-linear-gradient(90deg, #84adc711 0 1px, transparent 1px 8%),
+    repeating-linear-gradient(0deg, #84adc710 0 1px, transparent 1px 24px),
+    linear-gradient(180deg, #101d30, #0c1522 76%, #142438);
+}
+.market-backdrop { position:absolute; z-index:-1; inset:0; width:100%; height:100%; opacity:.24; image-rendering:pixelated; pointer-events:none; }
  .fighter .sprite { width:72px; max-width:100%; height:auto; aspect-ratio:3 / 4; }
 .arena-portrait { display:none; }
 .investor-feature { display:grid; grid-template-columns:auto minmax(0,1fr); gap:clamp(10px,3vw,20px); align-items:center;
@@ -121,7 +126,6 @@
 .game-card.item .card-top canvas { width:min(100%,64px); }
 .card-top .rarity-mark { position:absolute; top:0; right:1px; background:#081323b8; padding-inline:3px; }
 .card-detail .card-top canvas { width:min(100%,128px); }
-.city-art { object-fit:cover; opacity:.70; }
 .stage::before { content:""; position:absolute; inset:0; z-index:-1; background:linear-gradient(transparent,#09132265); pointer-events:none; }
 .pixel-icon { width:24px; height:24px; display:inline-block; image-rendering:pixelated; vertical-align:middle; flex:none; }
 .help-trigger .pixel-icon { margin-right:4px; }

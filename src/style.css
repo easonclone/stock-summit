@@ -337,7 +337,31 @@ summary { cursor: pointer; min-height: 39px; display: list-item; padding: 8px 0;
 /* E/F: jokers and items. Jokers have a gold double frame, items a dashed ticket frame. */
 .joker-row, .item-row { display: grid; gap: 6px; padding: 8px 0 4px; }
 .joker-row { grid-template-columns: repeat(5, minmax(0, 1fr)); }
-.item-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.item-row { grid-template-columns: repeat(var(--item-slots, 4), minmax(0, 1fr)); }
+.shop-notice { color: var(--gold); font-size: .8rem; }
+.morning-item { margin-top: 8px; padding: 8px 10px; border: 1px solid var(--line); background: var(--panel-deep); color: var(--muted); font-size: .78rem; }
+.morning-item strong { color: var(--gold); }
+.morning-item summary { min-height: 36px; align-content: center; cursor: pointer; }
+.morning-choices { display: flex; flex-wrap: wrap; gap: 6px; }
+.morning-choices button { min-height: 44px; }
+.morning-arrival { animation: morning-arrival 420ms 1100ms ease-out both; }
+@keyframes morning-arrival {
+  from { transform: translateY(-6px) scale(.98); }
+  45% { box-shadow: 0 0 0 1px var(--gold), 0 0 12px #ebc56d66; }
+  to { transform: none; box-shadow: none; }
+}
+.day-transition { position: fixed; inset: 0; z-index: 80; pointer-events: none; display: grid; place-content: center; text-align: center;
+  background: #090e19db; color: var(--gold); animation: open-day 1400ms linear both; }
+.day-transition strong { font: 900 clamp(3rem, 13vw, 7rem)/1 var(--number); letter-spacing: .09em; text-shadow: 0 4px #694711; }
+.day-transition span { margin-top: 12px; color: var(--text); letter-spacing: .24em; }
+@keyframes open-day {
+  0%, 100% { opacity: 0; }
+  17.86%, 78.57% { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .morning-arrival { animation: none; }
+  .day-transition { display: none; }
+}
 .card-button { display: block; min-width: 0; padding: 0; border: 0; background: transparent; text-align: left; transition: transform 120ms ease-out; }
 .card-button[aria-pressed="true"] { transform: translateY(-6px); }
 .card-button[aria-pressed="true"] .game-card { box-shadow: 0 0 0 2px var(--ink), 0 8px 18px #0009; background: color-mix(in srgb, var(--ink) 22%, var(--panel-deep)); }

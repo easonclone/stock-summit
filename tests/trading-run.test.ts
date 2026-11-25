@@ -12,6 +12,7 @@ const start = (config = readFinancialConfig(), seed = 91, playerId = config.char
 function settleOffers(run: TradingRun) {
   while (run.offer) expect(run.chooseOfferAutomatically()).toBe(true);
   if (run.shop) expect(run.shopAutomatically()).toBe(true);
+  while (run.offer) expect(run.chooseOfferAutomatically()).toBe(true);
 }
 
 const hold = (allocation: string): Planner => () => ({ allocation, item: null });
@@ -35,6 +36,7 @@ function calmMarket(config: FinancialConfig, move = 0.02) {
   config.effects.none = { type: 'price', floor: 0, ceiling: 0 };
   config.effects.market_day = { type: 'price', floor: move, ceiling: move };
   config.gameplay.startItems = 0;
+  config.gameplay.dailyItemStart = null;
   config.gameplay.stageDays = [];
   return config;
 }
@@ -265,6 +267,60 @@ describe('道具', () => {
 });
 
 describe('取得卡片', () => {
+  it('四個席位的開局道具各不重複，保證收益及防禦，且相同種子重現', () => {
+    const config = readFinancialConfig();
+    const deal = (run: TradingRun) => run.investors.map(investor => investor.items.map(card => card.id));
+    for (const seed of [1, 32, 91]) {
+      const run = start(config, seed);
+      const hands = deal(run);
+      expect(hands).toEqual(deal(start(config, seed)));
+      for (const hand of hands) {
+        expect(new Set(hand).size).toBe(3);
+        expect(config.gameplay.openingItems.income).toContain(hand[0]);
+        expect(config.gameplay.openingItems.defense).toContain(hand[1]);
+        expect(hand).not.toContain('comeback');
+        expect(hand).not.toContain('snipe');
+      }
+      expect(run.playerOpeningItem).toBeNull();
+    }
+  });
+
+  it('商店結束後才抽第 4 日道具，滿手可換一張或放棄，收盤不再抽牌', () => {
+    const config = readFinancialConfig();
+    const run = start(config);
+    run.chooseOffer(null);
+    expect(run.resolveControlled(hold('cash'))).toBe(true);
+    expect(run.day).toBe(2);
+    expect(run.offer).toBeNull();
+    expect(run.investors.every(investor => investor.items.length === 4)).toBe(true);
+    expect(run.player.items[3]).toBe(run.playerOpeningItem);
+    const before = [...run.player.items];
+    expect(run.resolveControlled(hold('cash'))).toBe(true);
+    expect(run.offer?.source).toBe('daily');
+    expect(run.resolveControlled(hold('cash'))).toBe(false);
+    expect(run.chooseOffer(0)).toBe(false);
+    expect(run.player.items).toEqual(before);
+    expect(run.chooseOffer(0, 2)).toBe(true);
+    expect(run.player.items[2]).toBe(run.playerOpeningItem);
+    expect(run.resolveControlled(hold('cash'))).toBe(true);
+    expect(run.shop?.day).toBe(3);
+    expect(run.day).toBe(3);
+    expect(run.reports.at(-1)?.outcomes.every(outcome => outcome.received.length === 0)).toBe(true);
+    const hand = [...run.player.items];
+    expect(run.leaveShop()).toBe(true);
+    expect(run.day).toBe(4);
+    expect(run.offer?.source).toBe('daily');
+    expect(run.chooseOffer(null)).toBe(true);
+    expect(run.player.items).toEqual(hand);
+    while (run.day < config.gameplay.turns) playDay(run, hold('cash'));
+    expect(run.playerOpeningItem).not.toBeNull();
+    const finalItem = run.playerOpeningItem;
+    playDay(run, hold('cash'));
+    expect(run.closed).toBe(true);
+    expect(run.day).toBe(15);
+    expect(run.offer).toBeNull();
+    expect(run.playerOpeningItem).toBe(finalItem);
+  });
   it('開局三選一王牌；之後王牌要用現金在商店買，最多五張', () => {
     const run = start();
     expect(run.offer).toMatchObject({ kind: 'joker', source: 'opening' });
@@ -334,11 +390,13 @@ describe('商店', () => {
     const before = netWorth(run.player.account);
     const index = run.shop!.slots.findIndex(slot => slot.kind === 'item');
     const price = run.shopCheck(index).price;
+    expect(run.shopCheck(index).needsReplace).toBe(true);
+    run.player.items.pop();
     const items = run.player.items.length;
     const purchase = run.buy(index);
     expect(purchase).toMatchObject({ price, refund: 0, replaced: null });
     expect(netWorth(run.player.account)).toBe(before - price);
-    expect(run.player.items).toHaveLength(Math.min(items + 1, 3));
+    expect(run.player.items).toHaveLength(Math.min(items + 1, run.config.gameplay.itemSlots));
     expect(run.buy(index)).toBeNull();
     expect(run.shopCheck(index).block).toBe('sold');
 

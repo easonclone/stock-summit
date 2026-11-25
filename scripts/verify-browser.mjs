@@ -158,7 +158,16 @@ async function clearDialogs(replaceOne = false) {
       assert(!(await has('.theater')), '事件劇場可略過');
     }
     const dialog = await js('document.querySelector("dialog[open]")?.className ?? ""');
-    if (!dialog) return;
+    if (!dialog) {
+      if (!(await has(on('daily-decline')))) return;
+      transitions.itemFull++;
+      assert(await has('[data-act="trade"]:disabled'), '滿手時先決定是否替換');
+      if (replaceOne) {
+        await action('daily-replace');
+        replaceOne = false;
+      } else await action('daily-decline');
+      continue;
+    }
     if (dialog.includes('dialog-recovery') && transitions.recovery === 0) await screenshot('recovery-320');
     const body = await js('document.querySelector("dialog").innerText');
     if (dialog.includes('dialog-recovery')) {
@@ -177,6 +186,9 @@ async function clearDialogs(replaceOne = false) {
       }
     } else if (dialog.includes('dialog-shop')) {
       transitions.shop++;
+      assert(!(await has('.day-transition')), '換日演出等離開商店才播放');
+      const shopDay = await js('Number(document.querySelector("[data-shop-day]").dataset.shopDay)');
+      assert.match(await js('document.querySelector(".session-counter strong").textContent'), new RegExp(String(shopDay).padStart(2, '0')));
       assert.match(body, /商店/);
       assert.equal(await js('document.querySelectorAll("dialog .shop-card").length'), 5, '商店三張王牌加兩張道具');
       assert.equal(await js('document.querySelectorAll("dialog .shop-card .joker").length'), 3);
@@ -223,6 +235,9 @@ try {
   for (const [width, height] of viewports) {
     const mobile = width < 500;
     await openMarket(width, height, mobile, width === 320 ? 2 : 23, mobile);
+    assert.equal(await js('document.querySelectorAll(".item-row button").length'), 3, '開局三張道具');
+    assert(!(await has('[data-morning-item]')), '第 1 日不額外抽牌');
+    assert.match(await js('document.querySelector("[data-shop-notice]").textContent'), /第 3 日/);
     const hasItem = await has(on('item'));
     if (hasItem) await action('item');
     if (!mobile) {
@@ -254,7 +269,14 @@ try {
     }
     await clearDialogs();
     assert.match(await js('document.querySelector(".session-counter strong").textContent'), /02/);
+    assert.match(await js('document.querySelector("[data-morning-item]").textContent'), /今日抽到/);
+    if (!mobile) {
+      assert.match(await js('document.querySelector(".day-transition strong")?.textContent ?? ""'), /DAY 02/);
+      await delay(300);
+      await screenshot('day-transition-desktop');
+    }
     await action('chart');
+    assert(!(await has('.day-transition')), '可直接點擊跳過換日畫面');
     assert.equal(await js('document.querySelector("dialog[open] .chart polyline").getAttribute("points").split(" ").length'), 2);
     await action('close-dialog');
     assert(await has('.day-result'), '每日結算分項');
@@ -273,10 +295,6 @@ try {
           assert(await has(on('skip')), '使用鍵盤空白鍵確認交易，第 '+day+' 日');
         } else await action('trade');
         for (let i = 0; i < 40 && await has(on('skip')); i++) await delay(25);
-        if (!mobile && await has('.arena.fresh-news.sev-major, .arena.fresh-news.sev-extreme')) {
-          for (let i = 0; i < 20 && !(await has('.market-art canvas')); i++) await delay(25);
-          if (await has('.market-art canvas')) transitions.effect++;
-        }
         await clearDialogs(!early);
         if (!early && await has('main.trading') && /06/.test(await js('document.querySelector(".session-counter strong").textContent'))) {
           await js('scrollTo(0,0)');
@@ -316,6 +334,7 @@ try {
     await click(on('alloc') + '[data-value="all"]');
     await trustedClick(on('trade'), false, false);
     await clearDialogs();
+    assert(!(await has('.day-transition')), '減少動態時略過換日畫面');
     const chain = await js(`(() => {
       const parse = text => Number(text.replace(/[^0-9−+-]/g, '').replace('−', '-'));
       const steps = [...document.querySelectorAll('.chain li b')].map(el => parse(el.textContent));
@@ -326,6 +345,22 @@ try {
   await js('scrollTo(0,0)');
   await screenshot('chain-desktop');
   await layout(1440, 900, true);
+
+  if (desktopOnly) {
+    // 讓固定種子的黑天鵝演出跑到特效，避免主流程略過劇場時漏驗 Canvas。
+    await openMarket(1440, 900, false, 13, false);
+    for (let day = 1; day <= 6; day++) {
+      await clearDialogs();
+      await action('trade');
+      if (await has(on('skip'))) await action('skip');
+      if (day === 6) {
+        assert(await has('.theater.sev-extreme'), '黑天鵝事件劇場');
+        for (let i = 0; i < 250 && !(await has('.theater-fx canvas')); i++) await delay(100);
+        if (await has('.theater-fx canvas')) transitions.effect++;
+      }
+      await clearDialogs();
+    }
+  }
 
   if (!desktopOnly) {
     await openMarket(390, 844, true, 15, true);

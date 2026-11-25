@@ -86,7 +86,8 @@ const schema = z.object({
   gameplay: z.object({
     turns: day, eventEvery: day, jokerSlots: z.number().int().min(1).max(8), itemSlots: z.number().int().min(1).max(5),
     startItems: z.number().int().min(0).max(3), jokerChoices: z.number().int().min(1).max(4), stageDays: z.array(day),
-    stageItems: z.number().int().min(0).max(2),
+    openingItems: z.object({ income: z.array(z.string()).min(1), defense: z.array(z.string()).min(1), other: z.array(z.string()).min(1) }),
+    dailyItemStart: day.min(2).nullable(),
     rarity: z.object({ common: positive, rare: positive, legendary: positive })
   }),
   shop: z.object({
@@ -164,6 +165,9 @@ export function readFinancialConfig(raw: unknown = financialInput): FinancialCon
   assert(config.effects[plan.dailyMarket]?.type === 'price', `共同市場效果 ${plan.dailyMarket} 須為價格效果`);
   assert(gameplay.eventEvery <= gameplay.turns, '新聞間隔大於交易日數');
   assert(gameplay.startItems <= gameplay.itemSlots, '起始道具超過道具上限');
+  const openingItems = Object.values(gameplay.openingItems).flat();
+  assert(new Set(openingItems).size === openingItems.length, '起始道具池含重複 ID');
+  assert(openingItems.every(id => config.items.some(item => item.id === id)), '起始道具池含未知道具');
   assert(gameplay.stageDays.every(value => value < gameplay.turns), '階段獎勵日須早於最後一日');
   const pool = config.jokers.filter(joker => !joker.shopOnly);
   assert(pool.length >= gameplay.jokerChoices + gameplay.jokerSlots, '可抽王牌數量不足');

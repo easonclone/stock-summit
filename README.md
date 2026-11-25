@@ -1,16 +1,16 @@
 # 股市攻頂戰 Stock Summit
 
-**Market Showdown** 是一款四人同步回合制的像素金融策略遊戲。選擇潘大帥、尤尤、老伯或張婷，與三位電腦對手用同樣的本金與交易規則，在 15 個交易日後以淨資產排名。60 則市場快訊分成六種題材，事件及資產數值都是虛構遊戲情境。
+**Market Showdown** 是一款四人同步回合制的像素股市策略遊戲。玩家與三位電腦對手用相同本金和交易規則，在 15 個交易日後依總身家排名。60 則市場快訊均為虛構遊戲情境。
 
 ## 操作
 
-1. 選擇角色及電腦難度，開盤。市場種子可自訂。
-2. 每日從手牌選擇至多一張卡，再選擇可到達的投資機會。預覽顯示自己出多少、可能賺賠多少、現在能不能打牌及卡片連招。
-3. 確認交易後四人同步結算。滿手時可換牌或棄置，投資機會可從三張不同卡中選一張。
-4. 使用路線圖規劃後續節點，展開財務明細查看部位、定存、融資、紓困與收盤費。財務危機會提供損失、還款及重整明細。
-5. 收盤後查看排行榜、績效走勢、投資風格及逐日危機紀錄，或複製結算摘要分享。
+1. 選角色和電腦難度，開局從三張王牌挑一張。每人自動拿三張不同道具，其中包含收益和防禦道具各一張。
+2. 每天選擇買多少股票，可搭配一張道具，或直接開始交易。王牌會依效果自動發動。
+3. 第 2 日起開盤免費抽一張道具。持有四張時，可選一張換掉，或放棄新道具。
+4. 第 3、6、9、12 日收盤後可用現金逛商店。畫面會提示下次開店日。
+5. 收盤後可看排行榜、績效走勢與連鎖明細，也可以複製結算摘要。
 
-手機可使用所有按鈕。桌機可用 Tab 導覽、Enter 或空白鍵啟動按鈕、左右鍵切換路線、數字鍵 1–5 切換卡片。設定支援國際漲跌配色、減少動態與音效開關。收盤後可重玩相同市場，或再開一局新種子。網址可加上 `?seed=3708` 指定市場。
+桌機可用 Tab 導覽，透過 Enter 或空白鍵操作按鈕。設定支援國際漲跌配色、減少動態、新聞演出速度及音效開關。收盤後可重玩相同市場，或開一局新種子。網址可加上 `?seed=3708` 指定市場。
 
 ## 本機啟動與檢查
 
@@ -23,16 +23,9 @@ npm run typecheck
 npm test
 npm run build
 npm run simulate -- 1000
+node scripts/verify-browser.mjs --desktop-only
 ```
 
-正式建置後可執行 `node scripts/verify-browser.mjs` 驗證 Chrome。可用 `CHROME_PATH` 指定 Chrome 或 Chromium 路徑，截圖輸出到 `test-results/v2/`。
+移除 `--desktop-only` 即可一併測試手機寬度。可用 `CHROME_PATH` 指定瀏覽器，驗證截圖輸出到 `test-results/v2/`。建置產物位於 `dist/`，GitHub Pages 沿用原工作流程及相對路徑。
 
-模擬工具輸出八種策略的財務及風險統計，可用 `npm run simulate --silent -- 1000 > results.json` 匯出 JSON。正式靜態檔案位於 `dist/`，GitHub Pages 部署沿用既有工作流程及相對路徑。
-
-[架構](docs/ARCHITECTURE.md) · [經濟與破產規則](docs/ECONOMY.md) · [改版前基準](docs/MIGRATION.md) · [平衡模擬](docs/BALANCE.md) · [驗收](docs/IMPLEMENTATION_PLAN.md)
-
-[文案比較](docs/COPY_AUDIT.md) · [30 張卡牌規劃](docs/CARD_PLAN.md)
-
-卡片可在持股時直接用，搭對路線可取得更高加成。股息與融資券可以提前布局，手牌選中時可使用每局三次的免費換牌。卡牌四組對照可執行 `npm run simulate -- 1000 --cards`；只驗證桌面可執行 `node scripts/verify-browser.mjs --desktop-only`。
-
-30 張卡已上線。卡牌對照報告可重跑 `npm run simulate -- 1000 --cards --expanded`。
+[V3.1 規格與平衡紀錄](docs/V3_1_PLAN.md) · [介面](docs/UI_DESIGN.md) · [資料設定](docs/DATA_SCHEMA.md)

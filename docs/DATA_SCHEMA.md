@@ -2,7 +2,7 @@
 
 - `src/config/financial.json`：初始資金、翻身資金、可翻身次數、待命護盾上限。
 - `src/config/allocation.json`：三種配置（比例）、預設配置與共同市場效果 id。
-- `src/config/gameplay.json`：交易日數、新聞間隔、王牌與道具上限、起始道具、王牌選項數、商店與階段日（`stageDays`）、階段免費道具數、稀有度權重（65／30／5）。
+- `src/config/gameplay.json`：交易日數、新聞間隔、王牌與道具上限、起始道具數與保證池（`startItems`、`openingItems`）、每日開盤道具開始日（`dailyItemStart`，`null` 可停用）、王牌選項數、商店與階段日（`stageDays`）、稀有度權重（65／30／5）。
 - `src/config/shop.json`：`enabled`、每次上架的王牌與道具數、依稀有度的 `price.joker`／`price.item`、王牌回收比例 `sellRate`。啟動時驗證回收比例低於最低折扣後售價比例。
 - `src/config/settlement.json`：倍率上限、少賠上限、每人每日被狙擊次數。
 - `src/config/npc.json`：決策擾動（只受難度影響）、風險厭惡、保留道具價值與道具估值、商店估值係數（`jokerShopScale`、`itemShopScale`、`shopMargin`）、商店日留現金加分（`shopCashValue`、`shopBudget`）、同流派加分 `styleSynergy`。

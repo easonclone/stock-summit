@@ -27,7 +27,11 @@ try {
     while (!run.closed) {
       if (run.pendingRecovery) run.acceptRecovery();
       while (run.offer) if (!run.chooseOfferAutomatically()) throw new Error(`無法處理卡片提案，種子 ${seed}`);
-      if (run.shop) { if (shopping) run.shopAutomatically(); else run.leaveShop(); }
+      if (run.shop) {
+        if (shopping) run.shopAutomatically();
+        else run.leaveShop();
+        continue;
+      }
       if (run.closed) break;
       const accepted = run.resolveControlled((view, random) =>
         view.characterId === playerId ? chooseTrade(view, random, strategy, 'normal') : chooseTrade(view, random));

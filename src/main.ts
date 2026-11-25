@@ -3,6 +3,7 @@ import { readFinancialConfig, type FinancialConfig, type PixelIcon, type Trading
 import { TradingRun, type DayOutcome, type DayReport } from './core/trading-run';
 import { marketTone } from './core/settlement';
 import { CardAudio } from './ui/audio';
+import { DayTransition } from './ui/day-transition';
 import { crisisMarkup } from './ui/crisis-dialog';
 import { escapeHtml, money, signedMoney } from './ui/format';
 import { drawIcon, portrait, sprite, type SpriteMood } from './ui/pixels';
@@ -21,6 +22,8 @@ class TerminalApp {
   private readonly screen: HTMLElement;
   private readonly dialog: HTMLDialogElement;
   private readonly audio = new CardAudio();
+  private readonly dayTransition: DayTransition;
+  private presentedDay = 1;
   private readonly selection: TerminalSelection = { allocation: null, item: null, animate: false };
   private selectedCharacter: string;
   private difficulty: TradingDifficulty = 'normal';
@@ -60,6 +63,7 @@ class TerminalApp {
     root.innerHTML = '<div id="screen"></div><dialog id="terminal-dialog" aria-labelledby="dialog-heading"></dialog><div id="announce" class="sr-only" aria-live="polite"></div>';
     this.screen = root.querySelector('#screen')!;
     this.dialog = root.querySelector('dialog')!;
+    this.dayTransition = new DayTransition(root);
     root.style.setProperty('--gold', config.theme.gold);
     root.style.setProperty('--bg', config.theme.night);
     root.style.setProperty('--panel', config.theme.panel);
@@ -138,6 +142,7 @@ class TerminalApp {
   private setPreferences() {
     const colors = this.config.theme;
     this.root.classList.toggle('reduced-motion', this.reduced);
+    if (this.reduced) this.dayTransition.close();
     this.root.style.setProperty('--gain', this.international ? colors.down : colors.up);
     this.root.style.setProperty('--loss', this.international ? colors.up : colors.down);
   }
@@ -146,6 +151,7 @@ class TerminalApp {
     if (this.locked && button.dataset.act !== 'skip') return;
     const act = button.dataset.act;
     const value = Number(button.dataset.value);
+    this.dayTransition.close();
     switch (act) {
       case 'character':
         this.selectedCharacter = button.dataset.value!;
@@ -185,7 +191,8 @@ class TerminalApp {
       case 'offer-card': this.offered = value; this.openDialog('offer', `[data-act="offer-card"][data-value="${value}"]`); break;
       case 'replace': this.replace = value; this.openDialog('offer', `[data-act="replace"][data-value="${value}"]`); break;
       case 'take': this.takeOffer(this.offered, this.replace); break;
-      case 'decline': this.takeOffer(null, null); break;
+      case 'decline': case 'daily-decline': this.takeOffer(null, null); break;
+      case 'daily-replace': this.takeOffer(0, value); break;
       case 'shop-card':
         this.shopPick = value;
         this.shopReplace = null;
@@ -203,6 +210,8 @@ class TerminalApp {
     this.seed = seed;
     this.run = new TradingRun(this.config, { playerId: this.selectedCharacter, seed, difficulty: this.difficulty });
     this.personal = false;
+    this.presentedDay = 1;
+    this.dayTransition.close();
     this.lastCrisis = null;
     this.shopsVisited = 0;
     this.theaterDay = 0;
@@ -236,6 +245,7 @@ class TerminalApp {
     const action = run.player.account.eliminated ? null : { item: this.selection.item, allocation: this.selection.allocation ?? run.player.allocation };
     this.audio.unlock();
     if (!run.confirm(action)) return;
+    this.dayTransition.close();
     this.clearSelection();
     if (this.reduced) this.afterTrade();
     else this.animateTrade();
@@ -272,6 +282,7 @@ class TerminalApp {
     const steps = settled ? buildTheater(run, settled, this.theater, this.theaterMode) : [];
     if (report && outcome && !steps.length) this.playSound(report, outcome);
     if (!steps.length && !this.reduced && report?.market && !run.closed) void this.playMarketEffect(report);
+    this.announce(run.closed ? '本局正式收盤。' : `第 ${report?.day ?? run.day} 日收盤。${outcome ? `你今天 ${signedMoney(outcome.close - outcome.start)}。` : ''}`);
     const next = () => {
       if (run.pendingRecovery && this.lastCrisis) this.openDialog('recovery');
       else if (outcome && !outcome.recovery && outcome.risk.insolvent) this.openDialog('crisis');
@@ -281,7 +292,6 @@ class TerminalApp {
       this.theaterDay = settled.day;
       void this.playTheater(steps, settled).then(next);
     } else next();
-    this.announce(run.closed ? '本局正式收盤。' : `第 ${run.day} 個交易日。${outcome ? `你昨天 ${signedMoney(outcome.close - outcome.start)}。` : ''}`);
     if (run.closed) window.scrollTo(0, 0);
   }
 
@@ -352,14 +362,33 @@ class TerminalApp {
       this.openDialog('shop');
       return;
     }
-    if (!this.run?.offer || this.dialog.open) return;
+    if (this.dialog.open) return;
+    if (!this.run?.offer || this.run.offer.source === 'daily') {
+      this.presentMorning();
+      return;
+    }
     this.offered = this.run.offer.cards.length === 1 ? 0 : null;
     this.replace = null;
     this.openDialog('offer');
   }
 
+  private presentMorning() {
+    const run = this.run;
+    if (!run || run.closed || run.day === this.presentedDay) return;
+    this.presentedDay = run.day;
+    if (!this.reduced) this.dayTransition.play(run.day);
+    const card = run.playerOpeningItem;
+    if (card) {
+      if (!this.reduced) this.screen.querySelector('[data-morning-item]')?.classList.add('morning-arrival');
+      this.audio.play('page');
+    }
+    this.announce(`第 ${run.day} 個交易日開始。${card ? `今天抽到 ${card.name}。` : ''}`);
+  }
+
   private takeOffer(card: number | null, replace: number | null) {
+    const daily = this.run?.offer?.source === 'daily';
     if (!this.run?.chooseOffer(card, replace)) return;
+    if (daily) this.selection.item = null;
     this.closeDialog(false);
     this.render('[data-act="trade"]');
     this.showOffer();

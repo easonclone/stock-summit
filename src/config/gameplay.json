@@ -2,10 +2,15 @@
   "turns": 15,
   "eventEvery": 3,
   "jokerSlots": 5,
-  "itemSlots": 3,
-  "startItems": 1,
+  "itemSlots": 4,
+  "startItems": 3,
+  "openingItems": {
+    "income": ["gift", "trend", "dividend"],
+    "defense": ["guard", "bell", "escape"],
+    "other": ["tip", "pack", "double", "reverse"]
+  },
+  "dailyItemStart": 2,
   "jokerChoices": 3,
   "stageDays": [3, 6, 9, 12],
-  "stageItems": 1,
   "rarity": { "common": 65, "rare": 30, "legendary": 5 }
 }

@@ -40,7 +40,7 @@ export interface Investor extends Holder {
   purchases: Purchase[];
 }
 
-export type OfferSource = 'opening' | 'stage' | 'pack' | 'gift' | 'news' | 'event';
+export type OfferSource = 'opening' | 'stage' | 'pack' | 'daily' | 'news' | 'event';
 /** Cards waiting for the player: pick one of `cards` (jokers or items), replacing one when full, or skip. */
 export interface Offer { kind: 'joker' | 'item'; source: OfferSource; cards: GameCard[] }
 
@@ -65,7 +65,7 @@ export interface DayOutcome {
   attacked: string | null;
   /** The item was kept because the target had already been hit today. */
   attackBlocked: boolean;
-  /** Cards that arrived automatically after the close (events, 消息靈通, stage items). */
+  /** Cards that arrived automatically after the close (events and 消息靈通). */
   received: GameCard[];
   /** Holdings just before the market moved. Record only; lets the presentation explain who was exposed. */
   exposure: { stock: number; cash: number };
@@ -84,6 +84,7 @@ export class TradingRun {
   readonly player: Investor;
   readonly reports: DayReport[] = [];
   day = 1;
+  playerOpeningItem: GameCard | null = null;
   closed = false;
   pendingRecovery: DayReport | null = null;
   latestNews: { day: number; event: TradingEvent } | null = null;
@@ -115,7 +116,7 @@ export class TradingRun {
       this.jokerRandom.set(investor, seededRandom(localSeed(options.seed, `${investor.character.id} jokers`)));
       this.itemRandom.set(investor, seededRandom(localSeed(options.seed, `${investor.character.id} items`)));
       this.shopRandom.set(investor, seededRandom(localSeed(options.seed, `${investor.character.id} shop`)));
-      for (let count = 0; count < config.gameplay.startItems; count++) investor.items.push(this.drawItem(investor));
+      this.dealOpeningItems(investor);
       this.offerJokers(investor, 'opening');
     }
   }
@@ -174,6 +175,7 @@ export class TradingRun {
     if (!offer || (index !== null && !offer.cards[index])) return false;
     if (index !== null && !this.store(this.player, offer.kind, offer.cards[index], replace)) return false;
     this.offers.shift();
+    this.openNextDay();
     return true;
   }
 
@@ -200,6 +202,7 @@ export class TradingRun {
   leaveShop() {
     if (!this.shop) return false;
     this.shop = null;
+    this.openNextDay();
     return true;
   }
 
@@ -208,6 +211,10 @@ export class TradingRun {
     if (!this.shop) return false;
     for (const pick of planShop(this.shop, this.player, this.config, this.shop.day)) if (!this.buy(pick.index, pick.replace)) break;
     return this.leaveShop();
+  }
+
+  get nextShopDay() {
+    return this.config.gameplay.stageDays.find(day => day >= this.day && this.shopOpensAfter(day)) ?? null;
   }
 
   shopOpensAfter(day: number) {
@@ -383,14 +390,26 @@ export class TradingRun {
     }
     if (this.config.gameplay.stageDays.includes(this.day)) {
       for (const investor of this.investors.filter(item => !item.account.eliminated)) {
-        for (let count = 0; count < this.config.gameplay.stageItems; count++) {
-          report.outcomes.find(outcome => outcome.investor === investor)?.received.push(...this.giveItem(investor, 'gift'));
-        }
         if (this.shopOpensAfter(this.day)) this.openShop(investor);
         else this.offerJokers(investor, 'stage');
       }
     }
+    this.openNextDay();
+  }
+
+  /** 收盤獎勵與商店都處理完，才開盤並發今天的免費道具。 */
+  private openNextDay() {
+    if (this.closed || this.shop || this.offers.length || this.reports.at(-1)?.day !== this.day) return;
     this.day += 1;
+    this.playerOpeningItem = null;
+    const start = this.config.gameplay.dailyItemStart;
+    if (start === null || this.day < start) return;
+    for (const investor of this.investors) {
+      if (investor.account.eliminated) continue;
+      const card = this.drawItem(investor);
+      if (investor === this.player) this.playerOpeningItem = card;
+      this.giveItem(investor, 'daily', card);
+    }
   }
 
   /** Stocks one investor's shelves; the player browses theirs, a computer buys at once with the same prices. */
@@ -444,6 +463,16 @@ export class TradingRun {
     return weighted(pool.filter(card => card.rarity === chosen), random);
   }
 
+  private dealOpeningItems(investor: Investor) {
+    const { startItems, openingItems } = this.config.gameplay;
+    const random = this.itemRandom.get(investor)!;
+    const pools = [openingItems.income, openingItems.defense, Object.values(openingItems).flat()];
+    for (const ids of pools.slice(0, startItems)) {
+      const eligible = this.config.items.filter(card => ids.includes(card.id) && !investor.items.includes(card));
+      investor.items.push(this.pick(eligible, random));
+    }
+  }
+
   private drawItem(investor: Investor) {
     return this.pick(this.config.items, this.itemRandom.get(investor)!);
   }
@@ -471,8 +500,7 @@ export class TradingRun {
   }
 
   /** A free item: stored at once when there is room, otherwise the holder decides what to drop. */
-  private giveItem(investor: Investor, source: OfferSource) {
-    const card = this.drawItem(investor);
+  private giveItem(investor: Investor, source: OfferSource, card = this.drawItem(investor)) {
     if (investor.items.length < this.config.gameplay.itemSlots) {
       investor.items.push(card);
       return [card];

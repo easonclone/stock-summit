@@ -216,10 +216,23 @@ function itemMarkup(run: TradingRun, allocation: string, slot: number | null) {
   const selected = slot === null ? null : run.player.items[slot];
   return `<section class="item-section" aria-label="今天要不要用道具？">
     <div class="section-head"><h2>② 要不要用道具？</h2><span>最多 1 張 · 可以不用</span></div>
-    <div class="item-row">${[...cards, ...empty].join('')}</div>
+    ${morningItemMarkup(run)}
+    <div class="item-row" style="--item-slots:${itemSlots}">${[...cards, ...empty].join('')}</div>
     ${selected ? `<p class="item-note" data-item-status aria-live="polite"><strong>${escapeHtml(selected.name)}</strong>${selectedNote(run, allocation, slot!)}
       <button type="button" class="text-button" data-act="card-detail" data-kind="item" data-value="${slot}">完整說明</button></p>` : ''}
   </section>`;
+}
+
+function morningItemMarkup(run: TradingRun) {
+  const card = run.playerOpeningItem;
+  if (!card) return '';
+  const full = run.offer?.source === 'daily';
+  return `<div class="morning-item" data-morning-item>
+    <p><strong>今日抽到 ${escapeHtml(card.name)}</strong> · ${escapeHtml(card.line)}</p>
+    ${full ? `<details open><summary>道具已滿，選一張換掉，或放棄新道具</summary><div class="morning-choices">
+      ${run.player.items.map((owned, index) => `<button type="button" data-act="daily-replace" data-value="${index}" aria-label="換掉第 ${index + 1} 張：${escapeHtml(owned.name)}">換掉 ${escapeHtml(owned.name)}</button>`).join('')}
+      <button type="button" data-act="daily-decline">放棄新道具</button></div></details>` : ''}
+  </div>`;
 }
 
 /** What the selected item does today, from the same preview the confirmation uses. */
@@ -290,11 +303,11 @@ export function newsMarkup(run: TradingRun) {
 }
 
 const offerTitle: Record<string, string> = {
-  opening: '開局選一張王牌', stage: '選一張王牌', pack: '神秘卡包・三選一', gift: '拿到一張道具', news: '消息靈通・拿到一張道具', event: '拿到一張道具'
+  opening: '開局選一張王牌', stage: '選一張王牌', pack: '神秘卡包・三選一', daily: '今日免費道具', news: '消息靈通・拿到一張道具', event: '拿到一張道具'
 };
 
 export function offerHeading(run: TradingRun) {
-  return offerTitle[run.offer?.source ?? 'gift'];
+  return offerTitle[run.offer?.source ?? 'event'];
 }
 
 export function offerMarkup(run: TradingRun, offered: number | null, replace: number | null) {
@@ -361,16 +374,19 @@ export function tradingMarkup(run: TradingRun, ui: TerminalSelection, coach: str
   const eliminated = run.player.account.eliminated;
   const preview = eliminated ? null : run.preview(allocation, item);
   const choosing = ui.allocation !== null || item !== null;
+  const shop = run.nextShopDay;
+  const shopNotice = shop === null ? '本局商店已結束' : shop !== run.day ? `下次商店：第 ${shop} 日收盤後`
+    : `${run.eventToday() ? '今天有市場新聞 · ' : ''}收盤後商店開門`;
   return `<main class="trading" id="market" aria-label="交易畫面">
     <div class="play-layout">
       <div class="stage-column">${arenaMarkup(run, choosing, animate)}${heroMarkup(run)}${resultMarkup(run, animate)}</div>
-      <div class="decision-column">${coach}
+      <div class="decision-column"><p class="shop-notice" data-shop-notice>${shopNotice}</p>${coach}
         ${eliminated ? '<section class="panel spectator"><h2>本席已出局</h2><p>其他投資人會繼續結算。</p><button type="button" data-act="personal">查看個人結算</button></section>' :
       `${allocationMarkup(run, allocation, item)}${itemMarkup(run, allocation, item)}${jokerMarkup(run, animate)}`}
       </div>
     </div></main>
     <div class="trade-dock"><div class="dock-inner"><div class="dock-caption"><span>${eliminated ? '觀戰模式' : `第 ${run.day} / ${run.config.gameplay.turns} 日`}${item !== null && !eliminated ? ` · ${escapeHtml(run.player.items[item].name)}` : ''}</span>
       <strong>${eliminated ? '其餘席位繼續' : escapeHtml(allocationOption(run.config, allocation).name)}</strong></div>
-      <button type="button" class="gold-button" data-act="trade" ${!eliminated && item !== null && preview?.itemBlock ? 'disabled' : ''}>
+      <button type="button" class="gold-button" data-act="trade" ${run.offer?.source === 'daily' || (!eliminated && item !== null && preview?.itemBlock) ? 'disabled' : ''}>
       ${eliminated ? '看下一個交易日' : run.day === run.config.gameplay.turns ? '開始交易・收盤' : '開始交易'} <span aria-hidden="true">→</span></button></div></div>`;
 }

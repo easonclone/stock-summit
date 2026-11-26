@@ -37,7 +37,7 @@ export function timelineMarkup(run: TradingRun) {
     const day = index + 1;
     const { news, shop, final, completed, current } = dayInfo(run, day);
     const kind = final ? 'final' : shop ? 'shop' : news ? 'news' : 'plain';
-    return `<span class="track-day ${completed ? 'done' : current ? 'now' : 'ahead'} node-${kind} ${next?.day === day ? 'next' : ''}">
+    return `<span class="track-day ${completed ? 'done' : current ? 'now' : 'ahead'} node-${kind} ${next?.day === day ? 'next' : ''}" ${news ? 'data-news' : ''} ${shop ? 'data-shop' : ''} ${final ? 'data-final' : ''}>
       <span class="track-mark">${marks(news, shop, final)}</span><i></i></span>`;
   }).join('');
   return `<button type="button" class="day-track" data-act="schedule" aria-haspopup="dialog" style="--days:${turns}"

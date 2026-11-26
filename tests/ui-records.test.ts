@@ -39,7 +39,7 @@ describe('畫面取自實際結算紀錄', () => {
 
   it('時間軸取用實際日程，未公開新聞僅顯示預定公布時間', () => {
     const run = new TradingRun(config, { seed: 13, playerId: config.characters[0].id, difficulty: 'normal' });
-    expect(timelineMarkup(run).match(/class="timeline-day/g)).toHaveLength(config.gameplay.turns);
+    expect(timelineMarkup(run).match(/class="track-day/g)).toHaveLength(config.gameplay.turns);
     expect(timelineMarkup(run).match(/data-news/g)).toHaveLength(5);
     expect(timelineMarkup(run).match(/data-shop/g)).toHaveLength(4);
     expect(timelineDetail(run, 15)).toContain('最終決戰');

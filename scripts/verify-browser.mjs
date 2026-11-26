@@ -299,7 +299,6 @@ try {
       assert(await has('dialog[open] .daily-shelves'), '看完商品可回到商店');
       await action('close-dialog');
     }
-    assert(!(await has('[data-morning-item]')), '第 1 日不額外抽牌');
     assert.equal(await js('document.querySelectorAll(".timeline-day").length'), 15);
     assert.equal(await js('document.querySelectorAll(".timeline-day[data-shop]").length'), 4);
     const actionCard = on('item') + '[data-timing="action"]';
@@ -341,7 +340,7 @@ try {
     }
     await clearDialogs();
     assert.match(await js('document.querySelector(".session-counter strong").textContent'), /02/);
-    assert.match(await js('document.querySelector("[data-morning-item]").textContent'), /今日抽到/);
+    assert(!(await has('[data-morning-item]')), '戰場不再常駐「今日抽到」區塊');
     assert.equal(await js('document.querySelector(".battle-market-board canvas").dataset.marketRates.split(",").filter(Boolean).length'), 1, '開盤只繪製已結算的一根 K 棒');
     await action('audit');
     assert(!(await has('.day-transition')), '開盤後可直接查看走勢');

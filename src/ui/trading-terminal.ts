@@ -323,8 +323,7 @@ function itemMarkup(run: TradingRun, allocation: string, ui: TerminalSelection, 
   const selected = slot !== null ? slot : ui.inspectItem ?? null;
   const note = selected === null ? '' : hint || (slot !== null ? selectedNote(run, allocation, slot) : '');
   return `<section class="item-section battle-hand card-tray" aria-label="卡牌：左側王牌，右側道具 ${run.player.items.length} / ${run.itemLimit}">
-    ${morningItemMarkup(run)}
-    <div class="tray-row ${jokers ? 'has-jokers' : ''} ${cards.length ? '' : 'no-items'}">${jokers}<div class="item-row" data-hand-day="${run.day}" role="group" aria-label="道具 ${run.player.items.length} / ${run.itemLimit}">${cards.join('')}</div></div>
+    <div class="tray-row ${jokers ? 'has-jokers' : ''}">${jokers}<div class="item-row" data-hand-day="${run.day}" role="group" aria-label="道具 ${run.player.items.length} / ${run.itemLimit}">${cards.join('')}</div></div>
     ${note ? `<p class="item-note" data-item-status aria-live="polite">${note}</p>` : ''}
   </section>`;
 }
@@ -337,18 +336,6 @@ function sacrificeNote(run: TradingRun, slot: number) {
   const cost = sacrificeCost(run.player, run.day, draw, run.player.account.investmentValue, run.eventRules);
   const refund = sacrificeRefund(run.config, run.player, cost, run.eventRules);
   return cost ? `自己扣 ${money(cost)}${refund ? ' 返 ' + money(refund) : ''}` : '';
-}
-
-function morningItemMarkup(run: TradingRun) {
-  const card = run.playerOpeningItem;
-  if (!card) return '';
-  const full = run.offer?.source === 'daily';
-  return `<div class="morning-item" data-morning-item>
-    <p><strong>今日抽到 ${escapeHtml(card.name)}</strong></p>
-    ${full ? `<details open><summary>道具已滿，選一張換掉，或放棄新道具</summary><div class="morning-choices">
-      ${run.player.items.map((owned, index) => `<button type="button" data-act="daily-replace" data-value="${index}" aria-label="換掉第 ${index + 1} 張：${escapeHtml(owned.name)}">換掉 ${escapeHtml(owned.name)}</button>`).join('')}
-      <button type="button" data-act="daily-decline">放棄新道具</button></div></details>` : ''}
-  </div>`;
 }
 
 /** What the selected item does today, from the same preview the confirmation uses. */

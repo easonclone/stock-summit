@@ -341,10 +341,8 @@ body { background:#0b111b; }
 }
 .hand-slot.is-up .card-info { transform:translateY(-11px); }
 .card-info::after { content:''; position:absolute; inset:-7px; }
-/* 沒有道具時，王牌改成橫向一排，不留空白道具區。 */
-.card-tray .tray-row.no-items { grid-template-columns:minmax(0,1fr); }
-.card-tray .tray-row.no-items .item-row { display:none; }
-.card-tray .tray-row.no-items .tray-jokers { grid-template-rows:none; grid-auto-flow:column; justify-content:start; margin-top:12px; }
+/* 手牌用完時保留同樣高度，王牌與整個卡牌列位置不變。 */
+.card-tray .item-row { min-height:calc(var(--hand-card-width) * 1.5 + 69px); }
 
 /* 對局中的頂部導覽：DAY 標題、15 段像素進度條、說明與設定同一排，整體不超過 60px。 */
 .masthead.run-bar { min-height:0; height:auto; max-height:60px; display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center;

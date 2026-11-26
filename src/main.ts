@@ -536,11 +536,13 @@ class TerminalApp {
       return;
     }
     if (this.dialog.open) return;
-    if (!this.run?.offer || this.run.offer.source === 'daily') {
+    if (!this.run?.offer) {
       this.presentMorning();
       this.showOpeningShop();
       return;
     }
+    // A full hand on the daily draw is decided in the same pick window as every other offer, not in a block on the board.
+    if (this.run.offer.source === 'daily') this.presentMorning();
     this.offered = this.run.offer.cards.length === 1 ? 0 : null;
     this.replace = null;
     this.openDialog('offer');
@@ -554,10 +556,7 @@ class TerminalApp {
       this.dayTransition.play(run.day, Math.max(0, this.showUntil - performance.now()), () => this.showOpeningShop());
     }
     const card = run.playerOpeningItem;
-    if (card) {
-      if (!this.reduced) this.screen.querySelector('[data-morning-item]')?.classList.add('morning-arrival');
-      this.audio.play('page');
-    }
+    if (card) this.audio.play('page');
     this.announce(`第 ${run.day} 個交易日開始。${card ? `今天抽到 ${card.name}。` : ''}`);
   }
 
